@@ -184,7 +184,8 @@ G.paras = (text, max) => { const out = []; let n = 0; for (const l of String(tex
 G.isCta = b => b.role === 'cta' || b.role === 'subscribe' || (() => { const t = G.tpl(b.tpl); return !!(t && t.roles && t.roles.includes('cta')); })();
 
 /* ---------- иконки: выбор из каталога и автоподбор по словам блока ---------- */
-G.icons = () => BUILT.icons; /* только каталог из репозитория: свои SVG не загружаются */
+/* иконки — только из каталога репозитория; свои у пользователя только слова для поиска (теги) */
+G.icons = () => BUILT.icons.map(b => { const l = G.lib.get('icons', b.id); return l && l._local ? {...b, tags: l.tags} : b; });
 const stem = w => w.toLowerCase().replace(/ё/g, 'е').slice(0, 5);
 const words = s => String(s || '').toLowerCase().split(/[^а-яёa-z0-9]+/i).filter(w => w.length >= 3).map(stem);
 G.iconMatch = (text, n = 12) => {

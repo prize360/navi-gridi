@@ -27,7 +27,7 @@ G.views.library = v => {
   }
   const q = (S.libQ || '').toLowerCase();
   const items = G.lib.all(kind).filter(o => visible(kind, o));
-  const shown = items.filter(o => !q || (o.name + ' ' + (o.description || '') + ' ' + (o.type || '')).toLowerCase().includes(q));
+  const shown = items.filter(o => !q || (o.name + ' ' + (o.description || '') + ' ' + (o.type || '') + ' ' + (o.tags || '')).toLowerCase().includes(q));
   const groups = {};
   shown.forEach(o => { const g = kind === 'icons' ? 'Иконки' : kind === 'templates' ? (o.component ? 'Компоненты сайта' : o.status.prod ? 'В админке' : 'Нужен дизайн') : kind === 'prompts' ? 'Свои промты' : (o.kind === 'article' ? 'Статьи' : 'Лендинги'); (groups[g] = groups[g] || []).push(o); });
   const order = ['В админке', 'Компоненты сайта', 'Нужен дизайн', 'Лендинги', 'Статьи', 'Свои промты', 'Иконки'];
@@ -48,7 +48,7 @@ G.views.library = v => {
 
 /* общая шапка редактора */
 const editHead = (kind, o, isNew, title) => `<div class="edit-h"><div class="head grow"><p class="eye">${e(G.KINDS[kind])}${!isNew && o._local ? ' · ' + (o._local === 'new' ? 'создан в этом браузере' : 'изменён в этом браузере') : ''}</p><h1 class="h1">${e(title)}</h1></div>
-  <div class="row" style="gap:6px">${!isNew ? `<button class="btn sm ghost" data-ed="dup">Дублировать</button>` : ''}${!isNew && o._local === 'changed' ? `<button class="btn sm ghost" data-ed="revert">Вернуть исходный</button>` : ''}${!isNew ? `<button class="btn sm ghost danger" data-ed="del">Удалить</button>` : ''}</div></div>`;
+  <div class="row" style="gap:6px">${!isNew && kind !== 'icons' ? `<button class="btn sm ghost" data-ed="dup">Дублировать</button>` : ''}${!isNew && o._local === 'changed' ? `<button class="btn sm ghost" data-ed="revert">${kind === 'icons' ? 'Вернуть исходные слова' : 'Вернуть исходный'}</button>` : ''}${!isNew && kind !== 'icons' ? `<button class="btn sm ghost danger" data-ed="del">Удалить</button>` : ''}</div></div>`;
 const bindHead = (box, kind, getObj, isNew) => {
   const save = () => { const o = getObj(); if (!o) return; G.lib.save(kind, o); S.dirty = false; S.toast(`«${o.name}» сохранён в этом браузере`); S.go(`#/lib/${kind}`); };
   S.cta({label: 'Сохранить', run: save});
@@ -175,8 +175,11 @@ EDIT.templates = (box, o) => o && o.component ? G.componentView(box, o) : G.ctor
 /* ---------- иконка: название и теги для автоподбора ---------- */
 EDIT.icons = (box, o) => {
   if (!o) { box.innerHTML = '<p class="lead">Иконки берутся только из каталога SDDS Icons.</p>'; return; }
-  box.innerHTML = `<div class="edit"><div class="edit-h"><div class="head grow"><p class="eye">Иконки</p><h1 class="h1">${e(o.name)}</h1></div></div>
-    <div class="card" style="display:flex;gap:20px;align-items:flex-start"><div class="icbig">${o.svg}</div><div class="grow"><p class="lbl">Слова для автоподбора</p><p style="margin:0">${e(o.tags || '—')}</p></div></div></div>`;
+  const base = G.icons().find(x => x.id === o.id) || o;
+  box.innerHTML = `<div class="edit">${editHead('icons', o, false, o.name)}
+    <div class="card" style="display:flex;gap:20px;align-items:flex-start"><div class="icbig">${base.svg}</div><div class="grow">
+      <div class="fld" style="margin:0"><label class="lbl" for="iTags">Слова для поиска и автоподбора</label><input class="in" id="iTags" value="${e(o.tags || '')}" placeholder="например: доставка курьер срок"><span class="hint">Допишите свои слова — по ним иконка найдётся в поиске и подберётся к пункту. Саму иконку изменить нельзя.</span></div></div></div></div>`;
+  bindHead(box, 'icons', () => ({id: o.id, name: o.name, tags: box.querySelector('#iTags').value.trim(), svg: base.svg}), false);
 };
 
 /* ---------- свой промт ---------- */
