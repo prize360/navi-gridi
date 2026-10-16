@@ -331,3 +331,40 @@ button.banner:hover{filter:brightness(.98)}
 .busy small{white-space:nowrap}.busy .slow{white-space:normal}
 .tplpick{cursor:pointer}.tplpick input{margin-right:10px}.tplpick[hidden]{display:none}
 .rolecard .nm{display:flex;align-items:center;gap:8px;min-width:0}.rolecard .nm .in{flex:1;min-width:0}.rolecard .lk{flex:none;color:var(--muted,#8a8f8b)}.rolecard.locked .in[readonly]{background:var(--soft);color:var(--muted,#6b6f6c)}
+/* ===== панель блока — общая для «Текста» и «Шаблонов» ===== */
+.bb{display:flex;align-items:center;gap:4px;min-height:40px}
+.bb .num{font:12px ui-monospace,Menlo,monospace;color:var(--mute);width:24px;flex:none}
+.bb-role{display:inline-flex;align-items:center;height:30px;max-width:220px;padding:0 12px;border:0;border-radius:15px;background:var(--soft);color:var(--ink);font:600 13px var(--ui);cursor:pointer;flex:none}
+.bb-role span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bb-role:hover{background:var(--hover)}
+.bb .summ{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--mute);font-size:13px;padding:0 8px}
+.bb .grow{flex:1}
+.bb-ic{width:32px;height:32px;flex:none;display:grid;place-items:center;border:0;border-radius:16px;background:none;color:var(--ink2);cursor:pointer}
+.bb-ic:hover{background:var(--soft);color:var(--ink)}
+.bb-ic:disabled{opacity:.3;cursor:default;background:none}
+.bb-ic svg{width:18px;height:18px}
+.bb-adapt{background:var(--cta-grad);color:var(--acc-ink)}
+.bb-adapt:hover{background:var(--cta-grad);filter:brightness(.96);color:var(--acc-ink)}
+.bb-tpl{position:relative}
+.bb-tpl::after{content:"";position:absolute;right:5px;top:5px;width:7px;height:7px;border-radius:50%;background:var(--line2);box-shadow:0 0 0 2px var(--surface)}
+.bb-tpl.t0::after{background:#34A853}.bb-tpl.t1::after,.bb-tpl.t2::after{background:#E0A800}.bb-tpl.t3::after,.bb-tpl.t4::after,.bb-tpl.tx::after{background:var(--err)}
+.bb-dd{display:inline-flex;align-items:center;gap:8px;height:30px;max-width:360px;min-width:0;padding:0 10px 0 12px;border:0;border-radius:15px;background:var(--soft);font:600 13px var(--ui);color:var(--ink);cursor:pointer}
+.bb-dd span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bb-dd .tier{font-weight:600;font-size:12px;color:var(--mute)}
+.bb-dd .tier.t0{color:#1E7A35}
+/* «Текст» — одно полотно: блоки разделены линией, поле растёт по тексту */
+.blocks{background:var(--surface);border-radius:var(--r2);box-shadow:inset 0 0 0 1px var(--line);overflow:hidden}
+.blocks .blk{background:none;box-shadow:none;border-radius:0;border-top:1px solid var(--line);padding:10px 20px 6px 16px}
+.blocks .blk:first-child{border-top:0}
+.blocks .blk.sel,.blocks .blk:focus-within{box-shadow:inset 3px 0 0 var(--acc)}
+.blocks .blk .bb{opacity:.55;transition:opacity .15s}
+.blocks .blk:hover .bb,.blocks .blk.sel .bb,.blocks .blk:focus-within .bb{opacity:1}
+.blocks .blk-text{width:100%;margin:2px 0 8px;padding:6px 0 6px 28px;box-shadow:none;border-radius:0;font:17px/1.6 var(--ui);min-height:34px}
+.blocks .blk-text:focus{box-shadow:none}
+.roles{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 4px}
+/* «Шаблоны» — та же панель над выбранным блоком */
+.bb-float{position:absolute;top:-24px;right:24px;z-index:5;background:var(--surface);border-radius:24px;padding:4px 6px 4px 10px;box-shadow:0 0 0 1px var(--line),0 10px 30px rgba(0,0,0,.14);max-width:calc(100% - 48px)}
+.bb-float .bb{min-height:36px}
+.pmenu{margin-left:2px}
+@media (max-width:720px){.bb .summ{display:none}.bb-role{max-width:140px}.bb-float{left:8px;right:8px;max-width:none;overflow-x:auto}}
+.head .roles,.head .stats{margin-top:14px}

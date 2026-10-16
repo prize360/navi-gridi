@@ -26,34 +26,54 @@ const PH = {
   vrez: 'Врез: цифра, цитата, карточки или картинка\n- Пункт — пояснение\n[картинка] Подпись',
   _: '[h2] Заголовок блока\nТекст\n- Пункт — пояснение',
 };
+/* панель блока — одна для «Текста» и «Шаблонов»: роль · (кратко) · шаблон · адаптация · выше/ниже · ещё */
+const moveBlock = (b, d) => { const p = S.page, i = p.blocks.indexOf(b), j = i + d; if (j < 0 || j >= p.blocks.length || b.role === 'hero' || p.blocks[j].role === 'hero') return false; p.blocks.splice(i, 1); p.blocks.splice(j, 0, b); changed(); return true; };
+const bbar = (b, i, mode) => {
+  const p = S.page, sc = G.scenario(p.scenario), t = G.tpl(b.tpl), r = t ? G.score(b, t, p) : null, n = p.blocks.length, tier = r ? (r.tier || 0) : 4, rn = G.roleOf(sc, b.role).name.split(':')[0];
+  const hero = b.role === 'hero', upOk = i > 0 && !hero && p.blocks[i - 1].role !== 'hero', dnOk = i < n - 1 && !hero;
+  const tplB = mode === 'text'
+    ? `<button class="bb-ic" data-act="totpl" data-tip="К шаблону: ${t ? e(t.name) : 'не выбран'}" aria-label="К шаблону блока">${G.icon.grid}</button>`
+    : `<button class="bb-dd" data-act="pick"><span>${t ? e(t.name) : 'Выбрать шаблон'}</span>${r ? `<b class="tier t${tier}">${G.TIERS[tier].toLowerCase()}</b>` : ''}</button>`;
+  return `<div class="bb" role="toolbar" aria-label="Блок ${i + 1}"><span class="num">${String(i + 1).padStart(2, '0')}</span>
+    ${mode === 'text' ? `<button class="bb-role" data-act="role" title="${e(G.roleOf(sc, b.role).name)}"><span>${e(rn)}</span></button><span class="summ" data-summ>${e(G.blockSummary(b))}</span>` : `${tplB}<span class="grow"></span>`}
+    <button class="bb-ic bb-adapt" data-act="adapt" data-tip="Адаптировать текст" aria-label="Адаптировать текст">${G.icon.spark}</button>
+    ${mode === 'text' ? tplB : `<button class="bb-ic" data-act="totext" data-tip="К тексту блока" aria-label="К тексту блока">${G.icon.aa}</button>`}
+    <button class="bb-ic" data-act="up" aria-label="Выше" ${upOk ? '' : 'disabled'}>${G.icon.chevU}</button><button class="bb-ic" data-act="down" aria-label="Ниже" ${dnOk ? '' : 'disabled'}>${G.icon.chevD}</button>
+    <button class="bb-ic" data-act="more" aria-label="Ещё">${G.icon.more}</button></div>`;
+};
+const roleMenu = (a, b, after) => { const p = S.page, sc = G.scenario(p.scenario); S.menu(a, [...sc.roles.filter(r => !(sc.kind === 'article' && r.id === 'hero')), ...(sc.roles.some(r => r.id === 'cta') ? [] : [G.roleOf(sc, 'cta')])].map(r => ({label: r.name, checked: r.id === b.role, run: () => { b.role = r.id; if (!b.tplLock) b.tpl = null; G.autoPick(p); changed(); after(); }}))); };
+/* настройки страницы — у названия в шапке: сценарий, разметка, исходный текст */
+S.pageMenu = anchor => { const p = S.page;
+  S.menu(anchor, [{head: 'Страница'},
+    {label: 'Исходный текст', note: 'Текст автора целиком — заново разобрать по сценарию', run: () => { S.showSource = true; S.go(`#/p/${p.id}/text`); S.render(); }},
+    {label: 'Подсказка по разметке', note: '[h2], пункты, кнопки, картинки, ссылки', run: () => legend()},
+    {head: `Сценарий: ${G.scenario(p.scenario).name}`},
+    ...G.lib.all('scenarios').filter(x => x.id !== p.scenario).map(x => ({label: 'Пересобрать в «' + x.name + '»', note: 'Новая страница-копия', run: () => convertTo(x)}))]); };
 G.views.text = v => {
   const p = S.page, sc = G.scenario(p.scenario), art = sc.kind === 'article';
   if (!p.blocks.length || S.showSource) return sourceView(v);
   const state = b => { if (!G.tpl(b.tpl)) return ''; if (G.stale(b)) return `<div class="state"><span class="chip">текст правили после адаптации — шаблон заполнен из него</span></div>`; if (b.values && b.valuesBy && b.valuesBy !== 'hand') return `<div class="state"><span class="chip ok">адаптирован: ${e((G.prompt(b.valuesBy) || {name: b.valuesBy}).name)}</span></div>`; return ''; };
   const blk = (b, i) => `<article class="blk ${S.sel === b.id ? 'sel' : ''}" data-id="${b.id}" id="blk-${b.id}">
-      <div class="seam"><span class="num">${String(i + 1).padStart(2, '0')}</span><button class="dd ${b.role === 'vrez' ? 'vrez' : ''}" data-act="role" aria-label="Роль блока"><span>${e(G.roleOf(sc, b.role).name)}</span></button><span class="summ" data-summ>${e(G.blockSummary(b))}</span>${tplChip(b, p)}
-        <button class="ib sm gr-ghost" data-act="adapt" title="Адаптировать блок" aria-label="Адаптировать блок">${G.icon.spark}</button>
-        <button class="ib sm" data-act="more" title="Действия с блоком" aria-label="Действия с блоком">${G.icon.more}</button></div>
-      <textarea class="blk-text" data-act="text" rows="2" spellcheck="true" placeholder="${e(PH[b.role] || PH._)}" aria-label="${e(G.roleOf(sc, b.role).name)}">${e(b.text)}</textarea>
+      ${bbar(b, i, 'text')}
+      <textarea class="blk-text" data-act="text" rows="1" spellcheck="true" placeholder="${e(PH[b.role] || PH._)}" aria-label="${e(G.roleOf(sc, b.role).name)}">${e(b.text)}</textarea>
       ${(b.tips || []).length ? `<div class="tips">${b.tips.map(t => `<div class="tip">• ${e(t)}</div>`).join('')}</div>` : ''}
       ${state(b)}
     </article>`;
   const roleN = r => p.blocks.filter(b => b.role === r.id).length;
   const textLen = p.blocks.filter(b => b.role === 'content').reduce((a, b) => a + G.len(G.src(b).lead), 0), vrez = p.blocks.filter(b => b.role === 'vrez').length;
   v.innerHTML = `<div class="col">
-    <div class="head"><p class="eye">Текст · ${e(sc.name)}</p><h1 class="h1">${e(p.name)}</h1>
-      <p class="lead">Проверьте роли, порядок и смыслы. Текст блока правится в одном поле. Разделить блок — курсор в нужное место и Alt+Enter.</p></div>
-    ${hints('text')}
-    <div class="card sccard">
-      <div class="row"><button class="dd" id="scConv" title="Пересобрать текст под другой сценарий"><span>Сценарий: ${e(sc.name)}</span></button><span class="hint grow">Цель — ${e((sc.action || '').toLowerCase())}</span><button class="btn sm ghost" id="legend">Разметка</button><button class="btn sm ghost" id="toSource">${G.icon.file}Исходный текст</button></div>
-      ${art ? '' : `<div class="roles">${sc.roles.map(r => { const n = roleN(r); return `<button class="role ${n ? 'has' : 'miss'} ${r.req ? 'req' : ''}" data-role="${r.id}" title="${n ? 'Показать блок' : 'Добавить блок'}"><span class="dot"></span>${e(r.name.split(':')[0])}${n > 1 ? `<em>×${n}</em>` : n ? '' : ' +'}</button>`; }).join('')}</div>`}
-      ${art ? `<div class="stats"><span>Текст <b>${textLen.toLocaleString('ru-RU')} зн.</b></span><span>Врезы <b>${vrez}</b></span><span>Текста на врез <b>${vrez ? Math.round(textLen / vrez).toLocaleString('ru-RU') + ' зн.' : '—'}</b> · хорошо до ${((sc.rhythm && sc.rhythm.maxRun) || 1000).toLocaleString('ru-RU')}</span></div>` : ''}
-      ${(p.story || []).length ? `<ul class="story">${p.story.map(t => `<li>${e(t)}</li>`).join('')}</ul>` : ''}
+    <div class="head"><p class="eye">Текст · ${e(sc.name)}</p><div class="row" style="gap:8px;align-items:center"><h1 class="h1">${e(p.name)}</h1><button class="ib pmenu" id="pageMenu2" aria-label="Настройки страницы" data-tip="Сценарий, разметка, исходный текст" aria-haspopup="menu">${G.icon.sliders}</button></div>
+      <p class="lead">Проверьте роли, порядок и смыслы блоков. Разделить блок — курсор в нужное место и Alt+Enter. Дальше — «Шаблоны».</p>
+    ${art ? `<div class="stats"><span>Текст <b>${textLen.toLocaleString('ru-RU')} зн.</b></span><span>Врезы <b>${vrez}</b></span><span>Текста на врез <b>${vrez ? Math.round(textLen / vrez).toLocaleString('ru-RU') + ' зн.' : '—'}</b> · хорошо до ${((sc.rhythm && sc.rhythm.maxRun) || 1000).toLocaleString('ru-RU')}</span></div>`
+      : `<div class="roles">${sc.roles.map(r => { const n = roleN(r); return `<button class="role ${n ? 'has' : 'miss'} ${r.req ? 'req' : ''}" data-role="${r.id}" title="${n ? 'Показать блок' : 'Добавить блок'}"><span class="dot"></span>${e(r.name.split(':')[0])}${n > 1 ? `<em>×${n}</em>` : n ? '' : ' +'}</button>`; }).join('')}</div>`}
     </div>
+    ${hints('text')}
+    ${(p.story || []).length ? `<ul class="story">${p.story.map(t => `<li>${e(t)}</li>`).join('')}</ul>` : ''}
     <div class="blocks">${p.blocks.map(blk).join('')}</div>
   </div>`;
   v.querySelectorAll('.blk-text').forEach(ta => { autosize(ta); });
   bindText(v.querySelector('.col')); bindHints(v, 'text');
+  v.querySelector('#pageMenu2').onclick = ev => S.pageMenu(ev.currentTarget);
   S.cta({label: art ? 'Добавить врез или текст' : 'Добавить блок', icon: G.icon.plus, run: btn => insertMenu(btn, p.blocks.length)});
   if (S.sel) { const el = document.getElementById('blk-' + S.sel); if (el && S.scrollTo) { el.scrollIntoView({block: 'center'}); S.scrollTo = false; } }
 };
@@ -67,9 +87,7 @@ const insertMenu = (anchor, at) => {
 };
 const bindText = v => {
   const p = S.page;
-  const cv = v.querySelector('#scConv'); if (cv) cv.onclick = () => S.menu(cv, [{head: 'Пересобрать в другой сценарий'}, ...G.lib.all('scenarios').filter(x => x.id !== p.scenario).map(x => ({label: x.name, note: 'Новая страница-копия: модель перескажет текст под блоки сценария', run: () => convertTo(x)}))]);
-  v.querySelector('#toSource').onclick = () => { S.showSource = true; S.render(); };
-  v.querySelector('#legend').onclick = () => legend();
+  const cv = null; if (cv) cv.onclick = () => S.menu(cv, [{head: 'Пересобрать в другой сценарий'}, ...G.lib.all('scenarios').filter(x => x.id !== p.scenario).map(x => ({label: x.name, note: 'Новая страница-копия: модель перескажет текст под блоки сценария', run: () => convertTo(x)}))]);
   v.querySelectorAll('.role').forEach(btn => btn.onclick = () => {
     const id = btn.dataset.role, b = p.blocks.find(x => x.role === id);
     if (b) { S.sel = b.id; S.scrollTo = true; return S.render(); }
@@ -98,8 +116,9 @@ const bindText = v => {
     const act = a.dataset.act;
     if (act === 'ins') return insertMenu(a, +a.dataset.at);
     const b = blockOf(a); if (!b) return;
-    if (act === 'role') { const sc = G.scenario(p.scenario); S.menu(a, [...sc.roles, ...(sc.roles.some(r => r.id === 'cta') ? [] : [G.roleOf(sc, 'cta')])].map(r => ({label: r.name, checked: r.id === b.role, run: () => { b.role = r.id; if (!b.tplLock) b.tpl = null; G.autoPick(p); changed(); S.render(); }}))); }
-    if (act === 'tpl') { S.sel = b.id; S.scrollTo = true; S.go(`#/p/${p.id}/tpl`); }
+    if (act === 'role') roleMenu(a, b, () => S.render());
+    if (act === 'totpl') { S.sel = b.id; S.scrollTo = true; S.go(`#/p/${p.id}/tpl`); }
+    if (act === 'up' || act === 'down') { if (moveBlock(b, act === 'up' ? -1 : 1)) { S.sel = b.id; S.scrollTo = true; S.render(); } }
     if (act === 'adapt') S.adaptMenu(a, b.id);
     if (act === 'more') blockMenu(a, b);
   });
@@ -132,12 +151,8 @@ const blockMenu = (a, b) => {
   const p = S.page, i = p.blocks.indexOf(b), art = G.scenario(p.scenario).kind === 'article', ta = document.querySelector(`#blk-${b.id} textarea`);
   const move = d => { p.blocks.splice(i, 1); p.blocks.splice(i + d, 0, b); changed(); S.render(); };
   S.menu(a, [
-    {label: art ? 'Разделить врезом' : 'Разделить по курсору', note: 'Alt+Enter. Выделенный текст уйдёт в отдельный блок', run: () => splitAt(b, ta)},
-    ...(i < p.blocks.length - 1 ? [{label: 'Объединить со следующим', run: () => { const n = p.blocks[i + 1]; b.text = [b.text, n.text].filter(x => x.trim()).join('\n'); p.blocks.splice(i + 1, 1); b.values = null; G.autoPick(p); changed(); S.render(); }}] : []),
-    ...(i > 0 ? [{label: 'Выше', run: () => move(-1)}] : []),
-    ...(i < p.blocks.length - 1 ? [{label: 'Ниже', run: () => move(1)}] : []),
+    ...(ta ? [{label: art ? 'Разделить врезом' : 'Разделить по курсору', note: 'Alt+Enter. Выделенный текст уйдёт в отдельный блок', run: () => splitAt(b, ta)}] : []),
     ...(b.orig && b.orig !== b.text ? [{label: 'Вернуть текст автора', note: 'Как было до адаптации', run: () => { b.text = b.orig; delete b.orig; b.values = null; changed(); S.render(); }}] : []),
-    {label: 'Выбрать шаблон', run: () => { S.sel = b.id; S.scrollTo = true; S.go(`#/p/${p.id}/tpl`); }},
     '-',
     {label: 'Удалить блок', danger: true, run: () => { p.blocks.splice(i, 1); changed(); S.render(); }},
   ]);
@@ -282,7 +297,7 @@ const drawCanvas = () => {
   box.innerHTML = p.blocks.map((b, i) => {
     const t = G.tpl(b.tpl), r = t ? G.score(b, t, p) : null, missB = !t || (r.tier || 0) >= 2 || !G.isLive(t), sel = S.sel === b.id;
     const why = r ? tierNote(r) : 'шаблон не подобран';
-    const bar = sel ? `<div class="tbar" role="toolbar" aria-label="Блок ${i + 1}"><span class="tb-role">${e(G.roleOf(sc, b.role).name.split(':')[0])}</span><button class="tb-dd" data-act="pick"><span>${t ? e(t.name) : 'Выбрать шаблон'}</span>${r ? `<b class="tier t${r.tier || 0}">${G.TIERS[r.tier || 0].toLowerCase()}</b>` : ''}</button><button data-act="adapt">${G.icon.spark}Адаптировать</button><button data-act="totext" title="К тексту блока" aria-label="К тексту блока">${G.icon.file}</button></div>${why ? `<div class="tb-why ${r && r.bad.length ? 'bad' : ''}">${e(why)}</div>` : ''}` : '';
+    const bar = sel ? `<div class="bb-float">${bbar(b, i, 'tpl')}</div>${why ? `<div class="tb-why ${r && r.bad.length ? 'bad' : ''}">${e(why)}</div>` : ''}` : '';
     return `<div class="cb ${sel ? 'sel' : ''} ${missB ? 'miss' : ''}" data-id="${b.id}" id="tc-${b.id}" tabindex="0">${bar}<span class="cb-tag">${t ? e(t.name) : 'нет шаблона'}${t && !t.status.prod && !t.component ? ' · нужен дизайн' : ''}</span>${G.wireBlock(t, G.values(b, p), G.wireImgs(b, t))}</div>`;
   }).join('');
   window.scrollTo(0, y);
@@ -313,6 +328,9 @@ G.views.tpl = v => {
       if (a.dataset.act === 'adapt') S.adaptMenu(a, b.id);
       if (a.dataset.act === 'imgs') imagesModal(b, p);
       if (a.dataset.act === 'totext') { S.scrollTo = true; S.go(`#/p/${p.id}/text`); }
+      if (a.dataset.act === 'role') roleMenu(a, b, () => drawCanvas());
+      if (a.dataset.act === 'up' || a.dataset.act === 'down') { if (moveBlock(b, a.dataset.act === 'up' ? -1 : 1)) { drawCanvas(); const n = document.getElementById('tc-' + b.id); n && n.scrollIntoView({block: 'center'}); } }
+      if (a.dataset.act === 'more') blockMenu(a, b);
       return; }
     if (S.sel !== b.id) { S.sel = b.id; drawCanvas(); const n = document.getElementById('tc-' + b.id), top = n.getBoundingClientRect().top; const hb = document.getElementById('top').offsetHeight + 40; if (top < hb) window.scrollBy({top: top - hb}); return; }
     const im = ev.target.closest('[data-img]'); if (im) return imgPop(im, b, p);

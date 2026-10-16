@@ -15,6 +15,11 @@ G.icon = {
   book: I('<path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19V5"/>'),
   play: I('<path d="M7 5v14l11-7z"/>'),
   file: I('<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>'),
+  grid: I('<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>'),
+  aa: '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><text x="1" y="18" font-family="Onest,Inter,system-ui,sans-serif" font-size="15" font-weight="700" fill="currentColor">Aa</text></svg>',
+  chevU: I('<path d="M6 15l6-6 6 6"/>'),
+  chevD: I('<path d="M6 9l6 6 6-6"/>'),
+  sliders: I('<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>'),
   ext: I('<path d="M14 4h6v6M20 4l-9 9M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/>'),
 };
 
