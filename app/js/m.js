@@ -127,6 +127,16 @@ const manualAsk = (label, prompt) => new Promise((res, rej) => {
 });
 G.ui = {toast, busy, manualAsk};
 
+/* подтверждение на месте: первая нажатая кнопка меняет подпись, вторая — выполняет */
+const sure = (btn, label, run) => { if (btn.dataset.sure) return run(); btn.dataset.sure = 1; btn.textContent = label + ' — нажмите ещё раз'; setTimeout(() => { if (btn.isConnected) { delete btn.dataset.sure; } }, 4000); };
+/* вопросы промта (например, тон или тема интеграции) — шторкой */
+const askVals = pr => new Promise(res => {
+  const s = sheet(`<div class="sh-h"><h2>${e(pr.name)}</h2><button class="ib" data-close aria-label="Закрыть">${I.x}</button></div>
+    <div class="sh-b">${pr.ask.map(a => `<label class="lbl" for="ask-${e(a.k)}">${e(a.label)}</label><textarea class="ta" rows="3" id="ask-${e(a.k)}" placeholder="${e(a.placeholder || '')}"></textarea>`).join('')}</div>
+    <div class="sh-f"><button class="pill pri wide" id="askOk">Запустить</button></div>`, {onClose: () => res(null)});
+  s.$('#askOk').onclick = () => { const o = {}; pr.ask.forEach(a => o[a.k] = s.$('#ask-' + CSS.escape(a.k)).value.trim()); s.close(true); res(o); };
+});
+
 /* ---------- экраны ---------- */
 const render = () => { A.view === 'home' ? home() : editor(); };
 const go = async (view, id) => {
@@ -150,7 +160,7 @@ const home = async () => {
     const p = list.find(x => x.id === c.dataset.more);
     const s = sheet(`<div class="sh-h"><h2>${e(p.name)}</h2></div><div class="sh-b list"><button class="row" id="rDup">Дублировать</button><button class="row danger" id="rDel">Удалить</button></div>`);
     s.$('#rDup').onclick = async () => { const n = {...G.clone(p), id: G.uid('p'), name: p.name + ' (копия)'}; await G.store.put(n); s.close(); home(); };
-    s.$('#rDel').onclick = async () => { if (!confirm('Удалить страницу «' + p.name + '»?')) return; await G.store.del(p.id); s.close(); home(); };
+    s.$('#rDel').onclick = () => sure(s.$('#rDel'), 'Удалить навсегда', async () => { await G.store.del(p.id); s.close(); home(); });
   });
   $app.querySelector('#hNew').onclick = async () => { const s0 = G.lib.all('scenarios').find(x => x.kind === 'article') || G.lib.all('scenarios')[0]; const p = G.newPage('Без названия', s0.id, ''); await G.store.put(p); go('edit', p.id); };
   $app.querySelector('#hMenu').onclick = settings;
@@ -330,7 +340,7 @@ const blockMenu = id => {
     <div class="list">${i > 0 ? '<button class="row" id="bmUp">Объединить с блоком выше</button>' : ''}<button class="row danger" id="bmDel">Удалить блок</button></div></div>`);
   s.$$('#bmR .chip').forEach(c => c.onclick = () => { b.role = c.dataset.r; b.tplLock = false; repick(b); save(); s.close(); render(); });
   const up = s.$('#bmUp'); if (up) up.onclick = () => { const pr = p.blocks[i - 1]; pr.text = [pr.text, b.text].filter(Boolean).join('\n'); pr.tplLock = false; p.blocks.splice(i, 1); repick(pr); save(); s.close(); render(); };
-  s.$('#bmDel').onclick = () => { if (b.text.trim() && !confirm('Удалить блок вместе с текстом?')) return; p.blocks.splice(i, 1); save(); s.close(); A.sel = null; render(); };
+  s.$('#bmDel').onclick = () => sure(s.$('#bmDel'), 'Удалить вместе с текстом', () => { p.blocks.splice(i, 1); save(); s.close(); A.sel = null; render(); });
 };
 
 /* 2в. Страница: тот же текст в шаблонах */
@@ -362,7 +372,7 @@ const blockSheet = () => {
   s.$('#bsRole').onclick = () => { s.close(true); blockMenu(b.id); };
   s.$$('[data-p]').forEach(c => c.onclick = async () => {
     const pr = G.prompt(c.dataset.p); let vals = {};
-    if (pr.ask && pr.ask.length) { for (const a of pr.ask) { const v = window.prompt(a.label, ''); if (v == null) return; vals[a.k] = v.trim(); } }
+    if (pr.ask && pr.ask.length) { vals = await askVals(pr); if (!vals) return; }
     if (!G.adaptable(b, pr, p)) return toast('Этот блок не переписывается: у его шаблона текст как есть.');
     try { const n = await G.runAdapt(p, pr.id, [b.id], vals); if (n) { repick(b); save(); toast(`«${pr.name}»: текст блока обновлён — и в заметке тоже`); s.close(true); editor(); blockSheet(); } }
     catch (err) { if (err.message !== 'cancel') toast(err.message); }
