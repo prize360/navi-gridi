@@ -218,7 +218,10 @@ G.fixSplit = (json, P, R) => {
     const rows = ps.filter(i => P[i - 1].includes(' | ')).length;
     if (rows >= 2 && rows >= ps.length - 1 && b.type === 'text') b.type = 'table'; /* строка «Источник: …» под таблицей остаётся в ней */
   }
-  return {...json, blocks: res};
+  /* порядок блоков — порядок строк в тексте: модель могла переставить */
+  const first = b => { const n = [...keys.flatMap(k => refs(b[k], P)), ...(Array.isArray(b.items) ? b.items.flatMap(x => [...refs(x.h, P), ...refs(x.p, P)]) : refs(b.items, P))]; return n.length ? Math.min(...n) : Infinity; };
+  const sorted = res.map((b, i) => ({b, i, f: b.type === 'head' ? 0 : first(b)})).sort((x, y) => x.f - y.f || x.i - y.i).map(x => x.b);
+  return {...json, blocks: sorted};
 };
 G.applySeg = (page, json) => {
   const sc = G.scenario(page.scenario), P = G.paras(page.text, sc.maxText).map(stripMarks), roles = sc.roles.map(r => r.id);
