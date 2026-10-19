@@ -1,7 +1,9 @@
 /* Гриди — мобильный интерфейс */
 :root{
-  --bg:#f7f8f7;--card:#fff;--soft:#eceeec;--soft2:#e3e6e3;--ink:#17201b;--mute:#6b7470;--line:#dde1dd;
-  --acc:#2fa84f;--acc2:#8fe19c;--bad:#c4472f;--grad:linear-gradient(90deg,#17201b 0%,#3e6b48 55%,#8fe19c 100%);
+  /* цвета Гриди: светло-серый фон, почти чёрный текст, фирменный зелёный */
+  --bg:#f4f4f1;--card:#fff;--soft:#eeeeea;--soft2:#e2e2dd;--ink:#121212;--mute:#6b6b65;--line:#e2e2dd;
+  --acc:#2f8f45;--acc2:#8fe19c;--acc-soft:#e2f7e5;--bad:#c0362c;
+  --grad:linear-gradient(90deg,#e2f7e5 0%,#8fe19c 100%);
   --r:16px;--safe-b:env(safe-area-inset-bottom,0px);
 }
 *{box-sizing:border-box}
@@ -13,7 +15,7 @@ svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke
 /* шапка */
 .hd{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:8px;padding:12px 16px;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(10px)}
 .logo{display:flex;align-items:center;gap:10px;font:800 24px/1 Unbounded,Onest,sans-serif;flex:1}
-.lg-mark{width:28px;height:28px;border-radius:9px;background:var(--grad)}
+.lg-mark{width:34px;height:34px;object-fit:contain}
 .ib{display:inline-flex;align-items:center;justify-content:center;min-width:40px;height:40px;border-radius:12px;position:relative}
 .ib.round{width:44px;height:44px;border-radius:50%;background:var(--soft)}
 .ib.dark{background:var(--ink);color:#fff}
@@ -31,7 +33,7 @@ svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke
 .pill{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:52px;padding:0 22px;border-radius:26px;background:var(--soft);font-weight:600;font-size:17px}
 .pill.sm{height:36px;padding:0 14px;font-size:14px;border-radius:18px}
 .pill.pri{background:var(--ink);color:#fff}
-.pill.grad{background:var(--grad);color:#fff}
+.pill.grad{background:var(--grad);color:#0b0b0b;box-shadow:0 12px 32px rgba(0,0,0,.12)}
 .pill.ghost{background:transparent;border:1.5px solid var(--line)}
 .pill.wide{width:100%}
 .pill.file{position:relative;overflow:hidden}.pill.file input{position:absolute;inset:0;opacity:0}
@@ -185,3 +187,7 @@ body.noscroll{overflow:hidden}
 .pv{position:fixed;inset:0;z-index:55;background:var(--bg);overflow-y:auto;-webkit-overflow-scrolling:touch}
 .pv .hd{max-width:560px;margin:0 auto}
 .pv-b{max-width:560px;margin:0 auto;background:#fff;padding-bottom:40px}
+
+.dock-row{display:flex;gap:8px}.dock-row .pill.grad{flex:1}.dock-row a.pill{text-decoration:none;color:var(--ink);background:var(--card);border-color:var(--line)}
+/* ряды одного блока: без зазора, как один блок */
+.wf-row-next>section{padding-top:0!important}

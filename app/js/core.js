@@ -21,9 +21,11 @@ G.copy = async text => {
     let ok = false; try { ok = document.execCommand('copy'); } catch (e2) {} t.remove(); return ok;
   }
 };
+/* пространство хранения: у экспериментальной копии своё, чтобы не смешиваться с пилотом (тот же адрес prize360.github.io) */
+G.NS = 'gridi-next';
 G.ls = {
-  get(k, d) { try { const v = localStorage.getItem('gridi.' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
-  set(k, v) { try { localStorage.setItem('gridi.' + k, JSON.stringify(v)); return true; } catch (e) { return false; } },
+  get(k, d) { try { const v = localStorage.getItem(G.NS + '.' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem(G.NS + '.' + k, JSON.stringify(v)); return true; } catch (e) { return false; } },
 };
 
 /* ---------- библиотека: встроенные файлы + локальные правки ---------- */
@@ -101,7 +103,7 @@ const DB = {db: null, fallback: false};
 DB.open = () => new Promise(res => {
   if (DB.db || DB.fallback) return res();
   try {
-    const r = indexedDB.open('gridi', 1);
+    const r = indexedDB.open(G.NS, 1);
     r.onupgradeneeded = () => r.result.createObjectStore('pages', {keyPath: 'id'});
     r.onsuccess = () => { DB.db = r.result; res(); };
     r.onerror = () => { DB.fallback = true; res(); };
@@ -110,7 +112,7 @@ DB.open = () => new Promise(res => {
 const tx = (mode, fn) => new Promise((res, rej) => { const t = DB.db.transaction('pages', mode); const s = t.objectStore('pages'); const r = fn(s); t.oncomplete = () => res(r && r.result); t.onerror = () => rej(t.error); });
 /* формат хранения страницы: номер в самой странице. Поменяется формат — сюда добавляется шаг миграции,
    старые страницы участников обновятся при открытии, а не сломаются.
-   Не переименовывать: базу 'gridi', хранилище 'pages', ключи 'gridi.*' — иначе у всех «пропадут» страницы. */
+   Не переименовывать: базу G.NS, хранилище 'pages', ключи G.NS + '.*' — иначе у всех «пропадут» страницы. */
 G.SCHEMA = 1;
 G.migrate = p => {
   if (!p) return p;
