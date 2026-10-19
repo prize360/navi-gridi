@@ -385,12 +385,24 @@ G.views.preview = v => {
 G.views.check = v => {
   const p = S.page;
   v.innerHTML = `<div class="col"><div class="head"><p class="eye">Проверка</p><h1 class="h1">${e(p.name)}</h1><p class="lead">Сценарий, правила гриды, лимиты знаков, кнопки, картинки${G.scenario(p.scenario).kind === 'article' ? ', ритм врезов' : ''}.</p></div><div id="out" class="sec"><div class="running"><span class="spin"></span>Проверяю страницу…</div></div></div>`;
+  /* есть ошибки или предупреждения — главная кнопка исправляет их; нет — проверяет заново */
+  const fix = async () => {
+    try {
+      const r = await G.runFix(p); S.checks = null; S.save();
+      const left = G.checks(p).filter(x => x.level !== 'info').length;
+      S.toast(r.byCode + r.byModel ? `Исправлено: ${[r.byCode ? G.num(r.byCode, 'правка', 'правки', 'правок') + ' кодом' : '', r.byModel ? G.num(r.byModel, 'блок', 'блока', 'блоков') + ' моделью' : ''].filter(Boolean).join(', ')}${left ? ` · осталось ${G.num(left, 'замечание', 'замечания', 'замечаний')}${r.notes.length ? ': ' + r.notes[0] : ''}` : ''}` : 'Здесь нечего исправить текстом: оставшиеся замечания — про шаблоны, дизайн или порядок блоков.');
+      run();
+    } catch (err) { if (err.message !== 'cancel') S.toast(err.message); }
+  };
   const run = () => {
     v.querySelector('#out').innerHTML = `<div class="running"><span class="spin"></span>Проверяю страницу…</div>`;
-    setTimeout(() => { S.checks = G.checks(p); drawChecks(v.querySelector('#out')); S.header(); }, 250);
+    setTimeout(() => {
+      S.checks = G.checks(p); drawChecks(v.querySelector('#out')); S.header();
+      const bad = S.checks.filter(x => x.level !== 'info').length;
+      S.cta(bad ? {label: 'Исправить ' + G.num(bad, 'замечание', 'замечания', 'замечаний'), icon: G.icon.play, run: fix} : {label: 'Проверить заново', icon: G.icon.play, run});
+    }, 250);
   };
   run();
-  S.cta({label: 'Проверить заново', icon: G.icon.play, run});
 };
 const drawChecks = box => {
   const p = S.page, c = S.checks, cnt = l => c.filter(x => x.level === l).length;

@@ -408,8 +408,29 @@ G.adaptPrompt = (page, p, part, askVals = {}) => {
   const sc = G.scenario(page.scenario);
   const blocks = part.map(b => p.input === 'source'
     ? `### id: ${b.id} (${G.roleOf(sc, b.role).name})\n${spec(G.tpl(b.tpl))}${G.blockTask(b, page) ? '\n' + G.blockTask(b, page) : ''}${G.needsHead(b, G.tpl(b.tpl)) ? `\nЗаголовок раздела над блоком — ключ head в top, ≤${G.HEAD.max}` : ''}\nИсходник:\n${srcText(b)}`
-    : fieldsJSON(b, page)).join('\n\n');
+    : fieldsJSON(b, page) + (p.id === 'fix' && G.fixNotes(b, page).length ? '\nЗамечания:\n' + G.fixNotes(b, page).map(x => '- ' + x).join('\n') : '')).join('\n\n');
   return G.fill(p.text, {...askVals, 'тип': sc.name, 'действие': sc.action, 'блоки': blocks});
+};
+/* ---------- исправление по проверке: сначала код, потом модель только по замечаниям ---------- */
+/* замечания, которые правятся текстом блока (остальные — шаблон, дизайн, порядок — модель не трогает) */
+const FIXABLE = /длиннее|Кнопка «|ложная срочность|Пустой блок/i;
+G.fixNotes = (b, page) => G.checks(page).filter(c => c.block === b && c.level !== 'info' && FIXABLE.test(c.text)).map(c => c.text);
+/* что чинится без модели: H1 вне первого экрана → H2, второй первый экран и второе целевое действие → обычный блок */
+G.fixByCode = page => {
+  const sc = G.scenario(page.scenario), plain = (sc.roles.find(r => !['hero', 'cta', 'subscribe'].includes(r.id)) || {id: 'content'}).id;
+  let n = 0;
+  page.blocks.forEach((b, i) => { if (i > 0 && b.role !== 'hero' && /^\s*\[h1\]/im.test(b.text)) { b.text = b.text.replace(/^(\s*)\[h1\]/im, '$1[h2]'); n++; } });
+  const heroes = page.blocks.filter(b => b.role === 'hero'); heroes.slice(1).forEach(b => { b.role = plain; b.text = b.text.replace(/^(\s*)\[h1\]/im, '$1[h2]'); n++; });
+  const ctas = page.blocks.filter(b => G.isCta(b) && (b.role === 'cta' || b.role === 'subscribe')); ctas.slice(1).forEach(b => { b.role = plain; n++; });
+  if (n) G.autoPick(page);
+  return n;
+};
+G.runFix = async page => {
+  const byCode = G.fixByCode(page);
+  const ids = page.blocks.filter(b => G.adaptable(b, G.prompt('fix'), page) && G.fixNotes(b, page).length).map(b => b.id);
+  G.lastNotes = [];
+  const byModel = ids.length ? await G.runAdapt(page, 'fix', ids) : 0;
+  return {byCode, byModel, asked: ids.length, notes: G.lastNotes};
 };
 G.runAdapt = async (page, promptId, blockIds, askVals = {}) => {
   const p = G.prompt(promptId);
@@ -421,6 +442,7 @@ G.runAdapt = async (page, promptId, blockIds, askVals = {}) => {
   /* один запрос на все блоки */
   { const part = list;
     const json = await G.ask(p.name, G.adaptPrompt(page, p, part, askVals));
+    G.lastNotes = (json && Array.isArray(json.notes) ? json.notes : []).map(String).filter(Boolean);
     const got = Array.isArray(json) ? json : json.blocks || [];
     for (const [ri, r] of got.entries()) {
       /* блок — по id; если модель перепутала id, а блоков столько же — по порядку */
