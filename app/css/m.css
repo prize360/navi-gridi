@@ -161,3 +161,27 @@ svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke
 .wf-bg .wf-media{aspect-ratio:auto!important;height:100%}
 .wf-bg .wf-media img{width:100%;height:100%;object-fit:cover}
 .wf-bg-text{position:relative!important;inset:auto!important;align-self:end;padding-top:90px!important}
+
+/* замечания сверху: цвет — важность */
+.checks{display:flex;flex-direction:column;gap:8px;padding:4px 16px 12px}
+.cv .checks,.note .checks{padding-inline:0}
+.ck{display:flex;align-items:flex-start;gap:8px;border-radius:14px;padding:14px 10px 14px 18px}
+.ck-error{background:#f5dfe1}.ck-warn{background:#f4e7dc}.ck-info{background:#dfe8f1}
+.ck-t{flex:1;text-align:left;font-weight:500;font-size:15px;line-height:1.35}
+.ck-x{flex:none;color:#6b6866;display:flex;padding:0 4px}.ck-x svg{width:20px;height:20px}
+.ck-more{align-self:flex-start;color:var(--mute);font-size:14px;font-weight:500;padding:2px 4px}
+/* линия блока: картинка из шаблона */
+.nb-m{flex:none;order:3;font-style:normal;text-transform:none;letter-spacing:0;font-weight:500;color:var(--mute);font-size:12px;background:var(--soft);padding:2px 8px;border-radius:8px}
+/* островок */
+.float{align-items:center}
+.float .seg{background:transparent;padding:0}
+.float .seg button{height:44px;min-width:52px;border-radius:22px}
+.float .seg button.on{background:var(--ink);color:#fff;box-shadow:none}
+body.typing .dock{display:none}
+body.noscroll{overflow:hidden}
+.mv{display:flex;gap:8px;margin-top:12px}.mv .pill{flex:1}.mv .pill svg{width:18px;height:18px}
+.pill:disabled{opacity:.35}
+/* превью */
+.pv{position:fixed;inset:0;z-index:55;background:var(--bg);overflow-y:auto;-webkit-overflow-scrolling:touch}
+.pv .hd{max-width:560px;margin:0 auto}
+.pv-b{max-width:560px;margin:0 auto;background:#fff;padding-bottom:40px}
