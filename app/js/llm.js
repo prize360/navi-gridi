@@ -103,8 +103,18 @@ const stripMarks = s => String(s || '').replace(/^\s*(\[(h[1-4]|кнопка|к�
 /* ответ разбора → блоки */
 /* страховка ответа разбора статьи: повторы убираются, потерянные абзацы возвращаются в текст,
    очевидное (оглавление, «Читайте также», строки таблицы) — по правилам, а не по модели */
+/* оглавление («Содержание», «Что в статье») и пункты под ним — служебные строки, в разбор не идут */
+const TOC = /^(\[h[1-4]\]\s*)?(содержание|оглавление|что в статье|в статье)\s*:?$/i;
+const tocLines = P => {
+  const out = [];
+  P.forEach((l, n) => { if (TOC.test(l)) { out.push(n + 1); for (let i = n + 1; i < P.length && /^(?:[-–•*]|\d+[.)])\s+/.test(P[i]); i++) out.push(i + 1); } });
+  return out;
+};
+/* абзац, который отсылает к другому материалу, — cta: «Подробнее — в материале», «…— здесь», «в разделе дайджестов» */
+const REF = /(^(читайте|читать|смотрите) также(?![а-яё])|подробнее\s*[—–-]?\s*(в|на|здесь|по ссылке)(?![а-яё])|[—–-]\s*здесь\.?$|(^|\s)в разделе(?![а-яё])|полная версия(?![а-яё])|^узнать (больше|подробнее)(?![а-яё])|^\[ссылка\])/i;
 G.fixSplit = (json, P) => {
   const blocks = (json.blocks || []).map(b => ({...b})), used = new Set();
+  const toc = tocLines(P); toc.forEach(i => used.add(i));
   const keys = ['h', 'paras', 'author', 'button'];
   const take = v => refs(v, P).filter(i => !used.has(i) && used.add(i));
   for (const b of blocks) {
@@ -113,6 +123,7 @@ G.fixSplit = (json, P) => {
     else if (b.items) b.items = take(b.items).join(',');
   }
   const out = blocks.filter(b => keys.some(k => b[k]) || (b.items && b.items.length));
+  if (toc.length) out.splice(Math.max(0, out.findIndex(b => b.type !== 'head') < 0 ? out.length : out.findIndex(b => b.type !== 'head')), 0, {type: 'skip', paras: toc.join(',')});
   /* потерянные абзацы — в ближайший текст перед ними или новым текстом */
   const where = b => Math.min(...[...keys.flatMap(k => refs(b[k], P)), ...(Array.isArray(b.items) ? b.items.flatMap(x => [...refs(x.h, P), ...refs(x.p, P)]) : refs(b.items, P))]);
   P.forEach((txt, n) => {
@@ -126,7 +137,9 @@ G.fixSplit = (json, P) => {
   /* правила без модели */
   for (const b of out) {
     const ps = refs(b.paras, P);
-    if (ps.length === 1 && /^(читайте также|читать также|смотрите также)\b/i.test(P[ps[0] - 1]) && b.type === 'text') b.type = 'cta';
+    if (ps.length === 1 && REF.test(P[ps[0] - 1]) && (b.type === 'text' || b.type === 'short')) b.type = 'cta';
+    /* баннер: картинка и ссылка-кнопка в одном блоке — cta, а не подпись к картинке */
+    if (b.type === 'image' && ps.some(i => /^\[картинка\]/i.test(P[i - 1])) && ps.some(i => /^\[ссылка\]/i.test(P[i - 1]))) { b.type = 'cta'; b.button = String(ps.filter(i => /^\[ссылка\]/i.test(P[i - 1])).pop()); b.paras = ps.filter(i => String(i) !== b.button).join(','); }
     if (ps.length > 1 && ps.every(i => P[i - 1].includes(' | ')) && b.type === 'text') b.type = 'table';
   }
   return {...json, blocks: out};
