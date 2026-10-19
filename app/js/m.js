@@ -350,11 +350,16 @@ const fmtBar = () => {
   fmtEl.querySelectorAll('[data-k]').forEach(x => x.onclick = () => { const ln = A.line; if (!ln || !ln.isConnected) return; setKind(ln, ln.dataset.k === x.dataset.k && x.dataset.k !== 'p' ? 'p' : x.dataset.k); sync(ln.closest('.ed')); fmtSync(); });
   fmtEl.querySelector('[data-split]').onclick = splitBlock;
   const vv = window.visualViewport, place = () => { if (vv) fmtEl.style.bottom = Math.max(0, innerHeight - vv.height - vv.offsetTop) + 'px'; };
-  if (vv) { vv.addEventListener('resize', place); vv.addEventListener('scroll', place); } place();
+  if (vv) { vv.addEventListener('resize', () => { place(); fmtSync(); }); vv.addEventListener('scroll', place); } place();
+  document.addEventListener('focusout', () => setTimeout(fmtSync, 50));
 };
+const touch = matchMedia('(pointer: coarse)').matches;
+const keyboardOpen = () => { if (!touch) return true; const vv = window.visualViewport; return !!vv && innerHeight - vv.height > 120; };
 const fmtSync = () => {
   if (!fmtEl || !fmtEl.isConnected) return;
-  const ln = curLine(), on = !!(ln && ln.closest('.ed') && A.view === 'edit');
+  const ln = curLine(), ed = document.activeElement && document.activeElement.closest && document.activeElement.closest('.ed');
+  /* панель — только пока редактируешь: курсор в тексте и, на телефоне, открыта клавиатура */
+  const on = !!(ln && ed && ed.contains(ln) && A.view === 'edit' && keyboardOpen());
   if (on) A.line = ln;
   fmtEl.hidden = !on; document.body.classList.toggle('typing', on);
   const cur = (A.line && A.line.isConnected) ? A.line.dataset.k : '';
