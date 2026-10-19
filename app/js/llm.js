@@ -129,6 +129,8 @@ G.normSplit = (json, P) => {
     const b = {...b0}, ty = String(b.type || 'text').toLowerCase();
     if (!KNOWN.has(ty)) { b.type = TYPE_ALIAS[ty] || 'text'; notes.push(ty); } else b.type = ty;
     const isNum = v => /^[\d,\s-]+$/.test(String(v));
+    /* items строкой с JSON внутри: "[{\"h\":\"9\",\"p\":\"10\"}]" — разворачиваем в массив */
+    if (typeof b.items === 'string' && /^\s*\[/.test(b.items)) { try { b.items = JSON.parse(b.items); } catch (e) { b.items = (b.items.match(/\d+(?:-\d+)?/g) || []).join(','); } }
     /* заголовок: номером в title или текстом в title/h → номер строки в h */
     if (b.title != null && b.title !== '' && !b.h) b.h = isNum(b.title) ? String(b.title) : byText(b.title, b);
     if (b.h && !isNum(b.h)) b.h = byText(b.h, b);
