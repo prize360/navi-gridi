@@ -223,7 +223,7 @@ G.autoFill = (b, t, page) => {
 };
 /* заголовок раздела над блоком: в тексте есть, в шаблоне нет поля — ставится шаблоном «Текст-H2» */
 G.HEAD = {label: 'Заголовок раздела (H2)', max: 50, tpl: 'Заголовок-H2-Lt'};
-G.needsHead = (b, t) => !!t && !!G.src(b).title && !((t.fields || []).some(f => f.role === 'title') && (t.fields || []).every(f => ['title', 'btn', 'badge', 'meta'].includes(f.role))) && G.src(b).level !== 'h1' && b.role !== 'hero' && !t.heading && (G.src(b).level !== 'h3' || !t.fields.some(f => f.role === 'title'));
+G.needsHead = (b, t) => !!t && !!G.src(b).title && !((t.fields || []).some(f => f.role === 'title') && (t.fields || []).every(f => ['title', 'btn', 'badge', 'meta'].includes(f.role))) && G.src(b).level !== 'h1' && b.role !== 'hero' && !t.heading && (G.src(b).level !== 'h3' || !(t.fields || []).some(f => f.role === 'title'));
 G.headTpl = b => G.src(b).level === 'h3' ? 'Заголовок-H3-Lt' : 'Заголовок-H2-Lt';
 /* текущие поля блока: адаптированные или собранные из текста */
 G.values = (b, page) => {

@@ -397,7 +397,9 @@ G.rowsOf = n => { if (n <= 4) return [n]; const r = Math.ceil(n / 4), base = Mat
 const sibling = (t, k) => { const c = t.ctor; if (c) { const key = o => JSON.stringify({...o, n: 0}); const x = G.tpls().find(y => y.ctor && y.ctor.type === c.type && key(y.ctor.p) === key(c.p) && +y.ctor.p.n === k); if (x) return x; }
   return {...t, items: {...t.items, n: k}, cols: Math.min(k, 4), _virtual: true}; };
 const rowsPlan = (b, t) => { if (!t || !t.items || !GRID.includes(t.layout)) return null; const n = G.src(b).items.length; return n > 4 ? G.rowsOf(n) : null; };
-const blockHTML = (b, p, t = G.tpl(b.tpl)) => {
+/* один сломанный блок не должен ронять всю страницу: показываем заглушку и пишем в консоль */
+const blockHTML = (b, p, t = G.tpl(b.tpl)) => { try { return blockHTML0(b, p, t); } catch (err) { console.error('Блок не отрисовался', b, err); return `<div class="wf-page"><section class="wf wf-none"><div class="wf-empty">Блок не отрисовался: ${e(err.message)}</div></section></div>`; } };
+const blockHTML0 = (b, p, t) => {
   const plan = rowsPlan(b, t);
   if (!plan) return `<div class="wf-page">${G.wireBlock(t, t && (t.id === b.tpl ? G.values(b, p) : G.autoFill(b, t, p)), G.wireImgs(b, t))}</div>`;
   const all = G.autoFill(b, {...t, items: {...t.items, n: G.src(b).items.length}}, p), imgs = G.wireImgs(b, t); let at = 0;
