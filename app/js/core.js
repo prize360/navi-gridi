@@ -143,13 +143,28 @@ G.splitItem = s => {
   if (!m) m = s.match(/^([^:]{1,70})(:\s+)(.+)$/);
   return m ? {title: m[1].trim(), text: m[3].trim(), sep: m[2]} : {title: '', text: s};
 };
+/* список без маркеров: после строки с двоеточием идут строки на «;», последняя — на «.» — это пункты */
+G.unmarkedLists = ls => {
+  const out = [...ls], plain = l => l.trim() && !/^(\[|@|[-–•*]\s|\d+[.)]\s)/.test(l.trim());
+  for (let i = 0; i < out.length; i++) {
+    if (!plain(out[i]) || !/:\s*$/.test(out[i].trim())) continue;
+    let j = i + 1; while (j < out.length && plain(out[j]) && /;\s*$/.test(out[j].trim()) && out[j].trim().length <= 300) j++;
+    const lastOk = j < out.length && plain(out[j]) && out[j].trim().length <= 300 && /[.!]\s*$/.test(out[j].trim());
+    const n = j - (i + 1) + (lastOk ? 1 : 0);
+    if (n >= 2) { for (let k = i + 1; k < i + 1 + n; k++) out[k] = '- ' + out[k].trim(); i += n; }
+  }
+  return out;
+};
 G.parse = text => {
   const src = {title: '', level: '', meta: [], paras: [], items: [], cta: [], images: [], urls: []};
   let last = null, item = null;
-  for (const raw of String(text || '').split('\n')) {
+  for (const raw of G.unmarkedLists(String(text || '').split('\n'))) {
     const l = raw.trim(); if (!l) { if (item && item._h) item = null; last = null; continue; }
     let m;
-    if ((m = l.match(RX.h))) {
+    /* пустой заголовок — не заголовок; «заголовок» длиннее 120 знаков — это абзац */
+    if ((m = l.match(RX.h)) && !m[2].trim()) continue;
+    if (m && m[2].trim().length > 120) m = null;
+    if (m) {
       const lv = m[1].toLowerCase();
       if (!src.title && !src.items.length && (lv !== 'h3' || !src.paras.length)) { src.title = m[2].trim(); src.level = lv; last = 'title'; item = null; }
       else { item = {title: m[2].trim(), text: '', meta: '', cta: '', _h: true}; src.items.push(item); last = 'item'; }

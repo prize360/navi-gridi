@@ -392,8 +392,7 @@ const blockMenu = id => {
 
 /* ---------- ряды: больше 4 пунктов — несколько шаблонов подряд, меньший ряд первым ----------
    В тексте блок один; на странице он раскладывается на ряды по 2–4 пункта. */
-const GRID = ['grid', 'gridct', 'people', 'stats', 'cols'];
-G.rowsOf = n => { if (n <= 4) return [n]; const r = Math.ceil(n / 4), base = Math.floor(n / r), extra = n % r; return Array.from({length: r}, (_, i) => base + (i >= r - extra ? 1 : 0)); };
+const GRID = G.GRID_LAYOUTS;
 const sibling = (t, k) => { const c = t.ctor; if (c) { const key = o => JSON.stringify({...o, n: 0}); const x = G.tpls().find(y => y.ctor && y.ctor.type === c.type && key(y.ctor.p) === key(c.p) && +y.ctor.p.n === k); if (x) return x; }
   return {...t, items: {...t.items, n: k}, cols: Math.min(k, 4), _virtual: true}; };
 const rowsPlan = (b, t) => { if (!t || !t.items || !GRID.includes(t.layout)) return null; const n = G.src(b).items.length; return n > 4 ? G.rowsOf(n) : null; };
