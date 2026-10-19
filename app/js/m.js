@@ -150,32 +150,50 @@ const askVals = pr => new Promise(res => {
 });
 
 /* ---------- экраны ---------- */
+/* плавный переход между состояниями: браузер сам анимирует снимок до/после (только opacity и transform) */
+const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const morph = (fn, kind = 'fade') => { if (reduce || !document.startViewTransition) return fn(); document.documentElement.dataset.vt = kind; const t = document.startViewTransition(fn); t.finished.finally(() => delete document.documentElement.dataset.vt); };
 const render = () => { A.view === 'home' ? home() : editor(); };
 const go = async (view, id) => {
   A.view = view; A.sel = null; A.line = null;
   if (view === 'edit') { A.page = await G.store.get(id); if (!A.page) { A.view = 'home'; } else A.mode = A.page.blocks.length ? 'page' : 'note'; }
   location.hash = view === 'edit' && A.page ? '#/p/' + A.page.id : '#/';
-  render();
+  morph(render, view === 'edit' ? 'push' : 'pop');
 };
 
-/* 1. Мои страницы */
+/* 1. Главная: вкладки сценариев, страницы — сеткой обложек */
+const TABS = [['article', 'Статьи'], ['course', 'Курсы'], ['event', 'События'], ['sale', 'Продукты'], ['promo', 'Промо']];
+const cover = p => { const b = p.blocks.find(x => x.role === 'hero') || p.blocks[0];
+  if (!b) return `<div class="tl-empty">${e((p.text || p.name).slice(0, 60))}</div>`;
+  return `<div class="tl-pv">${blockHTML(b, p)}</div>`; };
 const home = async () => {
-  const list = (await G.store.list()).sort((a, b) => (b.updated || 0) - (a.updated || 0));
-  const d = t => new Date(t).toLocaleDateString('ru-RU', {day: 'numeric', month: 'short'});
-  $app.innerHTML = `<header class="hd"><div class="logo"><img class="lg-mark" src="${G.LOGO || ''}" alt="">Гриди</div><button class="ib round" id="hMenu" aria-label="Настройки">${I.menu}</button></header>
-    <main class="home">${list.length ? `<ul class="cards">${list.map(p => `<li><button class="card" data-id="${e(p.id)}"><b>${e(p.name)}</b><small>${e(G.scenario(p.scenario).name)} · ${p.blocks.length ? G.num(p.blocks.length, 'блок', 'блока', 'блоков') : 'черновик'} · ${d(p.updated)}</small></button><button class="ib" data-more="${e(p.id)}" aria-label="Ещё">${I.dots}</button></li>`).join('')}</ul>`
-      : `<div class="empty"><p>Здесь будут ваши страницы.</p><p class="hint">Вставьте текст — Гриди соберёт из него страницу по шаблонам.</p>${G.examples.length ? `<p class="hint">Или откройте пример:</p><div class="chips">${G.examples.map((x, i) => `<button class="chip" data-ex="${i}">${e(x.name)}</button>`).join('')}</div>` : ''}</div>`}</main>
-    <div class="dock"><div class="dock-row"><a class="pill ghost" href="${window.GRIDI_LIB_URL || 'index.html#/lib/templates'}">Библиотека</a><button class="pill grad" id="hNew">Новая страница</button></div></div>`;
-  $app.querySelectorAll('.card').forEach(c => c.onclick = () => go('edit', c.dataset.id));
+  const all = (await G.store.list()).sort((a, b) => (b.updated || 0) - (a.updated || 0));
+  const tabs = TABS.filter(([id]) => G.lib.get('scenarios', id));
+  A.tab = A.tab || G.ls.get('tab', 'article'); if (!tabs.some(([id]) => id === A.tab)) A.tab = (tabs[0] || ['article'])[0];
+  const list = all.filter(p => p.scenario === A.tab), other = all.filter(p => !tabs.some(([id]) => id === p.scenario) && A.tab === tabs[0][0]);
+  const pages = [...list, ...other], slots = Math.max(0, 9 - pages.length);
+  const exs = G.examples.map((x, k) => ({x, k})).filter(o => o.x.scenario === A.tab);
+  $app.innerHTML = `<header class="hd"><div class="logo"><img class="lg-mark" src="${G.LOGO || ''}" alt="">Гриди</div><button class="ib round" id="hMenu" aria-label="Меню">${I.menu}</button></header>
+    <nav class="tabs" role="tablist">${tabs.map(([id, n]) => `<button role="tab" class="${id === A.tab ? 'on' : ''}" data-tab="${id}">${n}</button>`).join('')}</nav>
+    <main class="home"><div class="grid">${pages.map(p => `<button class="tl" data-id="${e(p.id)}" style="view-transition-name:p-${e(p.id)}">${cover(p)}<span class="tl-n">${e(p.name)}</span></button>`).join('')}${'<span class="tl-slot"></span>'.repeat(slots)}</div>
+      ${!pages.length ? `<p class="hint center">Здесь будут ${(tabs.find(([id]) => id === A.tab) || [, 'страницы'])[1].toLowerCase()}. Вставьте текст — Гриди соберёт страницу по шаблонам.</p>${exs.length ? `<div class="chips center">${exs.map(o => `<button class="chip" data-ex="${o.k}">Пример: ${e(o.x.name)}</button>`).join('')}</div>` : ''}` : ''}</main>
+    <div class="dock"><button class="pill grad wide" id="hNew">Новая страница</button></div>`;
+  $app.querySelectorAll('[data-tab]').forEach(c => c.onclick = () => { A.tab = c.dataset.tab; G.ls.set('tab', A.tab); morph(home); });
+  $app.querySelectorAll('.tl').forEach(c => { let t = null;
+    c.onclick = () => { if (c.dataset.held) { delete c.dataset.held; return; } go('edit', c.dataset.id); };
+    c.addEventListener('pointerdown', () => { t = setTimeout(() => { c.dataset.held = 1; pageMenu(all.find(x => x.id === c.dataset.id)); }, 480); });
+    ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => c.addEventListener(ev, () => clearTimeout(t)));
+    c.addEventListener('contextmenu', ev => { ev.preventDefault(); c.dataset.held = 1; pageMenu(all.find(x => x.id === c.dataset.id)); }); });
   $app.querySelectorAll('[data-ex]').forEach(c => c.onclick = async () => { const p = G.fromExample(G.examples[+c.dataset.ex]); if (!p.blocks.length && p.text) { G.assemble(p); } G.autoPick(p, true); await G.store.put(p); go('edit', p.id); });
-  $app.querySelectorAll('[data-more]').forEach(c => c.onclick = () => {
-    const p = list.find(x => x.id === c.dataset.more);
-    const s = sheet(`<div class="sh-h"><h2>${e(p.name)}</h2></div><div class="sh-b list"><button class="row" id="rDup">Дублировать</button><button class="row danger" id="rDel">Удалить</button></div>`);
-    s.$('#rDup').onclick = async () => { const n = {...G.clone(p), id: G.uid('p'), name: p.name + ' (копия)'}; await G.store.put(n); s.close(); home(); };
-    s.$('#rDel').onclick = () => sure(s.$('#rDel'), 'Удалить навсегда', async () => { await G.store.del(p.id); s.close(); home(); });
-  });
-  $app.querySelector('#hNew').onclick = async () => { const s0 = G.lib.all('scenarios').find(x => x.kind === 'article') || G.lib.all('scenarios')[0]; const p = G.newPage('Без названия', s0.id, ''); await G.store.put(p); go('edit', p.id); };
+  $app.querySelector('#hNew').onclick = async () => { const p = G.newPage('Без названия', A.tab, ''); await G.store.put(p); go('edit', p.id); };
   $app.querySelector('#hMenu').onclick = settings;
+  requestAnimationFrame(() => $app.querySelectorAll('.tl-pv').forEach(x => x.style.setProperty('--k', x.clientWidth / 560)));
+};
+/* долгое нажатие на обложку: переименовать, дублировать, удалить */
+const pageMenu = p => {
+  const s = sheet(`<div class="sh-h"><h2>${e(p.name)}</h2></div><div class="sh-b"><div class="list"><button class="row" id="rDup">Дублировать</button><button class="row danger" id="rDel">Удалить</button></div></div>`);
+  s.$('#rDup').onclick = async () => { const n = {...G.clone(p), id: G.uid('p'), name: p.name + ' (копия)'}; await G.store.put(n); s.close(); home(); };
+  s.$('#rDel').onclick = () => sure(s.$('#rDel'), 'Удалить навсегда', async () => { await G.store.del(p.id); s.close(); morph(home); });
 };
 
 /* настройки: модель и импорт */
@@ -191,6 +209,8 @@ const settings = () => {
         <label class="lbl" for="sModel">Модель</label><input class="in" id="sModel" value="${e(st.model)}">
         <label class="lbl" for="sKey">Ключ — хранится только в этом браузере</label><input class="in" id="sKey" type="password" value="${e(st.key)}" autocomplete="off">
       </div>
+      <p class="lbl">Библиотека</p>
+      <a class="pill ghost wide" href="${window.GRIDI_LIB_URL || 'index.html#/lib/templates'}">Шаблоны, сценарии и промты</a>
       <p class="lbl">Страница от коллеги</p>
       <label class="pill ghost wide file">Открыть архив или page.json<input type="file" id="sImp" accept=".zip,.json,application/zip,application/json"></label>
       <p class="hint">Текст страницы из чата просто вставьте в новую страницу.</p>
@@ -207,26 +227,33 @@ const editor = () => {
   const y0 = scrollY, p = A.page, b = A.sel && p.blocks.find(x => x.id === A.sel), v = b && verdict(b);
   const miss = p.blocks.length ? G.missing(p).length : 0;
   const title = b ? `<b>${e(roleName(b))}</b><small class="${v.bad ? 'bad' : ''}">${e(v.txt)}</small>` : `<b>${e(p.name)}</b><small>${e(sc().name)}${p.blocks.length ? ' · ' + (G.len(p.blocks.map(x => x.text).join('')) / 1000).toFixed(1).replace('.0', '') + 'k знаков' : ''}</small>`;
-  $app.innerHTML = `<header class="hd"><button class="ib round" id="eBack" aria-label="Назад">${I.back}</button><button class="ttl" id="eTtl">${title}</button>
+  $app.innerHTML = `<header class="hd ${b ? 'editing' : ''}" id="eHd"><div class="hd-edit"><div class="hfield" id="eField">${b ? `<b>${e(roleName(b))}</b><small class="${v.bad ? 'bad' : ''}">${e(v.txt)}</small>` : ''}</div><button class="ib round ok" id="eOk" aria-label="Готово">${I.check}</button></div>
+    <button class="ib round" id="eBack" aria-label="Назад">${I.back}</button><button class="ttl" id="eTtl">${title}</button>
       ${p.blocks.length ? `<button class="ib round" id="ePrev" aria-label="Превью">${I.eye}</button>
       <button class="ib round dark" id="eOut" aria-label="Выгрузка">${I.out}${miss ? `<span class="badge">${miss}</span>` : ''}</button>` : `<button class="ib round" id="eTune" aria-label="Настройки страницы">${I.tune}</button>`}</header>
     <main id="eMain"></main><div class="dock" id="eDock"></div>`;
   $app.querySelector('#eBack').onclick = () => { if (A.sel) { A.sel = null; editor(); return; } save(); go('home'); };
   $app.querySelector('#eTtl').onclick = () => { if (!A.sel) pageSettings(); };
+  $app.querySelector('#eOk').onclick = () => { const a = document.activeElement; if (a && a.closest && a.closest('.ed')) { a.blur(); getSelection().removeAllRanges(); fmtSync(); return; }
+    document.querySelectorAll('.sh-wrap').forEach(x => x.remove()); A.sel = null; editor(); };
   const tn = $app.querySelector('#eTune'); if (tn) tn.onclick = pageSettings;
   const pv = $app.querySelector('#ePrev'); if (pv) pv.onclick = preview;
-  const out = $app.querySelector('#eOut'); if (out) out.onclick = exportSheet;
+  const out = $app.querySelector('#eOut'); if (out) out.onclick = exportView;
   if (!p.blocks.length) return draft();
   A.mode === 'note' ? notes() : canvas();
-  checksBar(); island();
+  island();
   /* перерисовка не сбрасывает положение; прокрутка к блоку — только когда к нему переходят */
-  if (A.jump) { const el = $app.querySelector(`[data-id="${A.jump}"]`); el && el.scrollIntoView({block: 'center'}); A.jump = null; } else scrollTo(0, y0);
+  if (A.jump) { const el = $app.querySelector(`[data-id="${A.jump}"]`); if (el) { el.scrollIntoView({block: A.jumpTop ? 'start' : 'center'}); if (A.jumpTop) scrollBy(0, -96); } A.jump = null; A.jumpTop = false; } else scrollTo(0, y0);
 };
 /* нижний островок: текст ↔ шаблоны и новый блок */
 const island = () => {
   const p = A.page, dock = $app.querySelector('#eDock');
-  dock.innerHTML = `<div class="float"><div class="seg" role="tablist"><button data-m="note" class="${A.mode === 'note' ? 'on' : ''}" aria-label="Текст">${I.note}</button><button data-m="page" class="${A.mode === 'page' ? 'on' : ''}" aria-label="Шаблоны">${I.page}</button></div><button class="ib" id="dAdd" aria-label="Добавить блок">${I.plus}</button></div>`;
-  dock.querySelectorAll('[data-m]').forEach(x => x.onclick = () => { if (A.mode === x.dataset.m) return; A.mode = x.dataset.m; A.sel = null; G.autoPick(p); save(); editor(); scrollTo(0, 0); });
+  dock.innerHTML = `<div class="float"><div class="seg slide ${A.mode === 'page' ? 'r' : ''}" role="tablist"><button data-m="note" class="${A.mode === 'note' ? 'on' : ''}" aria-label="Текст">${I.note}</button><button data-m="page" class="${A.mode === 'page' ? 'on' : ''}" aria-label="Шаблоны">${I.page}</button></div><button class="ib" id="dAdd" aria-label="Добавить блок">${I.plus}</button></div>`;
+  dock.querySelectorAll('[data-m]').forEach(x => x.onclick = () => { if (A.mode === x.dataset.m) return;
+    dock.querySelector('.seg').classList.toggle('r', x.dataset.m === 'page');
+    /* блок, который сейчас на экране, остаётся на экране и в другом режиме */
+    const top = [...$app.querySelectorAll('[data-id]')].find(el => el.getBoundingClientRect().bottom > 120);
+    setTimeout(() => morph(() => { A.mode = x.dataset.m; A.sel = null; G.autoPick(p); save(); A.jump = top && top.dataset.id; A.jumpTop = true; editor(); }, 'mode'), 160); });
   dock.querySelector('#dAdd').onclick = () => { const nb = G.newBlock(defRole(), ''); p.blocks.push(nb); save();
     if (A.mode === 'note') { notes(); checksBar(); const ed = $app.querySelector(`.ed[data-id="${nb.id}"]`); ed && caretTo(ed.firstChild, 0); }
     else { A.sel = nb.id; editor(); textSheet(nb); } };
@@ -254,8 +281,8 @@ const preview = () => {
   const el = document.createElement('div'); el.className = 'pv';
   el.innerHTML = `<header class="hd"><button class="ib round" id="pvX" aria-label="Закрыть">${I.x}</button><div class="ttl"><b>Превью</b><small>${e(p.name)}</small></div></header>
     <div class="pv-b">${p.blocks.map(b => blockHTML(b, p)).join('')}</div>`;
-  document.body.appendChild(el); document.body.classList.add('noscroll');
-  el.querySelector('#pvX').onclick = () => { el.remove(); document.body.classList.remove('noscroll'); };
+  morph(() => { document.body.appendChild(el); document.body.classList.add('noscroll'); }, 'push');
+  el.querySelector('#pvX').onclick = () => morph(() => { el.remove(); document.body.classList.remove('noscroll'); }, 'pop');
 };
 
 /* настройки страницы: название и сценарий */
@@ -294,9 +321,9 @@ const build = async text => {
 
 /* 2б. Заметки: блоки — линии с ролью, строки — разметка */
 const notes = () => {
-  const p = A.page, main = $app.querySelector('#eMain');
-  main.innerHTML = `<div class="note">${p.blocks.map((b, i) => `<section class="nb" data-id="${e(b.id)}">
-      <button class="nb-line" data-role="${e(b.id)}"><span>${e(roleName(b))}</span>${mediaHint(b)}</button>
+  const p = A.page, main = $app.querySelector('#eMain'), iss = issuesOf(p);
+  main.innerHTML = `<div class="note">${p.blocks.map((b, i) => `<section class="nb" data-id="${e(b.id)}" style="view-transition-name:b-${e(b.id)}">
+      <button class="nb-line ${iss[b.id] ? 'warn' : ''}" data-role="${e(b.id)}"><span>${e(roleName(b))}</span>${mediaHint(b)}</button>
       <div class="ed" contenteditable="true" spellcheck="true" data-id="${e(b.id)}">${(lines(b.text).length ? lines(b.text) : [{k: 'p', t: ''}]).map(l => lineHTML(l.k, l.t)).join('')}</div></section>`).join('')}
     </div>`;
   main.querySelectorAll('.ed').forEach(bindEd);
@@ -352,18 +379,16 @@ const bindEd = ed => {
 
 /* панель разметки над клавиатурой: вид строки и разделить блок */
 let fmtEl = null;
-const fmtBar = () => {
+const fmtBar = (into) => {
   if (fmtEl) fmtEl.remove();
   fmtEl = document.createElement('div'); fmtEl.className = 'fmt'; fmtEl.hidden = true;
+  /* роли строки — в шапке на месте названия, рядом ✓: клавиатура их не закрывает */
   fmtEl.innerHTML = `<div class="fmt-row">${KINDS.map(x => `<button data-k="${x.k}"><i>${e(x.g || 'Аа')}</i><span>${e(x.label)}</span></button>`).join('')}<button data-split><i>${I.cut}</i><span>Разделить</span></button></div>`;
-  document.body.appendChild(fmtEl);
+  const host = into || document.getElementById('eField'); (host || document.body).appendChild(fmtEl);
   fmtEl.addEventListener('pointerdown', ev => ev.preventDefault());
   fmtEl.querySelectorAll('[data-k]').forEach(x => x.onclick = () => { const ln = A.line; if (!ln || !ln.isConnected) return; setKind(ln, ln.dataset.k === x.dataset.k && x.dataset.k !== 'p' ? 'p' : x.dataset.k); sync(ln.closest('.ed')); fmtSync(); });
   fmtEl.querySelector('[data-split]').onclick = splitBlock;
-  if (touch) fmtEl.classList.add('top');
-  const vv = window.visualViewport, place = () => { if (vv && !touch) fmtEl.style.bottom = Math.max(0, innerHeight - vv.height - vv.offsetTop) + 'px'; };
-  if (vv) { vv.addEventListener('resize', () => { place(); fmtSync(); }); vv.addEventListener('scroll', place); } place();
-  document.addEventListener('focusout', () => setTimeout(fmtSync, 50));
+  if (!fmtBar.bound) { fmtBar.bound = true; document.addEventListener('focusout', () => setTimeout(fmtSync, 50)); }
 };
 const touch = matchMedia('(pointer: coarse)').matches;
 const keyboardOpen = () => { if (!touch) return true; const vv = window.visualViewport; return !!vv && innerHeight - vv.height > 120; };
@@ -374,11 +399,12 @@ const fmtSync = () => {
   const on = !!(ln && ed && ed.contains(ln) && A.view === 'edit');
   if (on) A.line = ln;
   fmtEl.hidden = !on; document.body.classList.toggle('typing', on);
+  const hd = document.getElementById('eHd'); if (hd && !A.sel) hd.classList.toggle('editing', on);
   const cur = (A.line && A.line.isConnected) ? A.line.dataset.k : '';
   fmtEl.querySelectorAll('[data-k]').forEach(x => x.classList.toggle('on', x.dataset.k === cur));
   const sp = fmtEl.querySelector('[data-split]'); sp.hidden = !!document.querySelector('.sh-wrap');
 };
-document.addEventListener('selectionchange', () => { const ln = curLine(); if (ln && ln.closest('.ed')) A.line = ln; fmtSync(); });
+document.addEventListener('selectionchange', () => { const ln = curLine(), live = !!(ln && ln.closest('.ed') && document.activeElement && document.activeElement.contains(ln)); document.querySelectorAll('.ln.cur').forEach(x => (x !== ln || !live) && x.classList.remove('cur')); if (live) { A.line = ln; ln.classList.add('cur'); } fmtSync(); });
 
 /* разделить блок по текущей строке: эта строка и ниже — новый блок */
 const splitBlock = () => {
@@ -425,10 +451,13 @@ const blockHTML0 = (b, p, t) => {
 };
 
 /* 2в. Страница: тот же текст в шаблонах */
+/* замечания по блокам: точка на блоке, сами тексты — на экране выгрузки */
+const issuesOf = p => { const m = {}; (G.checks(p) || []).forEach(c => { if (c.block && !(p.dismissed || []).includes(c.text)) (m[c.block.id] = m[c.block.id] || []).push(c); }); return m; };
 const canvas = () => {
   const p = A.page, main = $app.querySelector('#eMain');
-  main.innerHTML = `<div class="cv">${p.blocks.map(b => { const t = G.tpl(b.tpl), v = verdict(b);
-    return `<div class="cb ${A.sel === b.id ? 'sel' : ''} ${v.bad ? 'warn' : ''}" data-id="${e(b.id)}">${blockHTML(b, p, t)}</div>`; }).join('')}</div>`;
+  const iss = issuesOf(p);
+  main.innerHTML = `<div class="cv">${p.blocks.map(b => { const t = G.tpl(b.tpl);
+    return `<div class="cb ${A.sel === b.id ? 'sel' : ''} ${iss[b.id] ? 'warn' : ''}" data-id="${e(b.id)}" style="view-transition-name:b-${e(b.id)}">${blockHTML(b, p, t)}</div>`; }).join('')}</div>`;
   main.querySelectorAll('.cb').forEach(x => x.onclick = () => { A.sel = x.dataset.id; editor(); blockSheet(); });
 };
 
@@ -478,27 +507,40 @@ const blockSheet = () => {
 
 /* правка текста блока со страницы: тот же редактор строк — правка разметки */
 const textSheet = b => {
-  const s = sheet(`<div class="sh-h"><h2>${e(roleName(b))}</h2><button class="pill pri sm" data-close>Готово</button></div>
+  const s = sheet(`<div class="sh-h ts-h"><div class="ts-field"><h2>${e(roleName(b))}</h2></div><button class="ib round ok" data-close aria-label="Готово">${I.check}</button></div>
     <div class="sh-b"><div class="ed solo" contenteditable="true" spellcheck="true" data-id="${e(b.id)}">${(lines(b.text).length ? lines(b.text) : [{k: 'p', t: ''}]).map(l => lineHTML(l.k, l.t)).join('')}</div></div>`,
     {onClose: () => { if (!b.text.trim()) A.page.blocks = A.page.blocks.filter(x => x.id !== b.id); else repick(b); save(); A.sel = b.text.trim() ? b.id : null; if (fmtEl) fmtEl.hidden = true; editor(); if (A.sel) blockSheet(); }, cls: 'full'});
-  const ed = s.$('.ed'); bindEd(ed); fmtBar(); fmtEl.classList.add('over');
+  const ed = s.$('.ed'); bindEd(ed); fmtBar(s.$('.ts-field'));
   setTimeout(() => caretTo(ed.lastElementChild, ed.lastElementChild.textContent.length), 120);
 };
 
-/* 3. Выгрузка */
-const exportSheet = () => {
-  const p = A.page; G.autoPick(p);
-  const miss = G.missing(p);
-  const s = sheet(`<div class="sh-h"><h2>Выгрузка</h2><button class="ib" data-close aria-label="Закрыть">${I.x}</button></div>
-    <div class="sh-b"><div class="list">
-      <button class="row" id="xShare"><b>Поделиться текстом</b><small>В любой чат. Вставка этого текста в Гриди собирает ту же страницу.</small></button>
-      <button class="row" id="xZip"><b>Архив для вёрстки</b><small>Текст по полям, схема, ТЗ на картинки с именами слотов</small></button>
-    </div>
-    ${miss.length ? `<p class="lbl">Нужен дизайн · ${miss.length}</p><ul class="miss">${miss.map(m => `<li><b>${e(m.role.split(':')[0])}</b><small>${e(m.need || '')}</small></li>`).join('')}</ul>` : '<p class="hint">Для всех блоков есть шаблоны в админке.</p>'}
-    </div>`, {cls: 'tall'});
-  s.$('#xShare').onclick = async () => { const t = shareText(p); if (navigator.share && /Mobi|Android|iPhone/i.test(navigator.userAgent)) { try { await navigator.share({title: p.name, text: t}); return; } catch (err) { if (err.name === 'AbortError') return; } } await G.copy(t); toast('Текст страницы скопирован — вставьте в чат'); };
-  s.$('#xZip').onclick = async () => { try { await G.doExport(p); } catch (err) { toast(err.message); } };
+/* 3. Выгрузка: замечания плашками, «Поправить всё», передача */
+const exportView = () => {
+  const p = A.page; G.autoPick(p); p.dismissed = p.dismissed || [];
+  const order = {error: 0, warn: 1, info: 2}, miss = G.missing(p);
+  const all = G.checks(p).filter(c => !p.dismissed.includes(c.text)).sort((a, b) => order[a.level] - order[b.level]);
+  const el = document.createElement('div'); el.className = 'pv ex';
+  const draw = () => { const list = G.checks(p).filter(c => !p.dismissed.includes(c.text)).sort((a, b) => order[a.level] - order[b.level]);
+    el.innerHTML = `<header class="hd"><button class="ib round" id="xX" aria-label="Закрыть">${I.x}</button><div class="ttl"><b>Выгрузка</b><small>${e(sc().name)} · ${(G.len(p.blocks.map(x => x.text).join('')) / 1000).toFixed(1).replace('.0', '')}k знаков</small></div></header>
+      <main class="ex-b">
+        ${list.length ? `<p class="lbl">Замечания · ${list.length}</p><div class="checks">${list.map((c, k) => `<div class="ck ck-${c.level}"><button class="ck-t" data-i="${k}">${e(c.text)}</button><button class="ck-x" data-x="${k}" aria-label="Скрыть">${I.x}</button></div>`).join('')}</div>` : `<p class="ok-note">${I.check}Замечаний нет</p>`}
+        ${miss.length ? `<p class="lbl">Нужен дизайн · ${miss.length}</p><div class="checks">${miss.map(m => `<div class="ck ck-design"><span class="ck-t"><b>${e(m.role.split(':')[0])}</b> <span class="mono">${e(m.need || '')}</span></span></div>`).join('')}</div>` : ''}
+        <p class="lbl">Передать</p>
+        <div class="list"><button class="row" id="xShare"><b>Текстом в чат</b><small>Вставка этого текста в Гриди собирает ту же страницу</small></button>
+          <button class="row" id="xZip"><b>Архив для вёрстки</b><small>Текст по полям, схема, ТЗ на картинки с именами слотов</small></button></div>
+      </main>
+      ${list.some(c => c.fix && c.fix.adapt || /длиннее|адаптир/.test(c.text)) ? '<div class="dock"><button class="pill grad wide" id="xFix">Поправить всё</button></div>' : ''}`;
+    el.querySelector('#xX').onclick = close;
+    el.querySelectorAll('[data-x]').forEach(x => x.onclick = () => { p.dismissed.push(list[+x.dataset.x].text); save(); draw(); });
+    el.querySelectorAll('[data-i]').forEach(x => x.onclick = () => { const c = list[+x.dataset.i]; if (!c.block) return; close(); A.mode = 'page'; A.sel = c.block.id; A.jump = c.block.id; editor(); blockSheet(); });
+    el.querySelector('#xShare').onclick = async () => { const t = shareText(p); if (navigator.share && /Mobi|Android|iPhone/i.test(navigator.userAgent)) { try { await navigator.share({title: p.name, text: t}); return; } catch (err) { if (err.name === 'AbortError') return; } } await G.copy(t); toast('Текст страницы скопирован — вставьте в чат'); };
+    el.querySelector('#xZip').onclick = async () => { try { await G.doExport(p); } catch (err) { toast(err.message); } };
+    const fx = el.querySelector('#xFix'); if (fx) fx.onclick = async () => { try { const n = await G.runAdapt(p, 'fit', null, {}); if (n) { G.autoPick(p); save(); toast(`Поправлено блоков: ${n}`); draw(); } } catch (err) { if (err.message !== 'cancel') toast(err.message); } };
+  };
+  const close = () => morph(() => { el.remove(); document.body.classList.remove('noscroll'); editor(); }, 'pop');
+  morph(() => { draw(); document.body.appendChild(el); document.body.classList.add('noscroll'); }, 'push');
 };
+const exportSheet = exportView;
 
 /* ---------- старт ---------- */
 const st = document.createElement('style'); st.textContent = G.WIRE_CSS; document.head.appendChild(st);
