@@ -47,7 +47,8 @@ G.lib = {
     const loc = this.local(kind), out = [];
     for (const o of BUILT[kind]) {
       if (loc.removed.includes(o.id)) continue;
-      const li = loc.items[o.id] && loc.items[o.id]._base === BUILT_SETTINGS.version ? loc.items[o.id] : null;
+      /* правка участника сохраняется и после обновления библиотеки: новая version её не прячет */
+      const li = loc.items[o.id] || null;
       out.push(li ? {...li, _local: 'changed'} : {...o});
     }
     for (const id in loc.items) if (!BUILT[kind].some(o => o.id === id)) out.push({...loc.items[id], _local: 'new'});
@@ -107,10 +108,21 @@ DB.open = () => new Promise(res => {
   } catch (e) { DB.fallback = true; res(); }
 });
 const tx = (mode, fn) => new Promise((res, rej) => { const t = DB.db.transaction('pages', mode); const s = t.objectStore('pages'); const r = fn(s); t.oncomplete = () => res(r && r.result); t.onerror = () => rej(t.error); });
+/* формат хранения страницы: номер в самой странице. Поменяется формат — сюда добавляется шаг миграции,
+   старые страницы участников обновятся при открытии, а не сломаются.
+   Не переименовывать: базу 'gridi', хранилище 'pages', ключи 'gridi.*' — иначе у всех «пропадут» страницы. */
+G.SCHEMA = 1;
+G.migrate = p => {
+  if (!p) return p;
+  if (!p.schema) p.schema = 1;
+  /* шаблон блока ищется по id; если id сменился, а название осталось — по названию */
+  (p.blocks || []).forEach(b => { if (b.tpl && !G.tpl(b.tpl) && b.tplName) { const t = G.tplByName(b.tplName); if (t) b.tpl = t.id; } });
+  return p;
+};
 G.store = {
-  async list() { await DB.open(); if (DB.fallback) return Object.values(G.ls.get('pages', {})); return tx('readonly', s => s.getAll()); },
-  async get(id) { await DB.open(); if (DB.fallback) return G.ls.get('pages', {})[id] || null; return tx('readonly', s => s.get(id)); },
-  async put(p) { p.updated = Date.now(); await DB.open(); if (DB.fallback) { const a = G.ls.get('pages', {}); a[p.id] = p; G.ls.set('pages', a); return; } return tx('readwrite', s => s.put(G.clone(p))); },
+  async list() { await DB.open(); const a = DB.fallback ? Object.values(G.ls.get('pages', {})) : await tx('readonly', s => s.getAll()); return (a || []).map(G.migrate); },
+  async get(id) { await DB.open(); return G.migrate(DB.fallback ? G.ls.get('pages', {})[id] || null : await tx('readonly', s => s.get(id))); },
+  async put(p) { p.updated = Date.now(); p.schema = p.schema || G.SCHEMA; (p.blocks || []).forEach(b => { const t = b.tpl && G.tpl(b.tpl); if (t) b.tplName = t.name; }); await DB.open(); if (DB.fallback) { const a = G.ls.get('pages', {}); a[p.id] = p; G.ls.set('pages', a); return; } return tx('readwrite', s => s.put(G.clone(p))); },
   async del(id) { await DB.open(); if (DB.fallback) { const a = G.ls.get('pages', {}); delete a[id]; G.ls.set('pages', a); return; } return tx('readwrite', s => s.delete(id)); },
 };
 
@@ -142,11 +154,12 @@ G.parse = text => {
     } else if ((m = l.match(RX.meta))) {
       if (last === 'item' && item) item.meta = item.meta ? item.meta + ' · ' + m[1] : m[1]; else src.meta.push(m[1].trim());
     } else if ((m = l.match(RX.btn))) {
-      const [txt, url] = m[1].split(/\s+\|\s+(?=\S+$)/); if (url) src.urls.push(url);
-      /* ссылка «Читайте также: Название | адрес» — название в текст, начало до двоеточия — подпись кнопки */
-      const lk = /^\[(ссылка|link)\]/i.test(l) && txt.match(/^([^:]{2,24}):\s*(.+)$/);
-      if (lk && !(last === 'item' && item)) { src.paras.push(lk[2].trim()); src.cta.push(lk[1].trim()); }
-      else if (last === 'item' && item && !item.cta) item.cta = txt.trim(); else src.cta.push(txt.trim());
+      /* кнопка и ссылка — одно и то же: «Текст кнопки | адрес»; адрес — только если похож на ссылку */
+      const um = m[1].match(/^(.*?)\s+\|\s+((?:https?:\/\/|www\.|\/|#|mailto:|tel:)\S*)$/i);
+      const txt = (um ? um[1] : m[1]).trim(), url = um ? um[2] : '';
+      if (!txt) { /* пустая кнопка — не кнопка */ }
+      else if (last === 'item' && item && !item.cta) { item.cta = txt; item.url = url; }
+      else { src.cta.push(txt); src.urls[src.cta.length - 1] = url; }
     } else if ((m = l.match(RX.img))) { src.images.push(m[1].trim()); last = 'img'; }
     else if ((m = l.match(RX.item))) { item = {...G.splitItem(m[1]), meta: '', cta: ''}; src.items.push(item); last = 'item'; }
     else if (item && item._h) { item.text = item.text ? item.text + '\n' + l : l; last = 'item'; }
@@ -167,16 +180,16 @@ G.serialize = (s, opts = {}) => {
     if (i.h3) { o.push('[h3] ' + i.title); if (i.text) o.push(i.text); }
     else o.push('- ' + (i.title && i.text ? i.title + (i.sep || ' — ') + i.text : i.title || i.text));
     if (i.meta) o.push('@ ' + i.meta);
-    if (i.cta) o.push('[кнопка] ' + i.cta);
+    if (i.cta) o.push('[кнопка] ' + i.cta + (i.url ? ' | ' + i.url : ''));
   });
   (s.images || []).forEach(c => o.push('[картинка] ' + c));
-  (s.cta || []).forEach(c => o.push('[кнопка] ' + c));
+  (s.cta || []).forEach((c, k) => o.push('[кнопка] ' + c + ((s.urls || [])[k] ? ' | ' + s.urls[k] : '')));
   return o.join('\n');
 };
 G.src = b => { if (b._srcFor !== b.text) { b._src = G.parse(b.text); b._srcFor = b.text; } return b._src; };
 
 /* ---------- страница ---------- */
-G.newPage = (name, scenarioId, text) => ({id: G.uid('p'), name: name || 'Без названия', scenario: scenarioId, text: text || '', blocks: [], story: [], created: Date.now(), updated: Date.now()});
+G.newPage = (name, scenarioId, text) => ({schema: G.SCHEMA, id: G.uid('p'), name: name || 'Без названия', scenario: scenarioId, text: text || '', blocks: [], story: [], created: Date.now(), updated: Date.now()});
 G.newBlock = (role, text = '') => ({id: G.uid(), role, text, tpl: null, tplLock: false, values: null, valuesFor: '', valuesBy: '', images: {}, tips: []});
 G.stale = () => false; /* значений отдельно от текста больше нет */
 G.paras = (text, max) => { const out = []; let n = 0; for (const l of String(text || '').split(/\n+/).map(x => x.trim()).filter(Boolean)) { if (max && n + l.length > max) break; out.push(l); n += l.length; } return out; };

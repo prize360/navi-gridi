@@ -254,7 +254,7 @@ G.htmlToMarkup = html => {
     if (tag === 'tr') return out.push([...n.children].map(c => c.textContent.replace(/\s+/g, ' ').trim()).join(' | '));
     if (tag === 'p' || tag === 'div' && !n.querySelector('p,div,li,h1,h2,h3,table,img')) {
       const x = t(), a = n.querySelector('a[href]');
-      if (x && a && a.textContent.trim().length >= x.length / 2) out.push('[ссылка] ' + x + ' | ' + a.getAttribute('href'));
+      if (x && a && a.textContent.trim().length >= x.length / 2) out.push('[кнопка] ' + x + ' | ' + a.getAttribute('href'));
       else if (x) out.push(x);
       n.querySelectorAll('img').forEach(walk); return;
     }

@@ -247,7 +247,7 @@ G.valuesToMarkup = (b, t, v) => {
     if (me) out.push((ti || tx ? '@ ' : '- ') + me);
     if (bt) out.push('[кнопка] ' + bt);
   });
-  top.filter(f => f.role === 'btn' && has(get(f))).forEach((f, i) => { const u = s.urls[i]; out.push(u ? `[ссылка] ${get(f)} | ${u}` : '[кнопка] ' + get(f)); });
+  top.filter(f => f.role === 'btn' && has(get(f))).forEach((f, i) => { const u = s.urls[i]; out.push(u ? `[кнопка] ${get(f)} | ${u}` : '[кнопка] ' + get(f)); });
   return out.join('\n');
 };
 /* правка полей = правка текста: поля переводятся в разметку и записываются в текст блока */
