@@ -128,10 +128,24 @@ G.normSplit = (json, P) => {
   const blocks = (json.blocks || []).map(b0 => {
     const b = {...b0}, ty = String(b.type || 'text').toLowerCase();
     if (!KNOWN.has(ty)) { b.type = TYPE_ALIAS[ty] || 'text'; notes.push(ty); } else b.type = ty;
-    /* заголовок текстом: title/h с текстом → номер строки */
-    for (const k of ['title', 'h']) if (b[k] && !/^[\d,\s-]+$/.test(String(b[k]))) { const n = byText(b[k], b); if (k === 'title' || n) { if (n && !b.h_) b.h_ = n; if (k === 'h') delete b.h; } }
-    if (b.h_) { if (!b.h || !/^[\d,\s-]+$/.test(String(b.h))) b.h = b.h_; delete b.h_; }
-    delete b.title;
+    const isNum = v => /^[\d,\s-]+$/.test(String(v));
+    /* заголовок: номером в title или текстом в title/h → номер строки в h */
+    if (b.title != null && b.title !== '' && !b.h) b.h = isNum(b.title) ? String(b.title) : byText(b.title, b);
+    if (b.h && !isNum(b.h)) b.h = byText(b.h, b);
+    /* meta, author и т. п. номерами — строки того же блока */
+    if (b.meta && isNum(b.meta)) b.paras = [b.meta, b.paras].filter(Boolean).join(',');
+    /* пункты {title, p}: заголовок пункта текстом или номером → h */
+    if (Array.isArray(b.items)) b.items = b.items.map(it => {
+      if (typeof it !== 'object') return it;
+      const h = it.h || (it.title != null && it.title !== '' ? (isNum(it.title) ? String(it.title) : byText(it.title, {paras: it.p})) : '');
+      const pp = String(it.p || it.paras || '');
+      return {h: h && isNum(h) && h !== pp ? h : '', p: pp};
+    });
+    /* пункты без своих заголовков — обычный список номеров строк */
+    if (Array.isArray(b.items) && b.items.every(it => typeof it === 'object' && !it.h)) b.items = b.items.map(it => it.p).filter(Boolean).join(',');
+    if (b.items && b.items.length && (b.type === 'text' || b.type === 'short')) b.type = 'list';
+    /* текст, написанный моделью (lead, text, meta строкой), в разбор не берём — только номера строк */
+    for (const k of ['title', 'lead', 'text', 'meta']) delete b[k];
     return b;
   });
   if (notes.length) json = {...json, _alias: [...new Set(notes)]};
@@ -141,6 +155,8 @@ G.fixSplit = (json, P, R) => {
   R = R || P; /* R — строки с маркерами разметки ([h3], «- »), P — без них */
   json = G.normSplit(json, P);
   const blocks = (json.blocks || []).map(b => ({...b})), used = new Set();
+  const hd = blocks.find(b => b.type === 'head');
+  if (hd) { const lo = Math.min(...refs(hd.paras, P), Infinity); const pre = []; for (let i = 1; i < lo && i < 4; i++) if (!blocks.some(b => b !== hd && [b.h, b.paras, b.items].some(v => refs(typeof v === 'string' ? v : '', P).includes(i)))) pre.push(i); if (pre.length) hd.paras = [...pre, ...refs(hd.paras, P)].join(','); }
   const toc = tocLines(R);
   R.forEach((l, n) => { if (/^\[картинка\]\s*(shape|img|image|picture|decor|icon|banner)?[-_ ]?(img|image)?\s*$/i.test(l)) toc.push(n + 1); });
   toc.sort((x, y) => x - y); toc.forEach(i => used.add(i));
@@ -182,6 +198,12 @@ G.fixSplit = (json, P, R) => {
       cur.ps.push(i);
     }
     flush();
+  }
+  /* модель разрезала список по пункту на блок: соседние блоки из одних пунктов без своего заголовка — один list */
+  const liOnly = b => { const ps = [...refs(b.paras, P), ...(typeof b.items === 'string' ? refs(b.items, P) : [])]; return ps.length && !Array.isArray(b.items) && ps.every(isLi) ? ps : null; };
+  for (let k = res.length - 1; k > 0; k--) {
+    const a = res[k - 1], c = res[k], pa = (a.type === 'list' || a.type === 'text') && liOnly(a), pc = (c.type === 'list' || c.type === 'text') && !c.h && liOnly(c);
+    if (pa && pc) { res[k - 1] = {type: 'list', h: a.h || '', items: [...pa, ...pc].join(',')}; res.splice(k, 1); }
   }
   /* правила без модели */
   for (const b of res) {
