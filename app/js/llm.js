@@ -269,8 +269,14 @@ G.applySeg = (page, json) => {
     }
     headOnly();
   } else {
-    for (const x of json.blocks || []) {
-      const role = roles.includes(x.role || x.slot) ? (x.role || x.slot) : 'about';
+    for (const x0 of json.blocks || []) {
+      /* страховка ответа лендинга: слот в type/id/role, items строкой с JSON, номера вместо текста в title/meta/lead */
+      const x = {...x0}, num = v => /^[\d,\s-]+$/.test(String(v || ''));
+      if (typeof x.items === 'string' && /^\s*\[/.test(x.items)) { try { x.items = JSON.parse(x.items); } catch (e) {} }
+      for (const k of ['title', 'meta', 'lead']) if (x[k] && num(x[k])) x[k] = txt(x[k], P);
+      if (Array.isArray(x.items)) x.items = x.items.map(i => typeof i === 'object' ? {...i, title: num(i.title) ? txt(i.title, P) : i.title, text: num(i.text) ? txt(i.text, P) : i.text} : i);
+      const slot = [x.slot, x.role, x.type, x.id].find(v => roles.includes(v));
+      const role = slot || (roles.includes('about') ? 'about' : roles.find(r => r !== 'hero' && r !== 'cta') || roles[0]);
       let items = [];
       if (typeof x.items === 'string') items = refs(x.items, P).map(i => G.splitItem(P[i - 1]));
       else items = (x.items || []).map(i => ({title: i.title || '', text: i.p ? txt(i.p, P) : i.text || '', meta: i.meta || '', cta: i.cta || ''}));
