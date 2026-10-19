@@ -111,7 +111,7 @@ const tocLines = P => {
   return out;
 };
 /* абзац, который отсылает к другому материалу, — cta: «Подробнее — в материале», «…— здесь», «в разделе дайджестов» */
-const REF = /(^(читайте|читать|смотрите) также(?![а-яё])|подробнее\s*[—–-]?\s*(в|на|здесь|по ссылке)(?![а-яё])|[—–-]\s*здесь\.?$|(^|\s)в разделе(?![а-яё])|полная версия(?![а-яё])|^узнать (больше|подробнее)(?![а-яё])|^\[ссылка\])/i;
+const REF = /(^(читайте|читать|смотрите) также(?![а-яё])|подробнее\s*[—–-]?\s*(в|на|здесь|по ссылке)(?![а-яё])|[—–-]\s*здесь\.?$|(^|\s)в разделе(?![а-яё])|полная версия(?![а-яё])|^узнать (больше|подробнее)(?![а-яё])|^\[ссылка\](?!\s*источник))/i;
 /* ответ не в том формате (так бывает у GigaChat): чужие типы и заголовок текстом вместо номера */
 const TYPE_ALIAS = {content: 'text', body: 'text', paragraph: 'text', vrez: 'text', lead: 'head', header: 'head', hero: 'head', title: 'head', h2: 'text', banner: 'cta', link: 'cta', button: 'cta', picture: 'image', chart: 'image', infographic: 'image', accordion: 'faq', citation: 'quote', speakers: 'list', people: 'list', cards: 'list'};
 const KNOWN = new Set(['head', 'text', 'short', 'list', 'quote', 'number', 'table', 'faq', 'cta', 'image', 'skip']);
@@ -185,6 +185,20 @@ G.fixSplit = (json, P, R) => {
   const isH = i => /^\[h[2-4]\]/i.test(R[i - 1] || ''), isLi = i => /^(?:[-–•*]|\d+[.)])\s+/.test(R[i - 1] || '');
   const res = [];
   for (const b of out) {
+    const isRef = i => /^\[ссылка\]/i.test(R[i - 1] || '') && REF.test(P[i - 1] || '');
+    /* отсылка («Читайте также», «Подробнее — в материале») внутри склеенного списка или текста — отдельный cta */
+    if (['list', 'text', 'cta'].includes(b.type) && !Array.isArray(b.items)) {
+      const all = [...refs(b.paras, P), ...(typeof b.items === 'string' ? refs(b.items, P) : [])].sort((x, y) => x - y);
+      /* cta, в который модель затянула соседний список, — тоже разделяем */
+      if (all.length > 1 && all.some(isRef) && (b.type !== 'cta' || all.some(isLi))) {
+        const keep = all.filter(i => !isRef(i)), rf = all.filter(isRef);
+        if (b.type === 'cta') { b.type = keep.every(isLi) ? 'list' : 'text'; delete b.button; }
+        if (b.type === 'list') { b.items = keep.filter(isLi).join(','); b.paras = keep.filter(i => !isLi(i)).join(','); } else b.paras = keep.join(',');
+        if (keep.length || b.h) res.push(b);
+        rf.forEach(i => res.push({type: 'cta', paras: String(i), button: String(i)}));
+        continue;
+      }
+    }
     if (b.type !== 'text') { res.push(b); continue; }
     const ps = refs(b.paras, P);
     if (!ps.some(i => isH(i) || isLi(i))) { res.push(b); continue; }
@@ -230,7 +244,9 @@ G.applySeg = (page, json) => {
     const R = G.paras(page.text, sc.maxText);
     json = G.fixSplit(json, P, R);
     /* уровень заголовка из разметки: [h3] остаётся h3, а не становится h2 */
-    const lv = n => { const m = String(R[(+String(n).split(',')[0]) - 1] || '').match(/^\[(h[1-4])\]/i); return m ? m[1].toLowerCase() : ''; };
+    /* заголовок без разметки (жирный абзац «Шаг 1. …») внутри раздела — подзаголовок h3, до первого H2 — h2 */
+    let inSection = false;
+    const lv = n => { const m = String(R[(+String(n).split(',')[0]) - 1] || '').match(/^\[(h[1-4])\]/i); const l = m ? m[1].toLowerCase() : inSection ? 'h3' : 'h2'; if (l === 'h2') inSection = true; return l; };
     /* H2 раздела — отдельный блок, если под ним сразу свой подзаголовок */
     let pending = null, firstText = true;
     const headOnly = () => { if (pending) blocks.push(G.newBlock('content', G.serialize({title: pending.t, level: pending.lv || 'h2'}))); pending = null; };
