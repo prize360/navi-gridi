@@ -102,9 +102,18 @@ const sheet = (html, {onClose, cls = ''} = {}) => {
     close: (silent) => { if (h.closed) return; h.closed = true; root.classList.remove('on'); setTimeout(() => root.remove(), 220); if (!silent && onClose) onClose(); }};
   root.querySelector('.sh-dim').onclick = () => h.close();
   root.querySelectorAll('[data-close]').forEach(x => x.onclick = () => h.close());
-  let y0 = null; const grab = root.querySelector('.sh-grab');
-  grab.addEventListener('pointerdown', ev => { y0 = ev.clientY; grab.setPointerCapture(ev.pointerId); });
-  grab.addEventListener('pointerup', ev => { if (y0 != null && ev.clientY - y0 > 40) h.close(); y0 = null; });
+  /* шторка тянется за ручку и шапку: вниз — свернуть или закрыть, вверх — на весь экран */
+  const sh = root.querySelector('.sh'), grips = [root.querySelector('.sh-grab'), root.querySelector('.sh-h')].filter(Boolean);
+  /* сначала компактно; на весь экран сразу — только правка текста */
+  let y0 = null, dy = 0, moved = false, fromGrab = false;
+  const down = ev => { if (ev.target.closest('button,input,textarea,a,label')) return; y0 = ev.clientY; dy = 0; moved = false; fromGrab = ev.currentTarget.classList.contains('sh-grab'); sh.classList.add('drag'); ev.currentTarget.setPointerCapture(ev.pointerId); };
+  const move = ev => { if (y0 == null) return; dy = ev.clientY - y0; if (Math.abs(dy) > 4) moved = true;
+    sh.style.transform = dy > 0 ? `translateY(${dy}px)` : ''; if (dy < 0 && !sh.classList.contains('full')) sh.style.height = Math.min(innerHeight * .92, sh.offsetHeight - dy * .15 + 0) + 'px'; };
+  const up = () => { if (y0 == null) return; sh.classList.remove('drag'); sh.style.transform = ''; sh.style.height = ''; y0 = null;
+    if (!moved) { if (fromGrab) sh.classList.toggle('full'); return; }
+    if (dy < -50) sh.classList.add('full');
+    else if (dy > 80) { if (sh.classList.contains('full') && dy < 260) sh.classList.remove('full'); else h.close(); } };
+  grips.forEach(g => { g.addEventListener('pointerdown', down); g.addEventListener('pointermove', move); g.addEventListener('pointerup', up); g.addEventListener('pointercancel', up); });
   return h;
 };
 const busy = (label, {limit = 180} = {}) => {
@@ -452,7 +461,7 @@ const blockSheet = () => {
 const textSheet = b => {
   const s = sheet(`<div class="sh-h"><h2>${e(roleName(b))}</h2><button class="pill pri sm" data-close>Готово</button></div>
     <div class="sh-b"><div class="ed solo" contenteditable="true" spellcheck="true" data-id="${e(b.id)}">${(lines(b.text).length ? lines(b.text) : [{k: 'p', t: ''}]).map(l => lineHTML(l.k, l.t)).join('')}</div></div>`,
-    {onClose: () => { if (!b.text.trim()) A.page.blocks = A.page.blocks.filter(x => x.id !== b.id); else repick(b); save(); A.sel = b.text.trim() ? b.id : null; if (fmtEl) fmtEl.hidden = true; editor(); if (A.sel) blockSheet(); }, cls: 'tall'});
+    {onClose: () => { if (!b.text.trim()) A.page.blocks = A.page.blocks.filter(x => x.id !== b.id); else repick(b); save(); A.sel = b.text.trim() ? b.id : null; if (fmtEl) fmtEl.hidden = true; editor(); if (A.sel) blockSheet(); }, cls: 'full'});
   const ed = s.$('.ed'); bindEd(ed); fmtBar(); fmtEl.classList.add('over');
   setTimeout(() => caretTo(ed.lastElementChild, ed.lastElementChild.textContent.length), 120);
 };
