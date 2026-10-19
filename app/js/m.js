@@ -204,7 +204,7 @@ const settings = () => {
 
 /* 2. Редактор */
 const editor = () => {
-  const p = A.page, b = A.sel && p.blocks.find(x => x.id === A.sel), v = b && verdict(b);
+  const y0 = scrollY, p = A.page, b = A.sel && p.blocks.find(x => x.id === A.sel), v = b && verdict(b);
   const miss = p.blocks.length ? G.missing(p).length : 0;
   const title = b ? `<b>${e(roleName(b))}</b><small class="${v.bad ? 'bad' : ''}">${e(v.txt)}</small>` : `<b>${e(p.name)}</b><small>${e(sc().name)}${p.blocks.length ? ' · ' + (G.len(p.blocks.map(x => x.text).join('')) / 1000).toFixed(1).replace('.0', '') + 'k знаков' : ''}</small>`;
   $app.innerHTML = `<header class="hd"><button class="ib round" id="eBack" aria-label="Назад">${I.back}</button><button class="ttl" id="eTtl">${title}</button>
@@ -219,6 +219,8 @@ const editor = () => {
   if (!p.blocks.length) return draft();
   A.mode === 'note' ? notes() : canvas();
   checksBar(); island();
+  /* перерисовка не сбрасывает положение; прокрутка к блоку — только когда к нему переходят */
+  if (A.jump) { const el = $app.querySelector(`[data-id="${A.jump}"]`); el && el.scrollIntoView({block: 'center'}); A.jump = null; } else scrollTo(0, y0);
 };
 /* нижний островок: текст ↔ шаблоны и новый блок */
 const island = () => {
@@ -242,7 +244,7 @@ const checksBar = () => {
   main.prepend(box);
   box.querySelectorAll('[data-x]').forEach(x => x.onclick = () => { p.dismissed.push(shown[+x.dataset.x].text); save(); box.remove(); checksBar(); });
   box.querySelectorAll('[data-i]').forEach(x => x.onclick = () => { const c = shown[+x.dataset.i]; if (!c.block) return;
-    if (A.mode === 'page') { A.sel = c.block.id; editor(); blockSheet(); }
+    if (A.mode === 'page') { A.sel = c.block.id; A.jump = c.block.id; editor(); blockSheet(); }
     else { const el = $app.querySelector(`.nb[data-id="${c.block.id}"]`); el && el.scrollIntoView({block: 'start', behavior: 'smooth'}); } });
   const mo = box.querySelector('#ckMore'); if (mo) mo.onclick = () => { A.checksOpen = !open; box.remove(); checksBar(); };
 };
@@ -358,7 +360,8 @@ const fmtBar = () => {
   fmtEl.addEventListener('pointerdown', ev => ev.preventDefault());
   fmtEl.querySelectorAll('[data-k]').forEach(x => x.onclick = () => { const ln = A.line; if (!ln || !ln.isConnected) return; setKind(ln, ln.dataset.k === x.dataset.k && x.dataset.k !== 'p' ? 'p' : x.dataset.k); sync(ln.closest('.ed')); fmtSync(); });
   fmtEl.querySelector('[data-split]').onclick = splitBlock;
-  const vv = window.visualViewport, place = () => { if (vv) fmtEl.style.bottom = Math.max(0, innerHeight - vv.height - vv.offsetTop) + 'px'; };
+  if (touch) fmtEl.classList.add('top');
+  const vv = window.visualViewport, place = () => { if (vv && !touch) fmtEl.style.bottom = Math.max(0, innerHeight - vv.height - vv.offsetTop) + 'px'; };
   if (vv) { vv.addEventListener('resize', () => { place(); fmtSync(); }); vv.addEventListener('scroll', place); } place();
   document.addEventListener('focusout', () => setTimeout(fmtSync, 50));
 };
@@ -368,7 +371,7 @@ const fmtSync = () => {
   if (!fmtEl || !fmtEl.isConnected) return;
   const ln = curLine(), ed = document.activeElement && document.activeElement.closest && document.activeElement.closest('.ed');
   /* панель — только пока редактируешь: курсор в тексте и, на телефоне, открыта клавиатура */
-  const on = !!(ln && ed && ed.contains(ln) && A.view === 'edit' && keyboardOpen());
+  const on = !!(ln && ed && ed.contains(ln) && A.view === 'edit');
   if (on) A.line = ln;
   fmtEl.hidden = !on; document.body.classList.toggle('typing', on);
   const cur = (A.line && A.line.isConnected) ? A.line.dataset.k : '';
@@ -398,7 +401,7 @@ const blockMenu = id => {
   const mv = d => { p.blocks.splice(i, 1); p.blocks.splice(i + d, 0, b); save(); s.close(); render(); const el = $app.querySelector(`[data-id="${b.id}"]`); el && el.scrollIntoView({block: 'center'}); };
   const mu = s.$('#bmMvU'); if (mu) mu.onclick = () => mv(-1);
   const md2 = s.$('#bmMvD'); if (md2) md2.onclick = () => mv(1);
-  s.$('#bmTpl').onclick = () => { s.close(); A.mode = 'page'; G.autoPick(p); A.sel = b.id; editor(); blockSheet(); };
+  s.$('#bmTpl').onclick = () => { s.close(); A.mode = 'page'; G.autoPick(p); A.sel = b.id; A.jump = b.id; editor(); blockSheet(); };
   s.$$('#bmR .chip').forEach(c => c.onclick = () => { b.role = c.dataset.r; b.tplLock = false; repick(b); save(); s.close(); render(); });
   const up = s.$('#bmUp'); if (up) up.onclick = () => { const pr = p.blocks[i - 1]; pr.text = [pr.text, b.text].filter(Boolean).join('\n'); pr.tplLock = false; p.blocks.splice(i, 1); repick(pr); save(); s.close(); render(); };
   s.$('#bmDel').onclick = () => sure(s.$('#bmDel'), 'Удалить вместе с текстом', () => { p.blocks.splice(i, 1); save(); s.close(); A.sel = null; render(); });
@@ -427,25 +430,36 @@ const canvas = () => {
   main.innerHTML = `<div class="cv">${p.blocks.map(b => { const t = G.tpl(b.tpl), v = verdict(b);
     return `<div class="cb ${A.sel === b.id ? 'sel' : ''} ${v.bad ? 'warn' : ''}" data-id="${e(b.id)}">${blockHTML(b, p, t)}</div>`; }).join('')}</div>`;
   main.querySelectorAll('.cb').forEach(x => x.onclick = () => { A.sel = x.dataset.id; editor(); blockSheet(); });
-  if (A.sel) { const el = main.querySelector(`.cb[data-id="${A.sel}"]`); el && el.scrollIntoView({block: 'center'}); }
 };
 
 /* шторка блока: промты, подходящие шаблоны, текст, картинка */
+const tplLabel = t => { const c = t.ctor; if (!c) return t.name; const q = c.p || {}, o = [];
+  if (q.n) o.push(q.n + (c.type === 'Карточки' ? ' в ряд' : ''));
+  if (q.pos) o.push({Lt: 'слева', Rt: 'справа', Ct: 'по центру', Bg: 'на фоне'}[q.pos] || q.pos);
+  if (q.media && q.media !== 'нет') o.push({I: 'иконки', A: 'фото', L: 'большая картинка', M: 'картинка', S: 'малая картинка'}[q.media] || q.media);
+  if (+q.btn) o.push(q.btn === '1' ? 'кнопка' : q.btn + ' кнопки'); if (q.ibtn === 'да') o.push('кнопки у карточек');
+  return {name: c.type, sub: o.join(' · ')}; };
 const blockSheet = () => {
   const p = A.page, b = p.blocks.find(x => x.id === A.sel); if (!b) return;
   const fit = G.prompt('fit'), ps = [fit, ...G.lib.all('prompts').filter(x => x.stage === 'adapt' && !x.system && x.id !== 'fit')].filter(Boolean);
-  const ranked = G.rank(b, p).slice(0, 8);
-  const tierOf = r => G.TIERS[r.tier || 0] || '';
-  const s = sheet(`<div class="sh-b">
-      <div class="chips scroll" id="bsP"><button class="chip" id="bsText">${I.pen}Текст</button>${ps.map(x => `<button class="chip" data-p="${e(x.id)}">${e(x.id === 'fit' ? 'Уложить в шаблон' : x.name)}</button>`).join('')}</div>
-      <p class="lbl">Шаблон</p>
-      <div class="tvs">${ranked.map(r => `<button class="tv ${r.t.id === b.tpl ? 'on' : ''}" data-t="${e(r.t.id)}"><div class="tv-pv">${blockHTML(b, p, r.t)}</div><span class="tv-n">${e(r.t.name)}</span><span class="tv-v ${(r.tier || 0) >= 2 || !G.isLive(r.t) ? 'bad' : ''}">${e(tierOf(r))}${!G.isLive(r.t) ? ' · нужен дизайн' : ''}</span></button>`).join('') || '<p class="hint">Подходящих шаблонов нет — поправьте разметку блока.</p>'}</div>
-      <div class="list"><button class="row" id="bsRole">Роль: ${e(roleName(b))}</button></div>
-      <div class="mv"><button class="pill sm ghost" id="bsU" ${p.blocks.indexOf(b) ? '' : 'disabled'}>${I.up}Выше</button><button class="pill sm ghost" id="bsD" ${p.blocks.indexOf(b) < p.blocks.length - 1 ? '' : 'disabled'}>${I.down}Ниже</button></div>
+  const ranked = G.rank(b, p).slice(0, 8), i = p.blocks.indexOf(b);
+  const card = r => { const l = tplLabel(r.t), bad = (r.tier || 0) >= 2 || !G.isLive(r.t);
+    return `<button class="tc ${r.t.id === b.tpl ? 'on' : ''}" data-t="${e(r.t.id)}"><div class="tc-pv">${blockHTML(b, p, r.t)}</div>
+      <span class="tc-n">${e(l.name || l)}${r.t.id === b.tpl ? `<i>${I.check}</i>` : ''}</span><span class="tc-s">${e(l.sub || '')}</span>
+      ${bad ? `<span class="tc-w">${e(!G.isLive(r.t) ? 'нужен дизайн' : G.TIERS[r.tier].toLowerCase())}</span>` : ''}</button>`; };
+  const s = sheet(`<div class="bs-h"><button class="bs-a" id="bsText" aria-label="Текст">${I.pen}<span>Текст</span></button>
+      <button class="bs-a" id="bsU" ${i ? '' : 'disabled'} aria-label="Выше">${I.up}<span>Выше</span></button>
+      <button class="bs-a" id="bsD" ${i < p.blocks.length - 1 ? '' : 'disabled'} aria-label="Ниже">${I.down}<span>Ниже</span></button>
+      <button class="bs-a" id="bsRole" aria-label="Блок">${I.dots}<span>Блок</span></button></div>
+    <div class="sh-b"><p class="lbl">Шаблон · подходят по тексту</p>
+      <div class="tgrid">${ranked.map(card).join('') || '<p class="hint">Подходящих шаблонов нет — поправьте разметку блока.</p>'}</div>
+      <p class="lbl">Переписать текст</p>
+      <div class="chips">${ps.map(x => `<button class="chip" data-p="${e(x.id)}">${e(x.id === 'fit' ? 'Уложить в шаблон' : x.name)}</button>`).join('')}</div>
     </div>`, {onClose: () => { A.sel = null; editor(); }, cls: 'block'});
+  requestAnimationFrame(() => s.$$('.tc-pv').forEach(x => x.style.setProperty('--k', x.clientWidth / 560)));
   s.$('#bsText').onclick = () => { s.close(true); textSheet(b); };
   s.$('#bsRole').onclick = () => { s.close(true); blockMenu(b.id); };
-  const mvb = d => { const i = p.blocks.indexOf(b), j = i + d; if (j < 0 || j >= p.blocks.length) return; p.blocks.splice(i, 1); p.blocks.splice(j, 0, b); save(); s.close(true); editor(); blockSheet(); };
+  const mvb = d => { const k = p.blocks.indexOf(b), j = k + d; if (j < 0 || j >= p.blocks.length) return; p.blocks.splice(k, 1); p.blocks.splice(j, 0, b); save(); s.close(true); A.jump = b.id; editor(); blockSheet(); };
   s.$('#bsU').onclick = () => mvb(-1); s.$('#bsD').onclick = () => mvb(1);
   s.$$('[data-p]').forEach(c => c.onclick = async () => {
     const pr = G.prompt(c.dataset.p); let vals = {};
@@ -454,7 +468,12 @@ const blockSheet = () => {
     try { const n = await G.runAdapt(p, pr.id, [b.id], vals); if (n) { repick(b); save(); toast(`«${pr.name}»: текст блока обновлён — и в заметке тоже`); s.close(true); editor(); blockSheet(); } }
     catch (err) { if (err.message !== 'cancel') toast(err.message); }
   });
-  s.$$('[data-t]').forEach(c => c.onclick = () => { b.tpl = c.dataset.t; b.tplLock = true; b.values = null; save(); s.close(true); editor(); blockSheet(); });
+  /* выбор шаблона: шторка остаётся открытой, страница под ней обновляется на месте */
+  s.$$('[data-t]').forEach(c => c.onclick = () => { b.tpl = c.dataset.t; b.tplLock = true; b.values = null; save();
+    s.$$('[data-t]').forEach(x => { x.classList.toggle('on', x === c); const n = x.querySelector('.tc-n i'); if (n) n.remove(); });
+    c.querySelector('.tc-n').insertAdjacentHTML('beforeend', `<i>${I.check}</i>`);
+    const el = $app.querySelector(`.cb[data-id="${b.id}"]`); if (el) el.innerHTML = blockHTML(b, p);
+    const v = verdict(b), sm = $app.querySelector('#eTtl small'); if (sm) { sm.textContent = v.txt; sm.classList.toggle('bad', v.bad); } });
 };
 
 /* правка текста блока со страницы: тот же редактор строк — правка разметки */

@@ -194,3 +194,19 @@ body.noscroll{overflow:hidden}
 .dock-row{display:flex;gap:8px}.dock-row .pill.grad{flex:1}.dock-row a.pill{text-decoration:none;color:var(--ink);background:var(--card);border-color:var(--line)}
 /* ряды одного блока: без зазора, как один блок */
 .wf-row-next>section{padding-top:0!important}
+
+/* панель разметки на телефоне — сверху: внутри рамки клавиатура её не перекрывает */
+.fmt.top{top:0;bottom:auto!important;padding-top:calc(6px + env(safe-area-inset-top,0px));border-top:0;border-bottom:1px solid var(--line)}
+/* шторка блока: действия иконками, шаблоны сеткой — как каталог */
+.bs-h{display:flex;gap:6px;padding:0 12px 10px}
+.bs-a{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 4px;border-radius:14px;background:var(--soft);font-size:12px;font-weight:500;color:var(--ink)}
+.bs-a svg{width:20px;height:20px}.bs-a:disabled{opacity:.35}
+.tgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.tc{display:flex;flex-direction:column;align-items:flex-start;text-align:left;gap:2px;min-width:0}
+.tc-pv{width:100%;aspect-ratio:4/3;overflow:hidden;border-radius:12px;background:#fff;border:1.5px dashed var(--line);position:relative}
+.tc.on .tc-pv{border:2.5px solid var(--ink)}
+.tc-pv .wf-page{width:560px;transform:scale(var(--k,.3));transform-origin:0 0;pointer-events:none}
+.tc-n{display:flex;align-items:center;gap:4px;font-size:14px;font-weight:600;margin-top:4px}
+.tc-n i{display:inline-flex;width:18px;height:18px;border-radius:50%;background:var(--ink);color:#fff;align-items:center;justify-content:center}.tc-n i svg{width:12px;height:12px;stroke-width:2.6}
+.tc-s{font-size:12px;color:var(--mute);line-height:1.3}
+.tc-w{font-size:12px;color:var(--bad);font-weight:500}
