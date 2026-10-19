@@ -23,6 +23,7 @@ const I = {
   eye: '<svg viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
   up: '<svg viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></svg>',
   down: '<svg viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></svg>',
+  img: '<svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M20 16l-5-5-8 8"/></svg>',
   dots: '<svg viewBox="0 0 24 24"><circle cx="6" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="18" cy="12" r="1.4"/></svg>',
 };
 
@@ -57,6 +58,18 @@ const mkLine = (k, t) => { const d = document.createElement('div'); d.className 
 const setKind = (d, k) => { d.dataset.k = k; d.dataset.g = (KIND[k] || KIND.p).g; };
 
 /* ---------- страница ---------- */
+/* замечания считаются один раз на состояние страницы: бейдж, точки и экран выгрузки берут одно и то же */
+const report = p => {
+  const key = p.scenario + '|' + p.blocks.map(b => b.id + ':' + b.tpl + ':' + b.role + ':' + b.text.length + ':' + G.len(b.text.slice(0, 40))).join('|') + '|' + (p.dismissed || []).length;
+  if (p._rep && p._rep.key === key) return p._rep;
+  const dis = p.dismissed || [], checks = G.checks(p).filter(c => !dis.includes(c.text) && !/^Нави /.test(c.text));
+  const order = {error: 0, warn: 1, info: 2}; checks.sort((a, b) => order[a.level] - order[b.level]);
+  const missing = G.missing(p), byBlock = {};
+  checks.forEach(c => { if (c.block) (byBlock[c.block.id] = byBlock[c.block.id] || []).push(c); });
+  missing.forEach(m => { (byBlock[m.b.id] = byBlock[m.b.id] || []).push({level: 'design', text: 'нужен дизайн'}); });
+  Object.defineProperty(p, '_rep', {value: {key, checks, missing, byBlock, count: checks.length + missing.length}, configurable: true, writable: true, enumerable: false});
+  return p._rep;
+};
 const sc = () => G.scenario(A.page.scenario);
 const roleName = b => { const n = G.roleOf(sc(), b.role).name || b.role; return n.split(':')[0]; };
 const defRole = () => { const s = sc(); return s.kind === 'article' ? 'content' : ((s.roles || []).find(r => r.id !== 'hero' && r.id !== 'cta') || {id: 'about'}).id; };
@@ -94,26 +107,27 @@ const toast = text => {
   let box = document.querySelector('.toasts'); if (!box) { box = document.createElement('div'); box.className = 'toasts'; box.setAttribute('role', 'status'); document.body.appendChild(box); }
   const t = document.createElement('div'); t.className = 'toast'; t.textContent = text; box.appendChild(t); setTimeout(() => t.remove(), 4200);
 };
-const sheet = (html, {onClose, cls = ''} = {}) => {
-  const root = document.createElement('div'); root.className = 'sh-wrap';
-  root.innerHTML = `<div class="sh-dim"></div><div class="sh ${cls}" role="dialog" aria-modal="true"><div class="sh-grab"></div>${html}</div>`;
+const sheet = (html, {onClose, cls = '', free = false, onFull} = {}) => {
+  const root = document.createElement('div'); root.className = 'sh-wrap' + (free ? ' free' : '');
+  root.innerHTML = `<div class="sh-dim"></div><div class="sh ${cls}" role="dialog" aria-modal="${free ? 'false' : 'true'}"><div class="sh-grab"></div><div class="sh-in">${html}</div></div>`;
   document.body.appendChild(root); requestAnimationFrame(() => root.classList.add('on'));
-  const h = {root, $: s => root.querySelector(s), $$: s => [...root.querySelectorAll(s)], closed: false,
-    close: (silent) => { if (h.closed) return; h.closed = true; root.classList.remove('on'); setTimeout(() => root.remove(), 220); if (!silent && onClose) onClose(); }};
+  const sh = root.querySelector('.sh');
+  const h = {root, sh, $: s => root.querySelector(s), $$: s => [...root.querySelectorAll(s)], closed: false,
+    set: html2 => { root.querySelector('.sh-in').innerHTML = html2; },
+    full: on => { sh.classList.toggle('full', on); if (onFull) onFull(on); },
+    close: (silent) => { if (h.closed) return; h.closed = true; root.classList.remove('on'); setTimeout(() => root.remove(), 200); if (!silent && onClose) onClose(); }};
   root.querySelector('.sh-dim').onclick = () => h.close();
-  root.querySelectorAll('[data-close]').forEach(x => x.onclick = () => h.close());
-  /* шторка тянется за ручку и шапку: вниз — свернуть или закрыть, вверх — на весь экран */
-  const sh = root.querySelector('.sh'), grips = [root.querySelector('.sh-grab'), root.querySelector('.sh-h')].filter(Boolean);
-  /* сначала компактно; на весь экран сразу — только правка текста */
-  let y0 = null, dy = 0, moved = false, fromGrab = false;
-  const down = ev => { if (ev.target.closest('button,input,textarea,a,label')) return; y0 = ev.clientY; dy = 0; moved = false; fromGrab = ev.currentTarget.classList.contains('sh-grab'); sh.classList.add('drag'); ev.currentTarget.setPointerCapture(ev.pointerId); };
-  const move = ev => { if (y0 == null) return; dy = ev.clientY - y0; if (Math.abs(dy) > 4) moved = true;
-    sh.style.transform = dy > 0 ? `translateY(${dy}px)` : ''; if (dy < 0 && !sh.classList.contains('full')) sh.style.height = Math.min(innerHeight * .92, sh.offsetHeight - dy * .15 + 0) + 'px'; };
-  const up = () => { if (y0 == null) return; sh.classList.remove('drag'); sh.style.transform = ''; sh.style.height = ''; y0 = null;
-    if (!moved) { if (fromGrab) sh.classList.toggle('full'); return; }
-    if (dy < -50) sh.classList.add('full');
-    else if (dy > 80) { if (sh.classList.contains('full') && dy < 260) sh.classList.remove('full'); else h.close(); } };
-  grips.forEach(g => { g.addEventListener('pointerdown', down); g.addEventListener('pointermove', move); g.addEventListener('pointerup', up); g.addEventListener('pointercancel', up); });
+  root.addEventListener('click', ev => { if (ev.target.closest('[data-close]')) h.close(); });
+  /* тянется за ручку и шапку: вверх — на весь экран, вниз — свернуть или закрыть */
+  let y0 = null, dy = 0, moved = false;
+  const down = ev => { if (!ev.target.closest('.sh-grab,.sh-h') || ev.target.closest('button,input,textarea,a,label,.fmt')) return; y0 = ev.clientY; dy = 0; moved = false; sh.classList.add('drag'); sh.setPointerCapture(ev.pointerId); };
+  const move = ev => { if (y0 == null) return; dy = ev.clientY - y0; if (Math.abs(dy) > 4) moved = true; sh.style.transform = `translateY(${Math.max(dy, -24) * (dy < 0 ? .4 : 1)}px)`; };
+  const up = () => { if (y0 == null) return; sh.classList.remove('drag'); sh.style.transform = ''; y0 = null;
+    const isFull = sh.classList.contains('full');
+    if (!moved) { if (!isFull) h.full(true); return; }
+    if (dy < -40 && !isFull) h.full(true);
+    else if (dy > 70) { if (isFull) h.full(false); else h.close(); } };
+  sh.addEventListener('pointerdown', down); sh.addEventListener('pointermove', move); sh.addEventListener('pointerup', up); sh.addEventListener('pointercancel', up);
   return h;
 };
 const busy = (label, {limit = 180} = {}) => {
@@ -150,15 +164,15 @@ const askVals = pr => new Promise(res => {
 });
 
 /* ---------- экраны ---------- */
-/* плавный переход между состояниями: браузер сам анимирует снимок до/после (только opacity и transform) */
-const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-const morph = (fn, kind = 'fade') => { if (reduce || !document.startViewTransition) return fn(); document.documentElement.dataset.vt = kind; const t = document.startViewTransition(fn); t.finished.finally(() => delete document.documentElement.dataset.vt); };
+/* смена экрана — короткое проявление, без снимков страницы (они тормозили на длинных страницах) */
+const morph = fn => fn();
+const appear = () => { if (!matchMedia('(prefers-reduced-motion: reduce)').matches) $app.animate([{opacity: .4}, {opacity: 1}], {duration: 140, easing: 'ease-out'}); };
 const render = () => { A.view === 'home' ? home() : editor(); };
 const go = async (view, id) => {
   A.view = view; A.sel = null; A.line = null;
   if (view === 'edit') { A.page = await G.store.get(id); if (!A.page) { A.view = 'home'; } else A.mode = A.page.blocks.length ? 'page' : 'note'; }
   location.hash = view === 'edit' && A.page ? '#/p/' + A.page.id : '#/';
-  morph(render, view === 'edit' ? 'push' : 'pop');
+  render(); appear(); scrollTo(0, 0);
 };
 
 /* 1. Главная: вкладки сценариев, страницы — сеткой обложек */
@@ -166,25 +180,29 @@ const TABS = [['article', 'Статьи'], ['course', 'Курсы'], ['event', '
 const cover = p => { const b = p.blocks.find(x => x.role === 'hero') || p.blocks[0];
   if (!b) return `<div class="tl-empty">${e((p.text || p.name).slice(0, 60))}</div>`;
   return `<div class="tl-pv">${blockHTML(b, p)}</div>`; };
+const seed = async () => {
+  if (G.ls.get('seeded', false)) return; G.ls.set('seeded', true);
+  for (const x of G.examples) { const p = G.fromExample(x); p.name = p.name.replace(/\s*\([^)]*\)\s*$/, ''); if (!p.blocks.length && p.text) G.assemble(p); G.autoPick(p, true); await G.store.put(p); }
+};
 const home = async () => {
+  await seed();
   const all = (await G.store.list()).sort((a, b) => (b.updated || 0) - (a.updated || 0));
   const tabs = TABS.filter(([id]) => G.lib.get('scenarios', id));
   A.tab = A.tab || G.ls.get('tab', 'article'); if (!tabs.some(([id]) => id === A.tab)) A.tab = (tabs[0] || ['article'])[0];
   const list = all.filter(p => p.scenario === A.tab), other = all.filter(p => !tabs.some(([id]) => id === p.scenario) && A.tab === tabs[0][0]);
   const pages = [...list, ...other], slots = Math.max(0, 9 - pages.length);
-  const exs = G.examples.map((x, k) => ({x, k})).filter(o => o.x.scenario === A.tab);
+  const cnt = id => all.filter(p => p.scenario === id).length;
   $app.innerHTML = `<header class="hd"><div class="logo"><img class="lg-mark" src="${G.LOGO || ''}" alt="">Гриди</div><button class="ib round" id="hMenu" aria-label="Меню">${I.menu}</button></header>
-    <nav class="tabs" role="tablist">${tabs.map(([id, n]) => `<button role="tab" class="${id === A.tab ? 'on' : ''}" data-tab="${id}">${n}</button>`).join('')}</nav>
-    <main class="home"><div class="grid">${pages.map(p => `<button class="tl" data-id="${e(p.id)}" style="view-transition-name:p-${e(p.id)}">${cover(p)}<span class="tl-n">${e(p.name)}</span></button>`).join('')}${'<span class="tl-slot"></span>'.repeat(slots)}</div>
-      ${!pages.length ? `<p class="hint center">Здесь будут ${(tabs.find(([id]) => id === A.tab) || [, 'страницы'])[1].toLowerCase()}. Вставьте текст — Гриди соберёт страницу по шаблонам.</p>${exs.length ? `<div class="chips center">${exs.map(o => `<button class="chip" data-ex="${o.k}">Пример: ${e(o.x.name)}</button>`).join('')}</div>` : ''}` : ''}</main>
+    <nav class="tabs" role="tablist">${tabs.map(([id, n]) => `<button role="tab" class="${id === A.tab ? 'on' : ''}" data-tab="${id}">${n}${cnt(id) ? `<i>${cnt(id)}</i>` : ''}</button>`).join('')}</nav>
+    <main class="home"><div class="grid">${pages.map(p => `<button class="tl" data-id="${e(p.id)}">${cover(p)}<span class="tl-n">${e(p.name)}</span></button>`).join('')}${'<span class="tl-slot"></span>'.repeat(slots)}</div>
+      ${!pages.length ? `<p class="hint center">Здесь будут ${(tabs.find(([id]) => id === A.tab) || [, 'страницы'])[1].toLowerCase()}. Вставьте текст — Гриди соберёт страницу по шаблонам.</p>` : ''}</main>
     <div class="dock"><button class="pill grad wide" id="hNew">Новая страница</button></div>`;
-  $app.querySelectorAll('[data-tab]').forEach(c => c.onclick = () => { A.tab = c.dataset.tab; G.ls.set('tab', A.tab); morph(home); });
+  $app.querySelectorAll('[data-tab]').forEach(c => c.onclick = () => { A.tab = c.dataset.tab; G.ls.set('tab', A.tab); home().then(appear); });
   $app.querySelectorAll('.tl').forEach(c => { let t = null;
     c.onclick = () => { if (c.dataset.held) { delete c.dataset.held; return; } go('edit', c.dataset.id); };
     c.addEventListener('pointerdown', () => { t = setTimeout(() => { c.dataset.held = 1; pageMenu(all.find(x => x.id === c.dataset.id)); }, 480); });
     ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => c.addEventListener(ev, () => clearTimeout(t)));
     c.addEventListener('contextmenu', ev => { ev.preventDefault(); c.dataset.held = 1; pageMenu(all.find(x => x.id === c.dataset.id)); }); });
-  $app.querySelectorAll('[data-ex]').forEach(c => c.onclick = async () => { const p = G.fromExample(G.examples[+c.dataset.ex]); if (!p.blocks.length && p.text) { G.assemble(p); } G.autoPick(p, true); await G.store.put(p); go('edit', p.id); });
   $app.querySelector('#hNew').onclick = async () => { const p = G.newPage('Без названия', A.tab, ''); await G.store.put(p); go('edit', p.id); };
   $app.querySelector('#hMenu').onclick = settings;
   requestAnimationFrame(() => $app.querySelectorAll('.tl-pv').forEach(x => x.style.setProperty('--k', x.clientWidth / 560)));
@@ -193,7 +211,7 @@ const home = async () => {
 const pageMenu = p => {
   const s = sheet(`<div class="sh-h"><h2>${e(p.name)}</h2></div><div class="sh-b"><div class="list"><button class="row" id="rDup">Дублировать</button><button class="row danger" id="rDel">Удалить</button></div></div>`);
   s.$('#rDup').onclick = async () => { const n = {...G.clone(p), id: G.uid('p'), name: p.name + ' (копия)'}; await G.store.put(n); s.close(); home(); };
-  s.$('#rDel').onclick = () => sure(s.$('#rDel'), 'Удалить навсегда', async () => { await G.store.del(p.id); s.close(); morph(home); });
+  s.$('#rDel').onclick = () => sure(s.$('#rDel'), 'Удалить навсегда', async () => { await G.store.del(p.id); s.close(); home(); });
 };
 
 /* настройки: модель и импорт */
@@ -224,65 +242,53 @@ const settings = () => {
 
 /* 2. Редактор */
 const editor = () => {
+  if (bsh) { const h = bsh; bsh = null; h.close(true); } document.body.classList.remove('picking');
   const y0 = scrollY, p = A.page, b = A.sel && p.blocks.find(x => x.id === A.sel), v = b && verdict(b);
-  const miss = p.blocks.length ? G.missing(p).length : 0;
-  const title = b ? `<b>${e(roleName(b))}</b><small class="${v.bad ? 'bad' : ''}">${e(v.txt)}</small>` : `<b>${e(p.name)}</b><small>${e(sc().name)}${p.blocks.length ? ' · ' + (G.len(p.blocks.map(x => x.text).join('')) / 1000).toFixed(1).replace('.0', '') + 'k знаков' : ''}</small>`;
-  $app.innerHTML = `<header class="hd ${b ? 'editing' : ''}" id="eHd"><div class="hd-edit"><div class="hfield" id="eField">${b ? `<b>${e(roleName(b))}</b><small class="${v.bad ? 'bad' : ''}">${e(v.txt)}</small>` : ''}</div><button class="ib round ok" id="eOk" aria-label="Готово">${I.check}</button></div>
+  const miss = p.blocks.length ? report(p).count : 0;
+  const title = `<b>${e(p.name)}</b><small>${e(sc().name)}${p.blocks.length ? ' · ' + (G.len(p.blocks.map(x => x.text).join('')) / 1000).toFixed(1).replace('.0', '') + 'k знаков' : ''}</small>`;
+  $app.innerHTML = `<header class="hd" id="eHd"><div class="hd-edit"><div class="hfield" id="eField"></div><button class="ib round ok" id="eOk" aria-label="Готово">${I.check}</button></div>
     <button class="ib round" id="eBack" aria-label="Назад">${I.back}</button><button class="ttl" id="eTtl">${title}</button>
       ${p.blocks.length ? `<button class="ib round" id="ePrev" aria-label="Превью">${I.eye}</button>
       <button class="ib round dark" id="eOut" aria-label="Выгрузка">${I.out}${miss ? `<span class="badge">${miss}</span>` : ''}</button>` : `<button class="ib round" id="eTune" aria-label="Настройки страницы">${I.tune}</button>`}</header>
     <main id="eMain"></main><div class="dock" id="eDock"></div>`;
-  $app.querySelector('#eBack').onclick = () => { if (A.sel) { A.sel = null; editor(); return; } save(); go('home'); };
+  $app.querySelector('#eBack').onclick = () => { if (A.sel) { unselect(); return; } save(); go('home'); };
   $app.querySelector('#eTtl').onclick = () => { if (!A.sel) pageSettings(); };
-  $app.querySelector('#eOk').onclick = () => { const a = document.activeElement; if (a && a.closest && a.closest('.ed')) { a.blur(); getSelection().removeAllRanges(); fmtSync(); return; }
-    document.querySelectorAll('.sh-wrap').forEach(x => x.remove()); A.sel = null; editor(); };
+  $app.querySelector('#eOk').onclick = () => { const a = document.activeElement; if (a && a.blur) a.blur(); getSelection().removeAllRanges(); fmtSync(); };
   const tn = $app.querySelector('#eTune'); if (tn) tn.onclick = pageSettings;
   const pv = $app.querySelector('#ePrev'); if (pv) pv.onclick = preview;
   const out = $app.querySelector('#eOut'); if (out) out.onclick = exportView;
   if (!p.blocks.length) return draft();
   A.mode === 'note' ? notes() : canvas();
   island();
+  if (A.sel && A.mode === 'page') { select(A.sel); if (A.openFull && bsh) bsh.full(true); } A.openFull = false;
   /* перерисовка не сбрасывает положение; прокрутка к блоку — только когда к нему переходят */
   if (A.jump) { const el = $app.querySelector(`[data-id="${A.jump}"]`); if (el) { el.scrollIntoView({block: A.jumpTop ? 'start' : 'center'}); if (A.jumpTop) scrollBy(0, -96); } A.jump = null; A.jumpTop = false; } else scrollTo(0, y0);
 };
-/* нижний островок: текст ↔ шаблоны и новый блок */
+/* нижний островок: только Текст ↔ Шаблоны; на экране остаётся тот же блок */
 const island = () => {
   const p = A.page, dock = $app.querySelector('#eDock');
-  dock.innerHTML = `<div class="float"><div class="seg slide ${A.mode === 'page' ? 'r' : ''}" role="tablist"><button data-m="note" class="${A.mode === 'note' ? 'on' : ''}" aria-label="Текст">${I.note}</button><button data-m="page" class="${A.mode === 'page' ? 'on' : ''}" aria-label="Шаблоны">${I.page}</button></div><button class="ib" id="dAdd" aria-label="Добавить блок">${I.plus}</button></div>`;
+  dock.innerHTML = `<div class="float"><div class="seg slide ${A.mode === 'page' ? 'r' : ''}" role="tablist"><button data-m="note" aria-label="Текст">${I.note}</button><button data-m="page" aria-label="Шаблоны">${I.page}</button></div></div>`;
   dock.querySelectorAll('[data-m]').forEach(x => x.onclick = () => { if (A.mode === x.dataset.m) return;
     dock.querySelector('.seg').classList.toggle('r', x.dataset.m === 'page');
-    /* блок, который сейчас на экране, остаётся на экране и в другом режиме */
-    const top = [...$app.querySelectorAll('[data-id]')].find(el => el.getBoundingClientRect().bottom > 120);
-    setTimeout(() => morph(() => { A.mode = x.dataset.m; A.sel = null; G.autoPick(p); save(); A.jump = top && top.dataset.id; A.jumpTop = true; editor(); }, 'mode'), 160); });
-  dock.querySelector('#dAdd').onclick = () => { const nb = G.newBlock(defRole(), ''); p.blocks.push(nb); save();
-    if (A.mode === 'note') { notes(); checksBar(); const ed = $app.querySelector(`.ed[data-id="${nb.id}"]`); ed && caretTo(ed.firstChild, 0); }
-    else { A.sel = nb.id; editor(); textSheet(nb); } };
+    const top = [...$app.querySelectorAll('#eMain [data-id]')].find(el => el.getBoundingClientRect().bottom > 120);
+    unselect(true); A.mode = x.dataset.m; if (A.mode === 'page') G.autoPick(p); save();
+    A.jump = top && top.dataset.id; A.jumpTop = true; editor(); appear(); });
 };
-/* замечания — сверху страницы, цветом по важности; закрытые не возвращаются, пока не изменится текст замечания */
-const checksBar = () => {
-  const p = A.page, main = $app.querySelector('#eMain'); p.dismissed = p.dismissed || [];
-  const order = {error: 0, warn: 1, info: 2};
-  const all = G.checks(p).filter(c => !p.dismissed.includes(c.text)).sort((a, b) => order[a.level] - order[b.level]);
-  if (!all.length) return;
-  const box = document.createElement('div'); box.className = 'checks';
-  const open = A.checksOpen, shown = open ? all : all.slice(0, 2);
-  box.innerHTML = shown.map((c, i) => `<div class="ck ck-${c.level}"><button class="ck-t" data-i="${i}">${e(c.text)}</button><button class="ck-x" data-x="${i}" aria-label="Скрыть">${I.x}</button></div>`).join('')
-    + (all.length > 2 ? `<button class="ck-more" id="ckMore">${open ? 'Свернуть' : 'Ещё ' + G.num(all.length - 2, 'замечание', 'замечания', 'замечаний')}</button>` : '');
-  main.prepend(box);
-  box.querySelectorAll('[data-x]').forEach(x => x.onclick = () => { p.dismissed.push(shown[+x.dataset.x].text); save(); box.remove(); checksBar(); });
-  box.querySelectorAll('[data-i]').forEach(x => x.onclick = () => { const c = shown[+x.dataset.i]; if (!c.block) return;
-    if (A.mode === 'page') { A.sel = c.block.id; A.jump = c.block.id; editor(); blockSheet(); }
-    else { const el = $app.querySelector(`.nb[data-id="${c.block.id}"]`); el && el.scrollIntoView({block: 'start', behavior: 'smooth'}); } });
-  const mo = box.querySelector('#ckMore'); if (mo) mo.onclick = () => { A.checksOpen = !open; box.remove(); checksBar(); };
-};
+/* новый блок — чипсами ролей в конце страницы */
+const addChips = () => { const s0 = sc(), roles = (s0.roles || []).filter(r => r.id !== 'hero' || !A.page.blocks.some(b => b.role === 'hero'));
+  return `<div class="add"><p class="lbl">Добавить блок</p><div class="chips">${roles.map(r => `<button class="chip" data-add="${e(r.id)}">${I.plus}${e(r.name.split(':')[0])}</button>`).join('')}</div></div>`; };
+const bindAdd = main => main.querySelectorAll('[data-add]').forEach(c => c.onclick = () => {
+  const nb = G.newBlock(c.dataset.add, ''); A.page.blocks.push(nb); save();
+  if (A.mode === 'note') { notes(); const ed = $app.querySelector(`.ed[data-id="${nb.id}"]`); if (ed) { ed.scrollIntoView({block: 'center'}); caretTo(ed.firstChild, 0); } }
+  else { canvas(); textSheet(nb); } });
 /* превью: страница как увидит читатель, без рамок и замечаний */
 const preview = () => {
   const p = A.page; G.autoPick(p);
   const el = document.createElement('div'); el.className = 'pv';
   el.innerHTML = `<header class="hd"><button class="ib round" id="pvX" aria-label="Закрыть">${I.x}</button><div class="ttl"><b>Превью</b><small>${e(p.name)}</small></div></header>
     <div class="pv-b">${p.blocks.map(b => blockHTML(b, p)).join('')}</div>`;
-  morph(() => { document.body.appendChild(el); document.body.classList.add('noscroll'); }, 'push');
-  el.querySelector('#pvX').onclick = () => morph(() => { el.remove(); document.body.classList.remove('noscroll'); }, 'pop');
+  document.body.appendChild(el); document.body.classList.add('noscroll'); el.animate([{opacity: 0}, {opacity: 1}], {duration: 140});
+  el.querySelector('#pvX').onclick = () => { el.remove(); document.body.classList.remove('noscroll'); };
 };
 
 /* настройки страницы: название и сценарий */
@@ -321,12 +327,12 @@ const build = async text => {
 
 /* 2б. Заметки: блоки — линии с ролью, строки — разметка */
 const notes = () => {
-  const p = A.page, main = $app.querySelector('#eMain'), iss = issuesOf(p);
-  main.innerHTML = `<div class="note">${p.blocks.map((b, i) => `<section class="nb" data-id="${e(b.id)}" style="view-transition-name:b-${e(b.id)}">
-      <button class="nb-line ${iss[b.id] ? 'warn' : ''}" data-role="${e(b.id)}"><span>${e(roleName(b))}</span>${mediaHint(b)}</button>
+  const p = A.page, main = $app.querySelector('#eMain'), iss = report(p).byBlock;
+  main.innerHTML = `<div class="note">${p.blocks.map((b, i) => `<section class="nb" data-id="${e(b.id)}">
+      <button class="nb-line ${iss[b.id] ? 'warn' : ''}" data-role="${e(b.id)}"><b class="bn">${i + 1}</b><span>${e(roleName(b))}</span>${mediaHint(b)}</button>
       <div class="ed" contenteditable="true" spellcheck="true" data-id="${e(b.id)}">${(lines(b.text).length ? lines(b.text) : [{k: 'p', t: ''}]).map(l => lineHTML(l.k, l.t)).join('')}</div></section>`).join('')}
-    </div>`;
-  main.querySelectorAll('.ed').forEach(bindEd);
+    ${addChips()}</div>`;
+  main.querySelectorAll('.ed').forEach(bindEd); bindAdd(main);
   main.querySelectorAll('[data-role]').forEach(x => x.onclick = () => blockMenu(x.dataset.role));
   fmtBar();
 };
@@ -391,6 +397,11 @@ const fmtBar = (into) => {
   if (!fmtBar.bound) { fmtBar.bound = true; document.addEventListener('focusout', () => setTimeout(fmtSync, 50)); }
 };
 const touch = matchMedia('(pointer: coarse)').matches;
+/* iOS сдвигает страницу под клавиатуру: шапку держим у верхнего края видимой области */
+const pin = () => { const hd = document.getElementById('eHd'), vv = window.visualViewport; if (!hd) return;
+  const on = document.body.classList.contains('typing') && vv; document.body.classList.toggle('pinned', !!on);
+  hd.style.transform = on ? `translateY(${Math.max(0, vv.offsetTop)}px)` : ''; };
+if (window.visualViewport) { visualViewport.addEventListener('resize', pin); visualViewport.addEventListener('scroll', pin); }
 const keyboardOpen = () => { if (!touch) return true; const vv = window.visualViewport; return !!vv && innerHeight - vv.height > 120; };
 const fmtSync = () => {
   if (!fmtEl || !fmtEl.isConnected) return;
@@ -399,7 +410,7 @@ const fmtSync = () => {
   const on = !!(ln && ed && ed.contains(ln) && A.view === 'edit');
   if (on) A.line = ln;
   fmtEl.hidden = !on; document.body.classList.toggle('typing', on);
-  const hd = document.getElementById('eHd'); if (hd && !A.sel) hd.classList.toggle('editing', on);
+  const hd = document.getElementById('eHd'); if (hd) { hd.classList.toggle('editing', on && !document.querySelector('.sh-wrap:not(.free)')); pin(); }
   const cur = (A.line && A.line.isConnected) ? A.line.dataset.k : '';
   fmtEl.querySelectorAll('[data-k]').forEach(x => x.classList.toggle('on', x.dataset.k === cur));
   const sp = fmtEl.querySelector('[data-split]'); sp.hidden = !!document.querySelector('.sh-wrap');
@@ -427,7 +438,7 @@ const blockMenu = id => {
   const mv = d => { p.blocks.splice(i, 1); p.blocks.splice(i + d, 0, b); save(); s.close(); render(); const el = $app.querySelector(`[data-id="${b.id}"]`); el && el.scrollIntoView({block: 'center'}); };
   const mu = s.$('#bmMvU'); if (mu) mu.onclick = () => mv(-1);
   const md2 = s.$('#bmMvD'); if (md2) md2.onclick = () => mv(1);
-  s.$('#bmTpl').onclick = () => { s.close(); A.mode = 'page'; G.autoPick(p); A.sel = b.id; A.jump = b.id; editor(); blockSheet(); };
+  s.$('#bmTpl').onclick = () => { s.close(true); A.mode = 'page'; G.autoPick(p); A.sel = b.id; A.jump = b.id; A.openFull = true; editor(); };
   s.$$('#bmR .chip').forEach(c => c.onclick = () => { b.role = c.dataset.r; b.tplLock = false; repick(b); save(); s.close(); render(); });
   const up = s.$('#bmUp'); if (up) up.onclick = () => { const pr = p.blocks[i - 1]; pr.text = [pr.text, b.text].filter(Boolean).join('\n'); pr.tplLock = false; p.blocks.splice(i, 1); repick(pr); save(); s.close(); render(); };
   s.$('#bmDel').onclick = () => sure(s.$('#bmDel'), 'Удалить вместе с текстом', () => { p.blocks.splice(i, 1); save(); s.close(); A.sel = null; render(); });
@@ -451,15 +462,24 @@ const blockHTML0 = (b, p, t) => {
 };
 
 /* 2в. Страница: тот же текст в шаблонах */
-/* замечания по блокам: точка на блоке, сами тексты — на экране выгрузки */
-const issuesOf = p => { const m = {}; (G.checks(p) || []).forEach(c => { if (c.block && !(p.dismissed || []).includes(c.text)) (m[c.block.id] = m[c.block.id] || []).push(c); }); return m; };
 const canvas = () => {
-  const p = A.page, main = $app.querySelector('#eMain');
-  const iss = issuesOf(p);
-  main.innerHTML = `<div class="cv">${p.blocks.map(b => { const t = G.tpl(b.tpl);
-    return `<div class="cb ${A.sel === b.id ? 'sel' : ''} ${iss[b.id] ? 'warn' : ''}" data-id="${e(b.id)}" style="view-transition-name:b-${e(b.id)}">${blockHTML(b, p, t)}</div>`; }).join('')}</div>`;
-  main.querySelectorAll('.cb').forEach(x => x.onclick = () => { A.sel = x.dataset.id; editor(); blockSheet(); });
+  const p = A.page, main = $app.querySelector('#eMain'), iss = report(p).byBlock;
+  main.innerHTML = `<div class="cv">${p.blocks.map((b, i) => `<div class="cb ${A.sel === b.id ? 'sel' : ''} ${iss[b.id] ? 'warn' : ''}" data-id="${e(b.id)}"><b class="bn">${i + 1}</b>${blockHTML(b, p)}</div>`).join('')}${addChips()}</div>`;
+  main.querySelectorAll('.cb').forEach(x => x.onclick = () => { if (A.sel === x.dataset.id) { unselect(); return; } select(x.dataset.id); });
+  bindAdd(main);
 };
+/* выбор блока: страница не перерисовывается, остальные блоки приглушены, шторка — без затемнения */
+let bsh = null;
+const select = id => { A.sel = id; document.body.classList.add('picking');
+  $app.querySelectorAll('.cb').forEach(x => x.classList.toggle('sel', x.dataset.id === id));
+  blockSheet();
+  /* выбранный блок не прячется под шторкой */
+  requestAnimationFrame(() => { const el = $app.querySelector(`.cb[data-id="${id}"]`), sh = bsh && bsh.sh; if (!el || !sh) return; const r = el.getBoundingClientRect(), lim = innerHeight - sh.offsetHeight - 12;
+    if (r.top < 72 || r.top > lim - 80) scrollBy({top: r.top - 80, behavior: 'smooth'}); }); };
+const unselect = (quiet) => { A.sel = null; document.body.classList.remove('picking'); $app.querySelectorAll('.cb.sel').forEach(x => x.classList.remove('sel')); if (bsh) { const h = bsh; bsh = null; h.close(true); } };
+const redrawBlock = b => { const el = $app.querySelector(`.cb[data-id="${b.id}"]`); if (!el) return; const iss = report(A.page).byBlock;
+  el.innerHTML = `<b class="bn">${A.page.blocks.indexOf(b) + 1}</b>` + blockHTML(b, A.page); el.classList.toggle('warn', !!iss[b.id]);
+  const bd = $app.querySelector('#eOut .badge'), n = report(A.page).count; if (bd) bd.textContent = n; };
 
 /* шторка блока: промты, подходящие шаблоны, текст, картинка */
 const tplLabel = t => { const c = t.ctor; if (!c) return t.name; const q = c.p || {}, o = [];
@@ -468,79 +488,117 @@ const tplLabel = t => { const c = t.ctor; if (!c) return t.name; const q = c.p |
   if (q.media && q.media !== 'нет') o.push({I: 'иконки', A: 'фото', L: 'большая картинка', M: 'картинка', S: 'малая картинка'}[q.media] || q.media);
   if (+q.btn) o.push(q.btn === '1' ? 'кнопка' : q.btn + ' кнопки'); if (q.ibtn === 'да') o.push('кнопки у карточек');
   return {name: c.type, sub: o.join(' · ')}; };
+const why = r => [...(r.bad || []), ...(r.why || []).filter(x => !/^(всё на месте|компонент|рекомендован|текстовый)/.test(x))].slice(0, 3).join(' · ');
 const blockSheet = () => {
   const p = A.page, b = p.blocks.find(x => x.id === A.sel); if (!b) return;
-  const fit = G.prompt('fit'), ps = [fit, ...G.lib.all('prompts').filter(x => x.stage === 'adapt' && !x.system && x.id !== 'fit')].filter(Boolean);
-  const ranked = G.rank(b, p).slice(0, 8), i = p.blocks.indexOf(b);
-  const card = r => { const l = tplLabel(r.t), bad = (r.tier || 0) >= 2 || !G.isLive(r.t);
-    return `<button class="tc ${r.t.id === b.tpl ? 'on' : ''}" data-t="${e(r.t.id)}"><div class="tc-pv">${blockHTML(b, p, r.t)}</div>
-      <span class="tc-n">${e(l.name || l)}${r.t.id === b.tpl ? `<i>${I.check}</i>` : ''}</span><span class="tc-s">${e(l.sub || '')}</span>
-      ${bad ? `<span class="tc-w">${e(!G.isLive(r.t) ? 'нужен дизайн' : G.TIERS[r.tier].toLowerCase())}</span>` : ''}</button>`; };
-  const s = sheet(`<div class="bs-h"><button class="bs-a" id="bsText" aria-label="Текст">${I.pen}<span>Текст</span></button>
-      <button class="bs-a" id="bsU" ${i ? '' : 'disabled'} aria-label="Выше">${I.up}<span>Выше</span></button>
-      <button class="bs-a" id="bsD" ${i < p.blocks.length - 1 ? '' : 'disabled'} aria-label="Ниже">${I.down}<span>Ниже</span></button>
-      <button class="bs-a" id="bsRole" aria-label="Блок">${I.dots}<span>Блок</span></button></div>
-    <div class="sh-b"><p class="lbl">Шаблон · подходят по тексту</p>
-      <div class="tgrid">${ranked.map(card).join('') || '<p class="hint">Подходящих шаблонов нет — поправьте разметку блока.</p>'}</div>
-      <p class="lbl">Переписать текст</p>
-      <div class="chips">${ps.map(x => `<button class="chip" data-p="${e(x.id)}">${e(x.id === 'fit' ? 'Уложить в шаблон' : x.name)}</button>`).join('')}</div>
-    </div>`, {onClose: () => { A.sel = null; editor(); }, cls: 'block'});
-  requestAnimationFrame(() => s.$$('.tc-pv').forEach(x => x.style.setProperty('--k', x.clientWidth / 560)));
-  s.$('#bsText').onclick = () => { s.close(true); textSheet(b); };
-  s.$('#bsRole').onclick = () => { s.close(true); blockMenu(b.id); };
-  const mvb = d => { const k = p.blocks.indexOf(b), j = k + d; if (j < 0 || j >= p.blocks.length) return; p.blocks.splice(k, 1); p.blocks.splice(j, 0, b); save(); s.close(true); A.jump = b.id; editor(); blockSheet(); };
-  s.$('#bsU').onclick = () => mvb(-1); s.$('#bsD').onclick = () => mvb(1);
-  s.$$('[data-p]').forEach(c => c.onclick = async () => {
-    const pr = G.prompt(c.dataset.p); let vals = {};
-    if (pr.ask && pr.ask.length) { vals = await askVals(pr); if (!vals) return; }
-    if (!G.adaptable(b, pr, p)) return toast('Этот блок не переписывается: у его шаблона текст как есть.');
-    try { const n = await G.runAdapt(p, pr.id, [b.id], vals); if (n) { repick(b); save(); toast(`«${pr.name}»: текст блока обновлён — и в заметке тоже`); s.close(true); editor(); blockSheet(); } }
-    catch (err) { if (err.message !== 'cancel') toast(err.message); }
-  });
-  /* выбор шаблона: шторка остаётся открытой, страница под ней обновляется на месте */
-  s.$$('[data-t]').forEach(c => c.onclick = () => { b.tpl = c.dataset.t; b.tplLock = true; b.values = null; save();
-    s.$$('[data-t]').forEach(x => { x.classList.toggle('on', x === c); const n = x.querySelector('.tc-n i'); if (n) n.remove(); });
-    c.querySelector('.tc-n').insertAdjacentHTML('beforeend', `<i>${I.check}</i>`);
-    const el = $app.querySelector(`.cb[data-id="${b.id}"]`); if (el) el.innerHTML = blockHTML(b, p);
-    const v = verdict(b), sm = $app.querySelector('#eTtl small'); if (sm) { sm.textContent = v.txt; sm.classList.toggle('bad', v.bad); } });
+  const i = p.blocks.indexOf(b), t = G.tpl(b.tpl), v = verdict(b), slots = G.imageSlots(b, p);
+  const fixN = G.fixNotes(b, p).length, adapt = G.lib.all('prompts').filter(x => x.stage === 'adapt' && !x.system && !['fit', 'fix'].includes(x.id));
+  const compact = () => `<div class="sh-h"><div><h2>${i + 1}. ${e(roleName(b))}</h2><p class="sub ${v.bad ? 'bad' : ''}">${e(t ? (tplLabel(t).name || t.name) + ' · ' : '')}${e(v.txt)}</p></div></div>
+    <div class="bs-h"><button class="bs-a" data-a="text">${I.pen}<span>Текст</span></button>
+      <button class="bs-a" data-a="img" ${slots.length ? '' : 'disabled'}>${I.img}<span>Картинки</span></button>
+      <button class="bs-a" data-a="up" ${i ? '' : 'disabled'}>${I.up}<span>Выше</span></button>
+      <button class="bs-a" data-a="down" ${i < p.blocks.length - 1 ? '' : 'disabled'}>${I.down}<span>Ниже</span></button>
+      <button class="bs-a" data-a="more">${I.dots}<span>Ещё</span></button></div>
+    <div class="sh-b"><div class="chips">
+      <button class="chip ${fixN ? 'hot' : ''}" data-p="fix" ${fixN ? '' : 'disabled'}>Поправить ошибки${fixN ? ` <i>${fixN}</i>` : ''}</button>
+      <button class="chip" data-p="fit">Уложить в шаблон</button>
+      ${adapt.map(x => `<button class="chip" data-p="${e(x.id)}">${e(x.name)}</button>`).join('')}</div>
+      <button class="more-tpl" data-a="tpl">Сменить шаблон — потяните вверх</button></div>`;
+  const full = () => { const ranked = G.rank(b, p), cur = ranked.find(r => r.t.id === b.tpl);
+    const card = r => { const l = tplLabel(r.t), w = why(r), bad = (r.tier || 0) >= 2;
+      return `<button class="tc ${r.t.id === b.tpl ? 'on' : ''} ${bad ? 'dim' : ''}" data-t="${e(r.t.id)}"><div class="tc-pv">${blockHTML(b, p, r.t)}</div>
+        <span class="tc-n">${e(l.name || l)}${r.t.id === b.tpl ? `<i>${I.check}</i>` : ''}</span>${l.sub ? `<span class="tc-s">${e(l.sub)}</span>` : ''}
+        ${!G.isLive(r.t) ? '<span class="tc-w">нужен дизайн</span>' : ''}${w && (r.tier || 0) ? `<span class="tc-why">${e(w)}</span>` : ''}</button>`; };
+    const groups = G.TIERS.map((n, k) => ({n, list: ranked.filter(r => (r.tier || 0) === k)})).filter(g => g.list.length);
+    return `<div class="sh-h"><div><h2>Шаблон · ${i + 1}. ${e(roleName(b))}</h2><p class="sub">${ranked.length} шаблонов · сначала подходящие</p></div><button class="ib round" data-a="back" aria-label="Свернуть">${I.down}</button></div>
+      <div class="sh-b">${groups.map(g => `<p class="lbl">${e(g.n)} · ${g.list.length}</p><div class="tgrid">${g.list.map(card).join('')}</div>`).join('')}</div>`; };
+  const scale = () => requestAnimationFrame(() => bsh && bsh.$$('.tc-pv').forEach(x => x.style.setProperty('--k', x.clientWidth / 560)));
+  const draw = () => { bsh.set(bsh.sh.classList.contains('full') ? full() : compact()); scale(); };
+  if (bsh && !bsh.closed) { bsh.sh.classList.remove('full'); }
+  else bsh = sheet('', {free: true, cls: 'block', onClose: () => { bsh = null; unselect(); }, onFull: () => draw()});
+  draw();
+  bsh.root.onclick = async ev => {
+    const a = ev.target.closest('[data-a]'), pr = ev.target.closest('[data-p]'), tp = ev.target.closest('[data-t]');
+    if (a) { const k = a.dataset.a;
+      if (k === 'text') { const h = bsh; bsh = null; h.close(true); textSheet(b); }
+      if (k === 'img') imageSheet(b);
+      if (k === 'more') blockMenu(b.id);
+      if (k === 'tpl') bsh.full(true);
+      if (k === 'back') bsh.full(false);
+      if (k === 'up' || k === 'down') { const j = i + (k === 'up' ? -1 : 1); p.blocks.splice(i, 1); p.blocks.splice(j, 0, b); save(); canvas(); select(b.id); const el = $app.querySelector(`.cb[data-id="${b.id}"]`); el && el.scrollIntoView({block: 'center', behavior: 'smooth'}); }
+    }
+    if (pr && !pr.disabled) { const P = G.prompt(pr.dataset.p); let vals = {};
+      if (P.ask && P.ask.length) { vals = await askVals(P); if (!vals) return; }
+      if (!G.adaptable(b, P, p)) return toast('Этот блок не переписывается: у его шаблона текст как есть.');
+      try { const n = await G.runAdapt(p, P.id, [b.id], vals); if (n) { repick(b); save(); redrawBlock(b); draw(); toast(`«${P.name}»: текст блока обновлён — и в заметке тоже`); } }
+      catch (err) { if (err.message !== 'cancel') toast(err.message); } }
+    if (tp) { b.tpl = tp.dataset.t; b.tplLock = true; b.values = null; save(); redrawBlock(b);
+      bsh.$$('.tc').forEach(x => { x.classList.toggle('on', x === tp); const n = x.querySelector('.tc-n i'); if (n) n.remove(); });
+      tp.querySelector('.tc-n').insertAdjacentHTML('beforeend', `<i>${I.check}</i>`); }
+  };
+};
+/* картинки блока: своя или ТЗ для Krea */
+const imageSheet = b => {
+  const p = A.page, slots = G.imageSlots(b, p);
+  const s = sheet(`<div class="sh-h"><h2>Картинки</h2><button class="ib round" data-close aria-label="Закрыть">${I.x}</button></div>
+    <div class="sh-b"><div class="imgs">${slots.map(o => `<div class="im"><div class="im-pv" style="aspect-ratio:${o.ratio.replace(':', '/')}">${o.data ? `<img src="${o.data}" alt="">` : `<span class="mono">${e(o.ratio)}${o.size ? ' · ' + e(o.size) : ''}</span>`}</div>
+      <div class="im-b"><b>${o.n ? 'Элемент ' + o.n : 'Основная'}</b><small>${e(o.alt || '')}</small>
+      <div class="chips"><label class="chip">Загрузить<input type="file" accept="image/*" data-up="${e(o.key)}" hidden></label><button class="chip" data-krea="${e(o.key)}">Текст для Krea</button>${o.krea && o.krea.url ? `<a class="chip" href="${e(o.krea.url)}" target="_blank" rel="noopener">Krea</a>` : ''}${o.data ? `<button class="chip" data-rm="${e(o.key)}">Убрать</button>` : ''}</div></div></div>`).join('')}</div></div>`);
+  s.$$('[data-up]').forEach(x => x.onchange = () => { const f = x.files[0]; if (!f) return; if (f.size > 4e6) return toast('Картинка больше 4 МБ — уменьшите её.');
+    const r = new FileReader(); r.onload = () => { b.images = b.images || {}; b.images[x.dataset.up] = {...(b.images[x.dataset.up] || {}), data: r.result}; save(); redrawBlock(b); s.close(true); imageSheet(b); }; r.readAsDataURL(f); });
+  s.$$('[data-krea]').forEach(x => x.onclick = async () => { const o = slots.find(y => y.key === x.dataset.krea); await G.copy(o.text || o.alt || ''); toast('Текст для Krea скопирован'); });
+  s.$$('[data-rm]').forEach(x => x.onclick = () => { delete (b.images || {})[x.dataset.rm]; save(); redrawBlock(b); s.close(true); imageSheet(b); });
 };
 
 /* правка текста блока со страницы: тот же редактор строк — правка разметки */
 const textSheet = b => {
   const s = sheet(`<div class="sh-h ts-h"><div class="ts-field"><h2>${e(roleName(b))}</h2></div><button class="ib round ok" data-close aria-label="Готово">${I.check}</button></div>
     <div class="sh-b"><div class="ed solo" contenteditable="true" spellcheck="true" data-id="${e(b.id)}">${(lines(b.text).length ? lines(b.text) : [{k: 'p', t: ''}]).map(l => lineHTML(l.k, l.t)).join('')}</div></div>`,
-    {onClose: () => { if (!b.text.trim()) A.page.blocks = A.page.blocks.filter(x => x.id !== b.id); else repick(b); save(); A.sel = b.text.trim() ? b.id : null; if (fmtEl) fmtEl.hidden = true; editor(); if (A.sel) blockSheet(); }, cls: 'full'});
+    {onClose: () => { if (!b.text.trim()) A.page.blocks = A.page.blocks.filter(x => x.id !== b.id); else repick(b); save(); if (fmtEl) fmtEl.hidden = true; document.body.classList.remove('typing'); canvas(); if (b.text.trim()) select(b.id); else unselect(); }, cls: 'full'});
   const ed = s.$('.ed'); bindEd(ed); fmtBar(s.$('.ts-field'));
   setTimeout(() => caretTo(ed.lastElementChild, ed.lastElementChild.textContent.length), 120);
 };
 
-/* 3. Выгрузка: замечания плашками, «Поправить всё», передача */
+/* 3. Выгрузка: всё, что считает проверка; ошибки не скрываются; «Поправить» — где это можно сделать */
+const CODEFIX = /H1 — только|Первых экранов|Целевых действий/;
+const fixable = (c, p) => c.fix && c.fix.addRole ? 'add' : CODEFIX.test(c.text) ? 'code' : c.block && G.fixNotes(c.block, p).includes(c.text) && G.adaptable(c.block, G.prompt('fix'), p) ? 'model' : '';
 const exportView = () => {
   const p = A.page; G.autoPick(p); p.dismissed = p.dismissed || [];
-  const order = {error: 0, warn: 1, info: 2}, miss = G.missing(p);
-  const all = G.checks(p).filter(c => !p.dismissed.includes(c.text)).sort((a, b) => order[a.level] - order[b.level]);
   const el = document.createElement('div'); el.className = 'pv ex';
-  const draw = () => { const list = G.checks(p).filter(c => !p.dismissed.includes(c.text)).sort((a, b) => order[a.level] - order[b.level]);
-    el.innerHTML = `<header class="hd"><button class="ib round" id="xX" aria-label="Закрыть">${I.x}</button><div class="ttl"><b>Выгрузка</b><small>${e(sc().name)} · ${(G.len(p.blocks.map(x => x.text).join('')) / 1000).toFixed(1).replace('.0', '')}k знаков</small></div></header>
+  const lvl = {error: 'Ошибка', warn: 'Предупреждение', info: 'Подсказка'};
+  const draw = () => { const r = report(p), list = r.checks, any = list.some(c => fixable(c, p));
+    const num = b => b ? (p.blocks.indexOf(b) + 1) + '. ' : '';
+    el.innerHTML = `<header class="hd"><button class="ib round" id="xX" aria-label="Закрыть">${I.x}</button><div class="ttl"><b>Выгрузка</b><small>${e(sc().name)} · ${r.count ? G.num(r.count, 'замечание', 'замечания', 'замечаний') : 'замечаний нет'}</small></div></header>
       <main class="ex-b">
-        ${list.length ? `<p class="lbl">Замечания · ${list.length}</p><div class="checks">${list.map((c, k) => `<div class="ck ck-${c.level}"><button class="ck-t" data-i="${k}">${e(c.text)}</button><button class="ck-x" data-x="${k}" aria-label="Скрыть">${I.x}</button></div>`).join('')}</div>` : `<p class="ok-note">${I.check}Замечаний нет</p>`}
-        ${miss.length ? `<p class="lbl">Нужен дизайн · ${miss.length}</p><div class="checks">${miss.map(m => `<div class="ck ck-design"><span class="ck-t"><b>${e(m.role.split(':')[0])}</b> <span class="mono">${e(m.need || '')}</span></span></div>`).join('')}</div>` : ''}
+        ${list.length ? `<div class="checks">${list.map((c, k) => { const f = fixable(c, p);
+          return `<div class="ck ck-${c.level}"><div class="ck-t"><span class="mono">${num(c.block)}${lvl[c.level]}</span>${e(c.text)}${f ? `<span class="ck-act"><button class="pill sm pri" data-fix="${k}">Поправить</button>${c.block ? `<button class="pill sm" data-go="${k}">К блоку</button>` : ''}</span>` : c.block ? `<span class="ck-act"><button class="pill sm" data-go="${k}">К блоку</button></span>` : ''}</div>${c.level === 'info' ? `<button class="ck-x" data-x="${k}" aria-label="Скрыть">${I.x}</button>` : ''}</div>`; }).join('')}</div>` : `<p class="ok-note">${I.check}Замечаний нет</p>`}
+        ${r.missing.length ? `<p class="lbl">Нужен дизайн · ${r.missing.length}</p><div class="checks">${r.missing.map(m => `<div class="ck ck-design"><div class="ck-t"><span class="mono">${num(m.b)}${e(m.role.split(':')[0])}</span>${e(m.need || '')}</div></div>`).join('')}</div>` : ''}
         <p class="lbl">Передать</p>
         <div class="list"><button class="row" id="xShare"><b>Текстом в чат</b><small>Вставка этого текста в Гриди собирает ту же страницу</small></button>
           <button class="row" id="xZip"><b>Архив для вёрстки</b><small>Текст по полям, схема, ТЗ на картинки с именами слотов</small></button></div>
       </main>
-      ${list.some(c => c.fix && c.fix.adapt || /длиннее|адаптир/.test(c.text)) ? '<div class="dock"><button class="pill grad wide" id="xFix">Поправить всё</button></div>' : ''}`;
+      ${any ? '<div class="dock"><button class="pill grad wide" id="xFix">Поправить всё</button></div>' : ''}`;
     el.querySelector('#xX').onclick = close;
     el.querySelectorAll('[data-x]').forEach(x => x.onclick = () => { p.dismissed.push(list[+x.dataset.x].text); save(); draw(); });
-    el.querySelectorAll('[data-i]').forEach(x => x.onclick = () => { const c = list[+x.dataset.i]; if (!c.block) return; close(); A.mode = 'page'; A.sel = c.block.id; A.jump = c.block.id; editor(); blockSheet(); });
+    el.querySelectorAll('[data-go]').forEach(x => x.onclick = () => { const c = list[+x.dataset.go]; close(); A.mode = 'page'; A.sel = c.block.id; A.jump = c.block.id; editor(); });
+    el.querySelectorAll('[data-fix]').forEach(x => x.onclick = async () => { const c = list[+x.dataset.fix], f = fixable(c, p);
+      try {
+        if (f === 'add') { p.blocks.push(G.newBlock(c.fix.addRole, '')); toast('Блок добавлен в конец — заполните его текстом'); }
+        if (f === 'code') G.fixByCode(p);
+        if (f === 'model') { const n = await G.runAdapt(p, 'fix', [c.block.id]); if (n) repick(c.block); }
+        save(); draw();
+      } catch (err) { if (err.message !== 'cancel') toast(err.message); } });
     el.querySelector('#xShare').onclick = async () => { const t = shareText(p); if (navigator.share && /Mobi|Android|iPhone/i.test(navigator.userAgent)) { try { await navigator.share({title: p.name, text: t}); return; } catch (err) { if (err.name === 'AbortError') return; } } await G.copy(t); toast('Текст страницы скопирован — вставьте в чат'); };
     el.querySelector('#xZip').onclick = async () => { try { await G.doExport(p); } catch (err) { toast(err.message); } };
-    const fx = el.querySelector('#xFix'); if (fx) fx.onclick = async () => { try { const n = await G.runAdapt(p, 'fit', null, {}); if (n) { G.autoPick(p); save(); toast(`Поправлено блоков: ${n}`); draw(); } } catch (err) { if (err.message !== 'cancel') toast(err.message); } };
+    const fx = el.querySelector('#xFix'); if (fx) fx.onclick = async () => {
+      try { const adds = report(p).checks.filter(c => c.fix && c.fix.addRole); adds.forEach(c => p.blocks.push(G.newBlock(c.fix.addRole, '')));
+        const res = await G.runFix(p); G.autoPick(p); save(); draw();
+        toast(`Поправлено: ${res.byCode + res.byModel + adds.length}${(res.notes || []).length ? ' · модель: ' + res.notes[0] : ''}`);
+      } catch (err) { if (err.message !== 'cancel') toast(err.message); } };
   };
-  const close = () => morph(() => { el.remove(); document.body.classList.remove('noscroll'); editor(); }, 'pop');
-  morph(() => { draw(); document.body.appendChild(el); document.body.classList.add('noscroll'); }, 'push');
+  const close = () => { el.remove(); document.body.classList.remove('noscroll'); editor(); };
+  draw(); document.body.appendChild(el); document.body.classList.add('noscroll'); el.animate([{opacity: 0}, {opacity: 1}], {duration: 140});
 };
-const exportSheet = exportView;
 
 /* ---------- старт ---------- */
 const st = document.createElement('style'); st.textContent = G.WIRE_CSS; document.head.appendChild(st);
