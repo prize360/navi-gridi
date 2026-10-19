@@ -103,8 +103,65 @@ const stripMarks = s => String(s || '').replace(/^\s*(\[(h[1-4]|кнопка|к�
 /* ответ разбора → блоки */
 /* страховка ответа разбора статьи: повторы убираются, потерянные абзацы возвращаются в текст,
    очевидное (оглавление, «Читайте также», строки таблицы) — по правилам, а не по модели */
-G.fixSplit = (json, P) => {
+/* оглавление («Содержание», «Что в статье») и пункты под ним — служебные строки, в разбор не идут */
+const TOC = /^(\[h[1-4]\]\s*)?(содержание|оглавление|что в статье|в статье)\s*:?$/i;
+const tocLines = P => {
+  const out = [];
+  P.forEach((l, n) => { if (TOC.test(l)) { out.push(n + 1); for (let i = n + 1; i < P.length && /^(?:[-–•*]|\d+[.)])\s+/.test(P[i]); i++) out.push(i + 1); } });
+  return out;
+};
+/* абзац, который отсылает к другому материалу, — cta: «Подробнее — в материале», «…— здесь», «в разделе дайджестов» */
+const REF = /(^(читайте|читать|смотрите) также(?![а-яё])|подробнее\s*[—–-]?\s*(в|на|здесь|по ссылке)(?![а-яё])|[—–-]\s*здесь\.?$|(^|\s)в разделе(?![а-яё])|полная версия(?![а-яё])|^узнать (больше|подробнее)(?![а-яё])|^\[ссылка\](?!\s*источник))/i;
+/* ответ не в том формате (так бывает у GigaChat): чужие типы и заголовок текстом вместо номера */
+const TYPE_ALIAS = {content: 'text', body: 'text', paragraph: 'text', vrez: 'text', lead: 'head', header: 'head', hero: 'head', title: 'head', h2: 'text', banner: 'cta', link: 'cta', button: 'cta', picture: 'image', chart: 'image', infographic: 'image', accordion: 'faq', citation: 'quote', speakers: 'list', people: 'list', cards: 'list'};
+const KNOWN = new Set(['head', 'text', 'short', 'list', 'quote', 'number', 'table', 'faq', 'cta', 'image', 'skip']);
+const normText = x => stripMarks(x).toLowerCase().replace(/ё/g, 'е').replace(/[^a-zа-я0-9]+/g, ' ').trim();
+G.normSplit = (json, P) => {
+  const notes = [];
+  /* одинаковых заголовков бывает несколько («Суть тренда» в каждом разделе) — берём ближайший перед блоком */
+  const byText = (t, b) => {
+    const q = normText(t); if (!q) return '';
+    const at = P.map((x, i) => normText(x) === q ? i + 1 : 0).filter(Boolean); if (!at.length) return '';
+    const first = Math.min(...refs(b.paras, P), ...refs(b.items, P), Infinity);
+    const before = at.filter(i => i <= first); return String(before.length ? before.pop() : at[0]);
+  };
+  const blocks = (json.blocks || []).map(b0 => {
+    const b = {...b0}, ty = String(b.type || 'text').toLowerCase();
+    if (!KNOWN.has(ty)) { b.type = TYPE_ALIAS[ty] || 'text'; notes.push(ty); } else b.type = ty;
+    const isNum = v => /^[\d,\s-]+$/.test(String(v));
+    /* items строкой с JSON внутри: "[{\"h\":\"9\",\"p\":\"10\"}]" — разворачиваем в массив */
+    if (typeof b.items === 'string' && /^\s*\[/.test(b.items)) { try { b.items = JSON.parse(b.items); } catch (e) { b.items = (b.items.match(/\d+(?:-\d+)?/g) || []).join(','); } }
+    /* заголовок: номером в title или текстом в title/h → номер строки в h */
+    if (b.title != null && b.title !== '' && !b.h) b.h = isNum(b.title) ? String(b.title) : byText(b.title, b);
+    if (b.h && !isNum(b.h)) b.h = byText(b.h, b);
+    /* meta, author и т. п. номерами — строки того же блока */
+    if (b.meta && isNum(b.meta)) b.paras = [b.meta, b.paras].filter(Boolean).join(',');
+    /* пункты {title, p}: заголовок пункта текстом или номером → h */
+    if (Array.isArray(b.items)) b.items = b.items.map(it => {
+      if (typeof it !== 'object') return it;
+      const h = it.h || (it.title != null && it.title !== '' ? (isNum(it.title) ? String(it.title) : byText(it.title, {paras: it.p})) : '');
+      const pp = String(it.p || it.paras || '');
+      return {h: h && isNum(h) && h !== pp ? h : '', p: pp};
+    });
+    /* пункты без своих заголовков — обычный список номеров строк */
+    if (Array.isArray(b.items) && b.items.every(it => typeof it === 'object' && !it.h)) b.items = b.items.map(it => it.p).filter(Boolean).join(',');
+    if (b.items && b.items.length && (b.type === 'text' || b.type === 'short')) b.type = 'list';
+    /* текст, написанный моделью (lead, text, meta строкой), в разбор не берём — только номера строк */
+    for (const k of ['title', 'lead', 'text', 'meta']) delete b[k];
+    return b;
+  });
+  if (notes.length) json = {...json, _alias: [...new Set(notes)]};
+  return {...json, blocks};
+};
+G.fixSplit = (json, P, R) => {
+  R = R || P; /* R — строки с маркерами разметки ([h3], «- »), P — без них */
+  json = G.normSplit(json, P);
   const blocks = (json.blocks || []).map(b => ({...b})), used = new Set();
+  const hd = blocks.find(b => b.type === 'head');
+  if (hd) { const lo = Math.min(...refs(hd.paras, P), Infinity); const pre = []; for (let i = 1; i < lo && i < 4; i++) if (!blocks.some(b => b !== hd && [b.h, b.paras, b.items].some(v => refs(typeof v === 'string' ? v : '', P).includes(i)))) pre.push(i); if (pre.length) hd.paras = [...pre, ...refs(hd.paras, P)].join(','); }
+  const toc = tocLines(R);
+  R.forEach((l, n) => { if (/^\[картинка\]\s*(shape|img|image|picture|decor|icon|banner)?[-_ ]?(img|image)?\s*$/i.test(l)) toc.push(n + 1); });
+  toc.sort((x, y) => x - y); toc.forEach(i => used.add(i));
   const keys = ['h', 'paras', 'author', 'button'];
   const take = v => refs(v, P).filter(i => !used.has(i) && used.add(i));
   for (const b of blocks) {
@@ -113,6 +170,7 @@ G.fixSplit = (json, P) => {
     else if (b.items) b.items = take(b.items).join(',');
   }
   const out = blocks.filter(b => keys.some(k => b[k]) || (b.items && b.items.length));
+  if (toc.length) out.splice(Math.max(0, out.findIndex(b => b.type !== 'head') < 0 ? out.length : out.findIndex(b => b.type !== 'head')), 0, {type: 'skip', paras: toc.join(',')});
   /* потерянные абзацы — в ближайший текст перед ними или новым текстом */
   const where = b => Math.min(...[...keys.flatMap(k => refs(b[k], P)), ...(Array.isArray(b.items) ? b.items.flatMap(x => [...refs(x.h, P), ...refs(x.p, P)]) : refs(b.items, P))]);
   P.forEach((txt, n) => {
@@ -123,34 +181,91 @@ G.fixSplit = (json, P) => {
     else out.splice(at, 0, {type: /^(поделиться)/i.test(txt) ? 'skip' : 'text', paras: String(i)});
     used.add(i);
   });
-  /* правила без модели */
+  /* модель склеила раздел в один text: режем по [h2]/[h3], строки «- » подряд — в list */
+  const isH = i => /^\[h[2-4]\]/i.test(R[i - 1] || ''), isLi = i => /^(?:[-–•*]|\d+[.)])\s+/.test(R[i - 1] || '');
+  const res = [];
   for (const b of out) {
+    const isRef = i => /^\[ссылка\]/i.test(R[i - 1] || '') && REF.test(P[i - 1] || '');
+    /* отсылка («Читайте также», «Подробнее — в материале») внутри склеенного списка или текста — отдельный cta */
+    if (['list', 'text', 'cta'].includes(b.type) && !Array.isArray(b.items)) {
+      const all = [...refs(b.paras, P), ...(typeof b.items === 'string' ? refs(b.items, P) : [])].sort((x, y) => x - y);
+      /* cta, в который модель затянула соседний список, — тоже разделяем */
+      if (all.length > 1 && all.some(isRef) && (b.type !== 'cta' || all.some(isLi))) {
+        const keep = all.filter(i => !isRef(i)), rf = all.filter(isRef);
+        if (b.type === 'cta') { b.type = keep.every(isLi) ? 'list' : 'text'; delete b.button; }
+        if (b.type === 'list') { b.items = keep.filter(isLi).join(','); b.paras = keep.filter(i => !isLi(i)).join(','); } else b.paras = keep.join(',');
+        if (keep.length || b.h) res.push(b);
+        rf.forEach(i => res.push({type: 'cta', paras: String(i), button: String(i)}));
+        continue;
+      }
+    }
+    if (b.type !== 'text') { res.push(b); continue; }
     const ps = refs(b.paras, P);
-    if (ps.length === 1 && /^(читайте также|читать также|смотрите также)\b/i.test(P[ps[0] - 1]) && b.type === 'text') b.type = 'cta';
-    if (ps.length > 1 && ps.every(i => P[i - 1].includes(' | ')) && b.type === 'text') b.type = 'table';
+    if (!ps.some(i => isH(i) || isLi(i))) { res.push(b); continue; }
+    let cur = {type: 'text', h: b.h || '', ps: []};
+    const flush = () => {
+      if (!cur.ps.length && !cur.h) return;
+      const li = cur.ps.length && cur.ps.every(isLi);
+      res.push(li ? {type: 'list', h: cur.h, items: cur.ps.join(',')} : {type: 'text', h: cur.h, paras: cur.ps.join(',')});
+    };
+    for (const i of ps) {
+      if (isH(i)) { flush(); cur = {type: 'text', h: String(i), ps: []}; continue; }
+      if (cur.ps.length && isLi(i) !== isLi(cur.ps[cur.ps.length - 1])) { flush(); cur = {type: 'text', h: '', ps: []}; }
+      cur.ps.push(i);
+    }
+    flush();
   }
-  return {...json, blocks: out};
+  /* модель разрезала список по пункту на блок: соседние блоки из одних пунктов без своего заголовка — один list */
+  const liOnly = b => { const ps = [...refs(b.paras, P), ...(typeof b.items === 'string' ? refs(b.items, P) : [])]; return ps.length && !Array.isArray(b.items) && ps.every(isLi) ? ps : null; };
+  for (let k = res.length - 1; k > 0; k--) {
+    const a = res[k - 1], c = res[k], pa = (a.type === 'list' || a.type === 'text') && liOnly(a), pc = (c.type === 'list' || c.type === 'text') && !c.h && liOnly(c);
+    if (pa && pc) { res[k - 1] = {type: 'list', h: a.h || '', items: [...pa, ...pc].join(',')}; res.splice(k, 1); }
+  }
+  /* правила без модели */
+  for (const b of res) {
+    const ps = refs(b.paras, P);
+    if (ps.length === 1 && (REF.test(P[ps[0] - 1]) || REF.test(R[ps[0] - 1] || '')) && (b.type === 'text' || b.type === 'short')) b.type = 'cta';
+    /* баннер: картинка и ссылка-кнопка в одном блоке — cta, а не подпись к картинке */
+    /* текст с картинкой внутри (заголовок графика + картинка + «Источник») — image */
+    if (b.type === 'text' && ps.some(i => /^\[картинка\]/i.test(R[i - 1] || ''))) b.type = 'image';
+    if (b.type === 'image' && ps.some(i => /^\[картинка\]/i.test(R[i - 1] || '')) && ps.some(i => /^\[ссылка\]/i.test(R[i - 1] || '') && !/^\[ссылка\]\s*источник/i.test(R[i - 1]))) { b.type = 'cta'; b.button = String(ps.filter(i => /^\[ссылка\]/i.test(R[i - 1] || '')).pop()); b.paras = ps.filter(i => String(i) !== b.button).join(','); }
+    const rows = ps.filter(i => P[i - 1].includes(' | ')).length;
+    if (rows >= 2 && rows >= ps.length - 1 && b.type === 'text') b.type = 'table'; /* строка «Источник: …» под таблицей остаётся в ней */
+  }
+  /* порядок блоков — порядок строк в тексте: модель могла переставить */
+  const first = b => { const n = [...keys.flatMap(k => refs(b[k], P)), ...(Array.isArray(b.items) ? b.items.flatMap(x => [...refs(x.h, P), ...refs(x.p, P)]) : refs(b.items, P))]; return n.length ? Math.min(...n) : Infinity; };
+  const sorted = res.map((b, i) => ({b, i, f: b.type === 'head' ? 0 : first(b)})).sort((x, y) => x.f - y.f || x.i - y.i).map(x => x.b);
+  return {...json, blocks: sorted};
 };
 G.applySeg = (page, json) => {
   const sc = G.scenario(page.scenario), P = G.paras(page.text, sc.maxText).map(stripMarks), roles = sc.roles.map(r => r.id);
   const blocks = [];
   if (sc.kind === 'article') {
-    json = G.fixSplit(json, P);
-    let pendingTitle = '', firstText = true;
+    const R = G.paras(page.text, sc.maxText);
+    json = G.fixSplit(json, P, R);
+    /* уровень заголовка из разметки: [h3] остаётся h3, а не становится h2 */
+    /* заголовок без разметки (жирный абзац «Шаг 1. …») внутри раздела — подзаголовок h3, до первого H2 — h2 */
+    let inSection = false;
+    const lv = n => { const m = String(R[(+String(n).split(',')[0]) - 1] || '').match(/^\[(h[1-4])\]/i); const l = m ? m[1].toLowerCase() : inSection ? 'h3' : 'h2'; if (l === 'h2') inSection = true; return l; };
+    /* H2 раздела — отдельный блок, если под ним сразу свой подзаголовок */
+    let pending = null, firstText = true;
+    const headOnly = () => { if (pending) blocks.push(G.newBlock('content', G.serialize({title: pending.t, level: pending.lv || 'h2'}))); pending = null; };
     for (const x of json.blocks || []) {
       const ty = x.type || 'text';
       if (ty === 'skip') continue;
-      const h = x.h ? txt(x.h, P) : '';
+      const h = x.h ? txt(x.h, P) : '', hl = x.h ? lv(x.h) : '';
       if (ty === 'head') { const ps = refs(x.paras, P).map(i => P[i - 1]); blocks.push(G.newBlock('hero', G.serialize({title: ps[0] || '', level: 'h1', meta: ps.slice(1).filter(l => l.length < 90), lead: ps.slice(1).filter(l => l.length >= 90).join('\n')}))); continue; }
+      if (h && pending) headOnly();
       if (ty === 'text') {
         const body = refs(x.paras, P).filter(i => String(i) !== String(x.h)).map(i => P[i - 1]).join('\n');
-        if (!body && h) { pendingTitle = h; continue; }
-        const title = h || pendingTitle; pendingTitle = '';
+        if (!body && h) { pending = {t: h, lv: hl}; continue; }
+        const title = h || (pending && pending.t) || '', level = h ? hl : pending && pending.lv; pending = null;
         if (firstText && !title && G.len(body) <= 600 && !blocks.some(b => b.role === 'content')) blocks.push(G.newBlock('lead', body));
-        else blocks.push(G.newBlock('content', G.serialize({title, lead: body})));
+        else blocks.push(G.newBlock('content', G.serialize({title, level: level || 'h2', lead: body})));
         firstText = false; continue;
       }
-      const v = {title: pendingTitle || h, lead: '', items: [], meta: [], cta: [], images: []}; pendingTitle = '';
+      const vlevel = h ? hl : pending && pending.lv;
+      const v = {title: h || (pending && pending.t) || '', lead: '', items: [], meta: [], cta: [], images: []}; pending = null;
       if (ty === 'short') v.lead = txt(x.paras, P);
       if (ty === 'list') {
         v.items = Array.isArray(x.items) ? x.items.map(i => ({title: txt(i.h, P), text: txt(i.p, P), h3: true})) : refs(x.items, P).map(i => G.splitItem(P[i - 1]));
@@ -161,15 +276,23 @@ G.applySeg = (page, json) => {
       if (ty === 'number') { const ps = refs(x.paras, P).map(i => P[i - 1]); v.items = [{title: ps[0] || '', text: ps.slice(1).join(' ')}]; }
       if (ty === 'table') v.lead = refs(x.paras, P).map(i => P[i - 1]).join('\n');
       if (ty === 'faq') v.items = (Array.isArray(x.items) ? x.items : []).map(i => ({title: txt(i.h, P), text: txt(i.p, P), h3: true}));
-      if (ty === 'image') v.images = refs(x.paras, P).map(i => P[i - 1]);
-      const b = G.newBlock('vrez', G.serialize(v, {level: 'h3'}));
+      /* картинка — только строки [картинка]; «Источник: …» и прочее — подпись */
+      if (ty === 'image') { const ps = refs(x.paras, P); const im = ps.filter(i => /^\[картинка\]/i.test(R[i - 1] || '')); v.images = (im.length ? im : ps).map(i => P[i - 1]); if (im.length) { const rest = ps.filter(i => !im.includes(i)).map(i => P[i - 1]); v.meta = rest.filter(l => /^источник/i.test(l)); v.lead = rest.filter(l => !/^источник/i.test(l)).join('\n'); } }
+      const b = G.newBlock('vrez', G.serialize(v, {level: vlevel || 'h3'}));
       if (ty === 'table') b.tpl = 'table', b.tplLock = true;
       if (ty === 'faq') b.tpl = 'accordion', b.tplLock = true;
       blocks.push(b);
     }
+    headOnly();
   } else {
-    for (const x of json.blocks || []) {
-      const role = roles.includes(x.role || x.slot) ? (x.role || x.slot) : 'about';
+    for (const x0 of json.blocks || []) {
+      /* страховка ответа лендинга: слот в type/id/role, items строкой с JSON, номера вместо текста в title/meta/lead */
+      const x = {...x0}, num = v => /^[\d,\s-]+$/.test(String(v || ''));
+      if (typeof x.items === 'string' && /^\s*\[/.test(x.items)) { try { x.items = JSON.parse(x.items); } catch (e) {} }
+      for (const k of ['title', 'meta', 'lead']) if (x[k] && num(x[k])) x[k] = txt(x[k], P);
+      if (Array.isArray(x.items)) x.items = x.items.map(i => typeof i === 'object' ? {...i, title: num(i.title) ? txt(i.title, P) : i.title, text: num(i.text) ? txt(i.text, P) : i.text} : i);
+      const slot = [x.slot, x.role, x.type, x.id].find(v => roles.includes(v));
+      const role = slot || (roles.includes('about') ? 'about' : roles.find(r => r !== 'hero' && r !== 'cta') || roles[0]);
       let items = [];
       if (typeof x.items === 'string') items = refs(x.items, P).map(i => G.splitItem(P[i - 1]));
       else items = (x.items || []).map(i => ({title: i.title || '', text: i.p ? txt(i.p, P) : i.text || '', meta: i.meta || '', cta: i.cta || ''}));
@@ -182,7 +305,8 @@ G.applySeg = (page, json) => {
   /* текст не теряется: абзацы исходника, которых нет ни в одном блоке, — в конец отдельным блоком */
   const norm = t => String(t || '').toLowerCase().replace(/ё/g, 'е').replace(/[^a-zа-я0-9]+/g, ' ').trim();
   const all = norm(blocks.map(b => b.text).join(' '));
-  const lost = P.filter(x => { const n = norm(x); return n.length > 3 && !all.includes(n.slice(0, 60)); });
+  const skipped = new Set(sc.kind === 'article' ? (json.blocks || []).filter(x => x.type === 'skip').flatMap(x => refs(x.paras, P)) : []);
+  const lost = P.filter((x, n) => { if (skipped.has(n + 1)) return false; const t = norm(x); return t.length > 3 && !all.includes(t.slice(0, 60)); });
   if (lost.length) { const role = sc.kind === 'article' ? 'content' : (roles.includes('about') ? 'about' : roles.find(r => r !== 'hero' && r !== 'cta') || roles[0]);
     const b = G.newBlock(role, lost.join('\n')); b.tips = [`Модель не разложила эти ${G.num(lost.length, 'абзац', 'абзаца', 'абзацев')} — разнесите по блокам сами или запустите разбор ещё раз.`]; blocks.push(b); }
   page.blocks = blocks; page.story = (json.story || []).filter(Boolean);
@@ -300,8 +424,29 @@ G.adaptPrompt = (page, p, part, askVals = {}) => {
   const sc = G.scenario(page.scenario);
   const blocks = part.map(b => p.input === 'source'
     ? `### id: ${b.id} (${G.roleOf(sc, b.role).name})\n${spec(G.tpl(b.tpl))}${G.blockTask(b, page) ? '\n' + G.blockTask(b, page) : ''}${G.needsHead(b, G.tpl(b.tpl)) ? `\nЗаголовок раздела над блоком — ключ head в top, ≤${G.HEAD.max}` : ''}\nИсходник:\n${srcText(b)}`
-    : fieldsJSON(b, page)).join('\n\n');
+    : fieldsJSON(b, page) + (p.id === 'fix' && G.fixNotes(b, page).length ? '\nЗамечания:\n' + G.fixNotes(b, page).map(x => '- ' + x).join('\n') : '')).join('\n\n');
   return G.fill(p.text, {...askVals, 'тип': sc.name, 'действие': sc.action, 'блоки': blocks});
+};
+/* ---------- исправление по проверке: сначала код, потом модель только по замечаниям ---------- */
+/* замечания, которые правятся текстом блока (остальные — шаблон, дизайн, порядок — модель не трогает) */
+const FIXABLE = /длиннее|Кнопка «|ложная срочность|Пустой блок/i;
+G.fixNotes = (b, page) => G.checks(page).filter(c => c.block === b && c.level !== 'info' && FIXABLE.test(c.text)).map(c => c.text);
+/* что чинится без модели: H1 вне первого экрана → H2, второй первый экран и второе целевое действие → обычный блок */
+G.fixByCode = page => {
+  const sc = G.scenario(page.scenario), plain = (sc.roles.find(r => !['hero', 'cta', 'subscribe'].includes(r.id)) || {id: 'content'}).id;
+  let n = 0;
+  page.blocks.forEach((b, i) => { if (i > 0 && b.role !== 'hero' && /^\s*\[h1\]/im.test(b.text)) { b.text = b.text.replace(/^(\s*)\[h1\]/im, '$1[h2]'); n++; } });
+  const heroes = page.blocks.filter(b => b.role === 'hero'); heroes.slice(1).forEach(b => { b.role = plain; b.text = b.text.replace(/^(\s*)\[h1\]/im, '$1[h2]'); n++; });
+  const ctas = page.blocks.filter(b => G.isCta(b) && (b.role === 'cta' || b.role === 'subscribe')); ctas.slice(1).forEach(b => { b.role = plain; n++; });
+  if (n) G.autoPick(page);
+  return n;
+};
+G.runFix = async page => {
+  const byCode = G.fixByCode(page);
+  const ids = page.blocks.filter(b => G.adaptable(b, G.prompt('fix'), page) && G.fixNotes(b, page).length).map(b => b.id);
+  G.lastNotes = [];
+  const byModel = ids.length ? await G.runAdapt(page, 'fix', ids) : 0;
+  return {byCode, byModel, asked: ids.length, notes: G.lastNotes};
 };
 G.runAdapt = async (page, promptId, blockIds, askVals = {}) => {
   const p = G.prompt(promptId);
@@ -313,6 +458,7 @@ G.runAdapt = async (page, promptId, blockIds, askVals = {}) => {
   /* один запрос на все блоки */
   { const part = list;
     const json = await G.ask(p.name, G.adaptPrompt(page, p, part, askVals));
+    G.lastNotes = (json && Array.isArray(json.notes) ? json.notes : []).map(String).filter(Boolean);
     const got = Array.isArray(json) ? json : json.blocks || [];
     for (const [ri, r] of got.entries()) {
       /* блок — по id; если модель перепутала id, а блоков столько же — по порядку */

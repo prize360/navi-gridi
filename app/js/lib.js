@@ -133,13 +133,14 @@ EDIT.scenarios = (box, o) => {
             <label class="check"><input type="checkbox" data-f="req" ${r.req ? 'checked' : ''}>нужен</label>
             <button class="btn sm ghost" data-tpls title="Какие шаблоны можно ставить в этот блок">${tplsLabel(r)}</button>
             ${canMove(o, r) ? `<button class="ib sm" data-mv="-1" aria-label="Выше" ${i > 1 ? '' : 'disabled'}>${G.icon.up}</button><button class="ib sm" data-mv="1" aria-label="Ниже" ${i < o.roles.length - 1 ? '' : 'disabled'}>${G.icon.down}</button>` : ''}${canRemove(o, r) ? `<button class="ib sm" data-rm aria-label="Удалить блок">${G.icon.x}</button>` : ''}</div>`; }).join('')}</div>
-      <details class="card"><summary class="lbl" style="cursor:pointer;margin:0">Особые правила разбора — если нужны</summary><textarea class="ta" id="sRules" rows="3" style="margin-top:10px" placeholder="По одному в строке. Например: программа — только пункты со временем">${e((o.rules || []).join('\n'))}</textarea></details>
+      <details class="card"><summary class="lbl" style="cursor:pointer;margin:0">Особые правила разбора — если нужны</summary><textarea class="ta" id="sRules" rows="3" style="margin-top:10px" placeholder="По одному в строке. Например: программа — только пункты со временем">${e((o.rules || []).join('\n'))}</textarea><p class="hint" id="sRulesHint" style="margin-top:6px">${e(G.rulesLint(o.kind, o.rules || []))}</p></details>
     </div>`;
     bindHead(box, 'scenarios', collect, isNew);
     { const h = box.querySelector('.edit-h .row');
       if (!isNew) { h.insertAdjacentHTML('afterbegin', '<button class="btn sm ghost" data-pack>Поделиться</button>'); h.querySelector('[data-pack]').onclick = ev => { ev.stopPropagation(); exportPack(collect()); }; }
       else { h.insertAdjacentHTML('afterbegin', `<label class="btn sm ghost" style="cursor:pointer">${G.icon.up}Загрузить сценарий<input type="file" id="packIn" accept=".json" class="sr"></label>`);
         h.querySelector('#packIn').onchange = async ev => { try { const r = await importPack(ev.target.files[0]); S.dirty = false; S.toast(r.msg); S.go(`#/lib/scenarios/${encodeURIComponent(r.id)}`); } catch (err) { S.toast(err.message); } }; } }
+    { const ta = box.querySelector('#sRules'), hn = box.querySelector('#sRulesHint'); if (ta && hn) ta.oninput = () => { hn.textContent = G.rulesLint(o.kind, ta.value.split('\n')); }; }
     box.querySelector('#sKind').onclick = ev => { const b = ev.target.closest('button'); if (!b || b.dataset.v === o.kind) return; collect(); o.kind = b.dataset.v; o.roles = kindRoles(o.kind); draw(); };
     const ar = box.querySelector('#addRole'); if (ar) ar.onclick = () => { collect(); o.roles.splice(Math.max(0, o.roles.length - 1), 0, {id: '', name: 'Новый блок: что в нём', req: 0}); draw(); };
     box.querySelectorAll('.rolecard').forEach(rc => {
