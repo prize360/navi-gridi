@@ -307,7 +307,8 @@ G.applySeg = (page, json) => {
   const all = norm(blocks.map(b => b.text).join(' '));
   const skipped = new Set(sc.kind === 'article' ? (json.blocks || []).filter(x => x.type === 'skip').flatMap(x => refs(x.paras, P)) : []);
   const lost = P.filter((x, n) => { if (skipped.has(n + 1)) return false; const t = norm(x); return t.length > 3 && !all.includes(t.slice(0, 60)); });
-  if (lost.length) { const role = sc.kind === 'article' ? 'content' : (roles.includes('about') ? 'about' : roles.find(r => r !== 'hero' && r !== 'cta') || roles[0]);
+  /* неразобранное — в конец, в служебную роль «Не разобрано»: создаётся только здесь, вручную её не добавить */
+  if (lost.length) { const role = 'unparsed';
     const b = G.newBlock(role, lost.join('\n')); b.tips = [`Модель не разложила эти ${G.num(lost.length, 'абзац', 'абзаца', 'абзацев')} — разнесите по блокам сами или запустите разбор ещё раз.`]; blocks.push(b); }
   page.blocks = blocks; page.story = (json.story || []).filter(Boolean);
   G.autoPick(page);

@@ -12,6 +12,7 @@ const I = {
   back: '<svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>',
   menu: '<svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg>',
   tune: '<svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>',
+  tag: '<svg viewBox="0 0 24 24"><path d="M4 12V5a1 1 0 011-1h7l8 8-8 8-8-8z"/><circle cx="8.5" cy="8.5" r="1.3"/></svg>',
   note: '<svg viewBox="0 0 24 24"><path d="M5 6h14M5 11h14M5 16h9"/></svg>',
   page: '<svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="7" rx="1.5"/><rect x="4" y="14" width="7" height="6" rx="1.5"/><rect x="13" y="14" width="7" height="6" rx="1.5"/></svg>',
   out: '<svg viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>',
@@ -67,6 +68,7 @@ const report = p => {
   const dis = p.dismissed || [], checks = G.checks(p).filter(c => !dis.includes(c.text) && !/^Нави /.test(c.text));
   p.blocks.forEach(b => { const s0 = G.src(b); s0.cta.forEach((c, k) => { if (!(s0.urls || [])[k]) { const t = `Нет ссылки у кнопки «${c}» — допишите адрес через « | »`; if (!dis.includes(t)) checks.push({level: 'info', text: t, block: b}); } });
     s0.items.forEach(it => { if (it.cta && !it.url) { const t = `Нет ссылки у кнопки «${it.cta}» — допишите адрес через « | »`; if (!dis.includes(t)) checks.push({level: 'info', text: t, block: b}); } }); });
+  p.blocks.filter(b => b.role === 'unparsed').forEach(b => checks.unshift({level: 'error', text: 'Блок «Не разобрано»: разнесите абзацы по блокам (Роль) или удалите блок', block: b}));
   const order = {error: 0, warn: 1, info: 2}; checks.sort((a, b) => order[a.level] - order[b.level]);
   const missing = G.missing(p), byBlock = {};
   checks.forEach(c => { if (c.block) (byBlock[c.block.id] = byBlock[c.block.id] || []).push(c); });
@@ -157,7 +159,7 @@ const manualAsk = (label, prompt) => new Promise((res, rej) => {
   s.$('#mCopy').onclick = async () => { await G.copy(prompt); toast('Промт скопирован'); };
   s.$('#mOk').onclick = () => { const v = s.$('#mAns').value; if (!G.parseJSON(v)) { s.$('#mErr').textContent = 'В ответе нет JSON. Попросите модель: «верни только JSON».'; return; } s.close(true); res(v); };
 });
-G.ui = {toast, busy, manualAsk};
+Object.assign(G.ui = G.ui || {}, {toast, busy, manualAsk});
 
 /* подтверждение на месте: первая нажатая кнопка меняет подпись, вторая — выполняет */
 const sure = (btn, label, run) => { if (btn.dataset.sure) return run(); btn.dataset.sure = 1; btn.textContent = label + ' — нажмите ещё раз'; setTimeout(() => { if (btn.isConnected) { delete btn.dataset.sure; } }, 4000); };
@@ -175,7 +177,7 @@ const empty = (title, text, acts = []) => `<div class="es"><b>${e(title)}</b>${t
 /* смена экрана — короткое проявление, без снимков страницы (они тормозили на длинных страницах) */
 const morph = fn => fn();
 const appear = () => { if (!matchMedia('(prefers-reduced-motion: reduce)').matches) $app.animate([{opacity: .4}, {opacity: 1}], {duration: 140, easing: 'ease-out'}); };
-const render = () => { A.view === 'home' ? home() : editor(); };
+const render = () => { A.view === 'home' ? home() : A.view === 'lib' ? libView() : editor(); };
 const go = async (view, id) => {
   A.view = view; A.sel = null; A.line = null;
   if (view === 'edit') { A.page = await G.store.get(id); if (!A.page) { A.view = 'home'; } else A.mode = A.page.blocks.length ? 'page' : 'note'; }
@@ -195,7 +197,7 @@ const seed = async () => {
 const home = async () => {
   await seed();
   const raw = await G.store.list();
-  for (const x of raw) if (!x.blocks.length) await G.store.del(x.id); /* несобранные пустые страницы прошлых версий */
+  for (const x of raw) if (!x.blocks.length && !String(x.text || '').trim()) await G.store.del(x.id); /* пустые страницы без текста — их создали и бросили */
   const all = raw.filter(x => x.blocks.length).sort((a, b) => (b.updated || 0) - (a.updated || 0));
   const tabs = TABS.filter(([id]) => G.lib.get('scenarios', id));
   A.tab = A.tab || G.ls.get('tab', 'article'); if (!tabs.some(([id]) => id === A.tab)) A.tab = (tabs[0] || ['article'])[0];
@@ -241,7 +243,7 @@ const settings = () => {
         <label class="lbl" for="sKey">Ключ — хранится только в этом браузере</label><input class="in" id="sKey" type="password" value="${e(st.key)}" autocomplete="off">
       </div>
       <p class="lbl">Библиотека</p>
-      <a class="pill ghost wide" href="${window.GRIDI_LIB_URL || 'lib.html#/lib/templates'}">Шаблоны, сценарии и промты</a>
+      <a class="pill ghost wide" href="#/lib/templates">Шаблоны, сценарии и промты</a>
       <p class="lbl">Страница от коллеги</p>
       <label class="pill ghost wide file">Открыть архив или page.json<input type="file" id="sImp" accept=".zip,.json,application/zip,application/json"></label>
       <p class="hint">Текст страницы из чата просто вставьте в новую страницу.</p>
@@ -273,7 +275,7 @@ const editor = () => {
   if (!p.blocks.length) return draft();
   A.mode === 'note' ? notes() : canvas();
   island();
-  if (A.sel && A.mode === 'page') { select(A.sel); if (A.openCat) catalog(); } A.openCat = false;
+  if (A.sel) { select(A.sel); if (A.openCat && A.mode === 'page') catalog(); } A.openCat = false;
   /* перерисовка не сбрасывает положение; прокрутка к блоку — только когда к нему переходят */
   const M = document.getElementById('eMain');
   if (A.jump) { const el = $app.querySelector(`[data-id="${A.jump}"]`); if (el && M) M.scrollTop += el.getBoundingClientRect().top - M.getBoundingClientRect().top - (A.jumpTop ? 8 : M.clientHeight / 3); A.jump = null; A.jumpTop = false; } else if (M) M.scrollTop = y0;
@@ -366,13 +368,21 @@ const draft = () => {
     dock.querySelector('#dGo').onclick = () => build(ta.value); const asm = dock.querySelector('#dAsm'); if (asm) asm.onclick = () => build(ta.value, true); };
   bar(); ta.addEventListener('input', () => { if (!!dock.querySelector('#dAsm') !== G.fullyMarked(ta.value)) bar(); });
 };
+/* разбор получился плохим: сначала говорим об этом, страницу открываем, только если человек согласен */
+const weakSeg = r => new Promise(res => { let done = false; const fin = v => { if (done) return; done = true; s.close(true); res(v); };
+  const s = sheet(`<div class="sh-h"><div><h2>Разбор получился плохим</h2><p class="sub">Модель не разложила ${r.lost} из ${G.num(r.total, 'абзаца', 'абзацев', 'абзацев')}.</p></div></div>
+    <div class="sh-b"><p>Попробуйте другую модель или разметьте текст: заголовки — <b>[h2]</b>, пункты — <b>- </b>, и соберите снова.</p><p class="hint">Если открыть как есть, неразобранные абзацы будут в конце, в блоке «Не разобрано».</p></div>
+    <div class="sh-f"><button class="pill ghost" id="wOpen">Открыть как есть</button><button class="pill pri wide" id="wBack">Вернуться к тексту</button></div>`, {onClose: () => fin(false)});
+  s.$('#wBack').onclick = () => fin(false); s.$('#wOpen').onclick = () => fin(true); });
 const build = async (text, plain) => {
   const p = A.page; text = String(text || '').trim(); if (!text) return toast('Сначала вставьте текст.');
   p.text = text;
   try {
     if (isShare(text)) fromShare(p, text);
     else if (plain && G.fullyMarked(text)) { G.assemble(p); G.autoPick(p, true); }
-    else { const j = await G.ask('Разбор: ' + sc().name, G.segPrompt(p)); const r = G.applySeg(p, j); if (r.lost) toast(`Модель пропустила ${G.num(r.lost, 'абзац', 'абзаца', 'абзацев')} — они в последнем блоке.`); }
+    else { const j = await G.ask('Разбор: ' + sc().name, G.segPrompt(p)); const r = G.applySeg(p, j);
+      if (r.lost && r.lost / Math.max(1, r.total) > 0.25 && !await weakSeg(r)) { p.blocks = []; save(); return draft(); }
+      if (r.lost) toast(`Модель пропустила ${G.num(r.lost, 'абзац', 'абзаца', 'абзацев')} — они в конце, в блоке «Не разобрано».`); }
   } catch (err) { if (err.message !== 'cancel') toast(err.message); return; }
   if (p.name === 'Без названия') { const h = p.blocks.find(b => b.role === 'hero'); const t = h && G.src(h).title; if (t) p.name = t.slice(0, 80); }
   A.mode = 'page'; await G.store.put(p); editor();
@@ -389,7 +399,7 @@ const notes = () => {
   main.querySelectorAll('.ed').forEach(bindEd); bindAdd(main);
   main.querySelectorAll('[data-role]').forEach(x => x.onclick = ev => { ev.stopPropagation(); if (A.sel === x.dataset.role) { unselect(); return; } const a = document.activeElement; if (a && a.blur) a.blur(); select(x.dataset.role); });
   main.addEventListener('focusin', ev => { if (A.sel && ev.target.closest('.ed')) unselect(); });
-  main.onclick = ev => { if (A.sel && !ev.target.closest('.nb-line,.add')) unselect(); };
+  main.onclick = ev => { if (A.sel && !ev.target.closest('.nb-line,.add,.sel-float')) unselect(); };
   fmtBar();
 };
 
@@ -546,7 +556,7 @@ const canvas = () => {
   main.innerHTML = `<div class="cv">${p.blocks.map((b, i) => `<div class="cb ${A.sel === b.id ? 'sel' : ''} ${iss[b.id] ? 'warn' : ''}" data-id="${e(b.id)}"><b class="bn">${i + 1}</b>${blockHTML(b, p)}</div>`).join('')}${addChips()}</div>`;
   main.querySelectorAll('.cb').forEach(x => x.onclick = ev => { ev.stopPropagation(); if (A.sel) { unselect(); return; } select(x.dataset.id); });
   /* клик мимо блока снимает выбор */
-  main.onclick = ev => { if (A.sel && !ev.target.closest('.cb,.add')) unselect(); };
+  main.onclick = ev => { if (A.sel && !ev.target.closest('.cb,.add,.sel-float')) unselect(); };
   bindAdd(main);
 };
 let cat = null;
@@ -554,10 +564,21 @@ const BK = () => A.mode === 'note' ? '.nb' : '.cb';
 const select = id => { A.sel = id; document.body.classList.add('picking');
   $app.querySelectorAll(BK()).forEach(x => x.classList.toggle('sel', x.dataset.id === id));
   selBar();
-  requestAnimationFrame(() => { const el = $app.querySelector(`${BK()}[data-id="${id}"]`), bar = $app.querySelector('.selbar'), M = document.getElementById('eMain'); if (!el || !bar || !M) return;
-    const r = el.getBoundingClientRect(), lim = bar.getBoundingClientRect().top - 12, top = M.getBoundingClientRect().top + 8;
-    if (r.top < top) M.scrollBy({top: r.top - top, behavior: 'smooth'}); else if (r.top > lim - 120) M.scrollBy({top: r.top - top, behavior: 'smooth'}); }); };
-const unselect = () => { A.sel = null; document.body.classList.remove('picking'); $app.querySelectorAll('.cb.sel,.nb.sel').forEach(x => x.classList.remove('sel')); if (cat) { const h = cat; cat = null; h.close(true); } if (A.view === 'edit' && A.page && A.page.blocks.length) island(); };
+  requestAnimationFrame(() => { const el = $app.querySelector(`${BK()}[data-id="${id}"]`), M = document.getElementById('eMain'); if (!el || !M) return;
+    const r = el.getBoundingClientRect(), v = visArea(M);
+    if (r.top < v.top || r.top > v.bottom - 160) { M.scrollBy({top: r.top - v.top - 12, behavior: 'smooth'}); } }); };
+/* видимая часть полотна: под шапкой и над нижней панелью */
+const visArea = M => { const b = M.getBoundingClientRect(), hd = document.getElementById('eHd'), dk = document.getElementById('eDockMain');
+  const top = Math.max(b.top, hd ? hd.getBoundingClientRect().bottom : b.top) + 4, dt = dk && dk.offsetHeight ? dk.getBoundingClientRect().top : b.bottom;
+  return {top, bottom: Math.min(b.bottom, dt) - 8}; };
+/* панель блока — у самого блока: под ним, если помещается, иначе над ним; длинный блок — панель у края экрана внутри блока */
+let selEl = null;
+const placeSel = () => { if (!selEl || !selEl.isConnected || !A.sel) return; const M = document.getElementById('eMain'), el = $app.querySelector(`${BK()}[data-id="${A.sel}"]`); if (!M || !el) return;
+  const host = selEl.parentElement.getBoundingClientRect(), r = el.getBoundingClientRect(), v = visArea(M), h = selEl.offsetHeight, g = 10;
+  let y = r.bottom + g + h <= v.bottom ? r.bottom + g : r.top - g - h >= v.top ? r.top - g - h : Math.min(Math.max(v.bottom - h, r.top + g), r.bottom - h - g);
+  y = Math.max(v.top, Math.min(y, v.bottom - h));
+  selEl.style.top = Math.round(y - host.top) + 'px'; };
+const unselect = () => { A.sel = null; if (selEl) { selEl.remove(); selEl = null; } document.body.classList.remove('picking'); $app.querySelectorAll('.cb.sel,.nb.sel').forEach(x => x.classList.remove('sel')); if (cat) { const h = cat; cat = null; h.close(true); } if (A.view === 'edit' && A.page && A.page.blocks.length) island(); };
 const redrawBlock = b => { if (A.mode === 'note') { const id = A.sel; notes(); if (id) select(id); const bd = $app.querySelector('#eOut .badge'), r = report(A.page); if (bd) { bd.textContent = r.count; bd.hidden = !r.count; } return; } const el = $app.querySelector(`.cb[data-id="${b.id}"]`); if (!el) return; const r = report(A.page);
   el.innerHTML = `<b class="bn">${A.page.blocks.indexOf(b) + 1}</b>` + blockHTML(b, A.page); el.classList.toggle('warn', !!r.byBlock[b.id]);
   const bd = $app.querySelector('#eOut .badge'); if (bd) { bd.textContent = r.count; bd.hidden = !r.count; }
@@ -592,20 +613,21 @@ const selBar = () => {
   const adapt = G.lib.all('prompts').filter(x => x.stage === 'adapt' && !x.system && !['fit', 'fix'].includes(x.id));
   dock.innerHTML = `<div class="selbar${A.mode === 'note' ? ' sb-s' : ''}" role="toolbar" aria-label="Блок ${i + 1}">
     <div class="sb-chips">${fixN ? `<button class="chip hot" data-p="fix">Поправить ошибки <i>${fixN}</i></button>` : ''}${G.adaptable(b, G.prompt('fit'), p) ? '<button class="chip" data-p="fit">Уложить в шаблон</button>' : ''}${adapt.map(x => `<button class="chip" data-p="${e(x.id)}">${e(x.name)}</button>`).join('')}</div>
-    <div class="sb-acts" style="--n:${A.mode === 'note' ? 4 : 6}">
-      ${A.mode === 'note' ? `<button data-a="tpl" aria-label="Шаблон">${I.grid}<span>Шаблон</span></button><button data-a="role" aria-label="Роль">${I.pen}<span>Роль</span></button>` : `<button data-a="text" aria-label="Текст">${I.pen}<span>Текст</span></button>
+    <div class="sb-acts" style="--n:${A.mode === 'note' ? 5 : 6}">
+      ${A.mode === 'note' ? `<button data-a="tpl" aria-label="В шаблоны">${I.page}<span>Шаблоны</span></button><button data-a="role" aria-label="Роль">${I.tag}<span>Роль</span></button>` : `<button data-a="text" aria-label="В текст">${I.note}<span>Текст</span></button>
       <button data-a="img" aria-label="Картинки" class="${slots.length ? '' : 'soft'}">${I.img}<span>Картинки</span></button>`}
       <button data-a="up" ${i ? '' : 'disabled'} aria-label="Выше">${I.up}<span>Выше</span></button>
       <button data-a="down" ${i < p.blocks.length - 1 ? '' : 'disabled'} aria-label="Ниже">${I.down}<span>Ниже</span></button>
-      ${A.mode === 'note' ? '' : `<button data-a="tpl" aria-label="Шаблоны">${I.grid}<span>Шаблоны</span></button>
-      <button data-a="more" aria-label="Ещё">${I.dots}<span>Ещё</span></button>`}</div></div>`;
+      ${A.mode === 'note' ? '' : `<button data-a="cat" aria-label="Каталог шаблонов">${I.grid}<span>Каталог</span></button>`}
+      <button data-a="more" aria-label="Ещё">${I.dots}<span>Ещё</span></button></div></div>`;
   dock.onclick = ev => { const a = ev.target.closest('[data-a]'), pr = ev.target.closest('[data-p]'); if (!a && !pr) return; ev.stopPropagation();
     if (pr) return runPrompt(b, pr.dataset.p);
     const k = a.dataset.a;
-    if (k === 'text') toText(b);
+    if (k === 'text') { A.mode = 'note'; save(); A.sel = b.id; A.jump = b.id; editor(); }
     if (k === 'img') imageSheet(b);
     if (k === 'role') roleSheet(b);
-    if (k === 'tpl') { if (A.mode === 'note') { A.mode = 'page'; G.autoPick(p); A.sel = b.id; A.jump = b.id; editor(); } else catalog(); }
+    if (k === 'tpl') { A.mode = 'page'; G.autoPick(p); save(); A.sel = b.id; A.jump = b.id; editor(); }
+    if (k === 'cat') catalog();
     if (k === 'more') blockMenu(b.id);
     if (k === 'up' || k === 'down') { const M = document.getElementById('eMain'), el0 = $app.querySelector(`${BK()}[data-id="${b.id}"]`), y0 = el0 ? el0.getBoundingClientRect().top : 0;
       const j = i + (k === 'up' ? -1 : 1); p.blocks.splice(i, 1); p.blocks.splice(j, 0, b); save(); A.mode === 'note' ? notes() : canvas();
@@ -711,10 +733,27 @@ const exportView = () => {
   draw(); document.body.appendChild(el); document.body.classList.add('noscroll'); el.animate([{opacity: 0}, {opacity: 1}], {duration: 140});
 };
 
+/* 4. Библиотека: шаблоны, сценарии, промты, иконки — прежние редакторы в новой навигации */
+const LIBK = [['templates', 'Шаблоны'], ['scenarios', 'Сценарии'], ['prompts', 'Промты'], ['icons', 'Иконки']];
+const libRoute = () => { const h = location.hash.match(/^#\/lib(?:\/([^/]+))?(?:\/(.+))?$/); if (!h) return null; return {kind: G.KINDS[h[1]] ? h[1] : 'templates', id: h[2] ? decodeURIComponent(h[2]) : null}; };
+const libView = () => { const r = libRoute() || {kind: 'templates', id: null}, S = G.ui; S.lib.kind = r.kind; S.lib.id = r.id; A.view = 'lib';
+  const back = r.id ? `#/lib/${r.kind}` : '#/';
+  $app.innerHTML = `<header class="hd" id="lHd"><a class="ib round" href="${back}" aria-label="Назад">${I.back}</a><div class="ttl"><b>${r.id ? e(G.KINDS[r.kind]) : 'Библиотека'}</b><small>${r.id ? 'Библиотека' : 'Шаблоны, сценарии и промты'}</small></div></header>
+    ${r.id ? '' : `<nav class="tabs" role="tablist">${LIBK.map(([k, n]) => `<a role="tab" class="${k === r.kind ? 'on' : ''}" href="#/lib/${k}">${n}<i>${G.lib.all(k).filter(o => !(k === 'prompts' && o.system)).length}</i></a>`).join('')}</nav>`}
+    <main class="lmain"><div class="libv" id="view"></div></main><div class="dock" id="lDock"></div>`;
+  const v = $app.querySelector('#view'); S.markDirty(v); S.cta(null);
+  G.views.library(v); scrollTo(0, 0); };
 /* ---------- старт ---------- */
 const st = document.createElement('style'); st.textContent = G.WIRE_CSS; document.head.appendChild(st);
-const route = () => { const m = location.hash.match(/^#\/p\/(.+)$/); if (m && (!A.page || A.page.id !== m[1])) go('edit', m[1]); else if (!m && A.view !== 'home') go('home'); };
+let lastHash = location.hash;
+const route = () => {
+  const S = G.ui;
+  if (S.dirty && location.hash !== lastHash && !confirm('Есть несохранённые изменения. Уйти без сохранения?')) { history.replaceState(null, '', lastHash); return; }
+  S.dirty = false; lastHash = location.hash;
+  const m = location.hash.match(/^#\/p\/(.+)$/), l = libRoute();
+  if (l) { if (A.view === 'edit') save(); A.view = 'lib'; A.page = null; document.body.classList.remove('shell', 'picking'); libView(); return; }
+  if (m && (!A.page || A.page.id !== m[1])) go('edit', m[1]); else if (!m && A.view !== 'home') go('home'); };
 addEventListener('hashchange', route);
-const m0 = location.hash.match(/^#\/p\/(.+)$/); if (m0) go('edit', m0[1]); else render();
+const m0 = location.hash.match(/^#\/p\/(.+)$/); if (m0) go('edit', m0[1]); else if (libRoute()) route(); else render();
 G.m = {A, shareText, fromShare, build, lines, parseLine};
 })();

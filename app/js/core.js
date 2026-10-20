@@ -104,7 +104,7 @@ G.rulesLint = (kind, rules) => {
   const t = RULE_TERMS[kind === 'article' ? 'article' : 'landing'], bad = (rules || []).map(r => String(r).match(t.bad)).filter(Boolean).map(m => m[1]);
   return bad.length ? `Слова ${[...new Set(bad)].map(w => '«' + w + '»').join(', ')} — из другого формата ответа. Модель может ответить по ним, а не по промту. Пишите в терминах промта: ${t.ok}.` : 'Правила уточняют разбор, формат ответа они не меняют. Пишите в терминах промта: ' + t.ok + '.';
 };
-const SYS_ROLES = {hero: {id: 'hero', name: 'Первый экран', meaning: 'Заголовок, главное сообщение и действие'}, cta: {id: 'cta', name: 'Целевое действие', meaning: 'Кнопка или форма — главное действие страницы'}};
+const SYS_ROLES = {hero: {id: 'hero', name: 'Первый экран', meaning: 'Заголовок, главное сообщение и действие'}, cta: {id: 'cta', name: 'Целевое действие', meaning: 'Кнопка или форма — главное действие страницы'}, unparsed: {id: 'unparsed', name: 'Не разобрано', meaning: 'Абзацы, которые модель не разложила по блокам', verbatim: true, system: true}};
 G.roleOf = (sc, roleId) => (sc.roles || []).find(r => r.id === roleId) || SYS_ROLES[roleId] || {id: roleId, name: roleId, meaning: ''};
 
 /* ---------- хранение страниц: IndexedDB, запасной вариант — localStorage ---------- */

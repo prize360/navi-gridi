@@ -317,14 +317,14 @@ body.shell #eMain{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling
 .cb.sel::before{box-shadow:inset 0 0 0 2.5px var(--ink)}
 .cb.sel.warn::before{box-shadow:inset 0 0 0 2.5px var(--sel)}
 /* панель выбранного блока — поверх страницы, как островок */
-.selbar{width:min(100%,560px);margin:0 auto;background:var(--card);border-radius:28px;box-shadow:0 10px 34px rgba(0,0,0,.14);padding:8px;display:flex;flex-direction:column;gap:6px;animation:sbIn .16s var(--ease)}
+.selbar{width:fit-content;max-width:100%;margin:0 auto;background:var(--card);border-radius:28px;box-shadow:0 10px 34px rgba(0,0,0,.14);padding:8px;display:flex;flex-direction:column;gap:6px;animation:sbIn .16s var(--ease)}
 @keyframes sbIn{from{opacity:0;transform:translateY(8px)}}
 .sb-chips{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding:0 2px}
 .sb-chips::-webkit-scrollbar{display:none}
 .sb-chips .chip{flex:none;height:34px;padding:0 14px;font-size:13px;background:var(--bg)}
 .sb-chips .chip.hot{background:var(--sel);color:#fff}
 .sb-acts{display:grid;grid-template-columns:repeat(var(--n,6),minmax(0,64px));justify-content:center;gap:2px}
-.selbar.sb-s{width:300px;max-width:100%;margin-inline:auto}.selbar.sb-s .sb-chips{min-width:0}
+
 .sb-acts button{display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 2px;border-radius:16px;font-size:11px;font-weight:500;color:var(--ink2)}
 .sb-acts button:active{background:var(--bg)}
 .sb-acts button:disabled{opacity:.3}
@@ -400,3 +400,25 @@ body.picking .nb:not(.sel){opacity:.45}
 .row.on{font-weight:600}
 
 .d-acts{display:flex;gap:8px;pointer-events:auto}.d-acts .wide{flex:1}
+
+/* панель блока у самого блока */
+.cv{position:relative}
+.sel-float{position:absolute;left:0;right:0;z-index:8;display:flex;justify-content:center;padding:0 8px;pointer-events:none;transition:top .14s var(--ease)}
+.sel-float .selbar{pointer-events:auto;width:auto;max-width:100%;margin:0}
+.sel-float .selbar{width:fit-content}
+.sel-float .sb-acts{width:max-content;max-width:100%}
+.sel-float .sb-chips{width:0;min-width:100%}
+#eDockMain .sb-acts{width:max-content;max-width:100%}#eDockMain .sb-chips{width:0;min-width:100%}
+.sh-f:has(#wOpen){display:flex;gap:8px}
+/* библиотека в новой навигации */
+.tabs a{flex:none;display:inline-flex;align-items:center;height:38px;padding:0 16px;border-radius:19px;font-weight:500;font-size:15px;color:var(--ink2);text-decoration:none}
+.tabs a.on{background:var(--ink);color:#fff}
+.tabs a i{font:500 11px/1 var(--mono);font-style:normal;margin-left:6px;opacity:.6}
+#lHd .ttl{display:flex;flex-direction:column;min-width:0}
+#lHd a.ib{display:grid;place-items:center;color:inherit}
+.lmain{padding:0 0 120px}
+.lmain .libv .col{padding-top:8px}
+.lmain .libv .head .h1{font-size:28px}
+#lDock{display:flex;justify-content:center}
+#lDock .pill{pointer-events:auto;max-width:420px}
+.libv-layer{position:fixed;inset:0;z-index:200;background:transparent}
