@@ -256,7 +256,7 @@ const editor = () => {
     <button class="ib round" id="eBack" aria-label="Назад">${I.back}</button><button class="ttl" id="eTtl">${title}</button>
       ${p.blocks.length ? `<button class="ib round" id="ePrev" aria-label="Превью">${I.eye}</button>
       <button class="ib round dark" id="eOut" aria-label="Выгрузка">${I.out}${miss ? `<span class="badge">${miss}</span>` : ''}</button>` : `<button class="ib round" id="eTune" aria-label="Настройки страницы">${I.tune}</button>`}</header>
-    <main id="eMain"></main><div class="dock" id="eDock"></div>`;
+    <main id="eMain"></main><div class="dock" id="eDock"><div id="eDockMain"></div></div>`;
   $app.querySelector('#eBack').onclick = () => { if (A.sel) { unselect(); return; } save(); go('home'); };
   $app.querySelector('#eTtl').onclick = () => { if (!A.sel) pageSettings(); };
   $app.querySelector('#eOk').onclick = () => { const a = document.activeElement; if (a && a.blur) a.blur(); getSelection().removeAllRanges(); fmtSync(); };
@@ -273,7 +273,7 @@ const editor = () => {
 };
 /* нижний островок: только Текст ↔ Шаблоны; на экране остаётся тот же блок */
 const island = () => {
-  const p = A.page, dock = $app.querySelector('#eDock');
+  const p = A.page, dock = $app.querySelector('#eDockMain'); if (!dock) return; dock.onclick = null;
   dock.innerHTML = `<div class="float"><div class="seg slide ${A.mode === 'page' ? 'r' : ''}" role="tablist"><button data-m="note" aria-label="Текст">${I.note}</button><button data-m="page" aria-label="Шаблоны">${I.page}</button></div></div>`;
   dock.querySelectorAll('[data-m]').forEach(x => x.onclick = () => { if (A.mode === x.dataset.m) return;
     dock.querySelector('.seg').classList.toggle('r', x.dataset.m === 'page');
@@ -281,13 +281,16 @@ const island = () => {
     unselect(true); A.mode = x.dataset.m; if (A.mode === 'page') G.autoPick(p); save();
     A.jump = top && top.dataset.id; A.jumpTop = true; editor(); appear(); });
 };
+/* к тексту блока: режим Текст, курсор в конце этого блока */
+const toText = b => { unselect(); A.mode = 'note'; A.jump = b.id; save(); editor();
+  const ed = $app.querySelector(`.ed[data-id="${b.id}"]`); if (ed) { const last = ed.lastElementChild; caretTo(last, last ? last.textContent.length : 0); } };
 /* новый блок — чипсами ролей в конце страницы */
 const addChips = () => { const s0 = sc(), roles = (s0.roles || []).filter(r => r.id !== 'hero' || !A.page.blocks.some(b => b.role === 'hero'));
   return `<div class="add"><p class="lbl">Добавить блок</p><div class="chips">${roles.map(r => `<button class="chip" data-add="${e(r.id)}">${I.plus}${e(r.name.split(':')[0])}</button>`).join('')}</div></div>`; };
 const bindAdd = main => main.querySelectorAll('[data-add]').forEach(c => c.onclick = () => {
   const nb = G.newBlock(c.dataset.add, ''); A.page.blocks.push(nb); save();
   if (A.mode === 'note') { notes(); const ed = $app.querySelector(`.ed[data-id="${nb.id}"]`); if (ed) { ed.scrollIntoView({block: 'center'}); caretTo(ed.firstChild, 0); } }
-  else { canvas(); textSheet(nb); } });
+  else toText(nb); });
 /* превью: страница в прототипе Нави, три ширины экрана */
 const GOAL = {event: 'event', article: 'info', course: 'course', sale: 'sale', product: 'sale'};
 const naviPayload = p => { const s0 = G.scenario(p.scenario), goal = GOAL[s0.id] || (s0.kind === 'article' ? 'info' : 'event');
@@ -299,7 +302,7 @@ const naviPayload = p => { const s0 = G.scenario(p.scenario), goal = GOAL[s0.id]
       hero: {title: hs.title || '', lead: hs.lead || '', badge: (hs.meta || [])[0] || '', btn: (hs.cta || [])[0] || ''},
       cta: {title: cs.title || '', text: cs.lead || '', btn: (cs.cta || [])[0] || ''}},
     css: G.WIRE_CSS + '.wf-miss,.wf-item-miss{display:none!important}'}; };
-const DEV = [['mob', 390, 'Телефон', '<svg viewBox="0 0 24 24"><rect x="7" y="3" width="10" height="18" rx="2"/></svg>'], ['tab', 820, 'Планшет', '<svg viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="2"/></svg>'], ['desk', 1280, 'Компьютер', '<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="11" rx="1.5"/><path d="M9 20h6"/></svg>']];
+const DEV = [['mob', 375, 'Телефон', '<svg viewBox="0 0 24 24"><rect x="7" y="3" width="10" height="18" rx="2"/></svg>'], ['tab', 768, 'Планшет', '<svg viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="2"/></svg>'], ['desk', 1440, 'Компьютер', '<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="11" rx="1.5"/><path d="M9 20h6"/></svg>']];
 const preview = () => {
   const p = A.page; G.autoPick(p);
   let dev = G.ls.get('dev', innerWidth >= 900 ? 'desk' : 'mob');
@@ -309,20 +312,21 @@ const preview = () => {
     <div class="pvn-stage"><div class="pvn-dev"><iframe title="Прототип Нави" src="navi.html?embed"></iframe></div></div>`;
   document.body.appendChild(el); document.body.classList.add('noscroll'); el.animate([{opacity: 0}, {opacity: 1}], {duration: 140});
   const fr = el.querySelector('iframe'), box = el.querySelector('.pvn-dev'), stage = el.querySelector('.pvn-stage');
-  const fit = () => { const w = DEV.find(d => d[0] === dev)[1], avail = stage.clientWidth - 24, k = Math.min(1, avail / w);
-    box.style.width = w + 'px'; box.style.height = ((stage.clientHeight - 24) / k) + 'px';
-    if ('zoom' in box.style) { box.style.zoom = k; box.style.transform = ''; } else box.style.transform = `scale(${k})`;
-    el.querySelectorAll('[data-d]').forEach(x => x.classList.toggle('on', x.dataset.d === dev)); box.dataset.dev = dev; strip(); };
-  /* от Нави берём только сам прототип: без её фона, рамки устройства, ручки ширины и панелей — ширину задаём мы */
-  const CHROME = 'html.embed .stage{padding:0!important;background:transparent!important;overflow:hidden!important}html.embed .device-wrap{width:100%!important;height:100%!important;transform:none!important;margin:0!important;box-shadow:none!important;border:0!important;border-radius:0!important}html.embed .device{border-radius:0!important;box-shadow:none!important}html.embed .resize-h,html.embed .shell__bar,html.embed .pop,html.embed .pop-bg{display:none!important}html.embed body,html.embed .shell,html.embed .shell__body{background:transparent!important}html.embed .hstage,html.embed #naviRoot,html.embed .nvr,html.embed .stage{background:none!important;background-image:none!important;padding:0!important}';
-  const strip = () => { try { const d = fr.contentDocument; if (d && !d.getElementById('gridi-chrome')) { const st = d.createElement('style'); st.id = 'gridi-chrome'; st.textContent = CHROME; d.head.appendChild(st); }
-    const w = DEV.find(x => x[0] === dev)[1]; if (fr.contentWindow.NV && strip.w !== w) { strip.w = w; fr.contentWindow.NV.size(w); } } catch (err) {} };
-  const send = () => { strip(); try { fr.contentWindow.postMessage(naviPayload(p), '*'); } catch (err) {} setTimeout(strip, 300); };
+  /* iframe — ровно нужной ширины (сайт Нави переключает вёрстку по ширине окна), уменьшаем рамку целиком.
+     На телефоне «компьютер» — 1024 и высота с ограничением: огромная картинка 1440 роняла вкладку */
+  const CHROME = 'html.embed .stage{padding:0!important;background:none!important;background-image:none!important;overflow:hidden!important}html.embed .device-wrap{width:100%!important;height:100%!important;transform:none!important;margin:0!important;box-shadow:none!important;border:0!important;border-radius:0!important}html.embed .device{border-radius:0!important;box-shadow:none!important}html.embed .resize-h,html.embed .shell__bar,html.embed .pop,html.embed .pop-bg{display:none!important}html.embed .hstage,html.embed #naviRoot,html.embed .nvr,html.embed .shell,html.embed .shell__body,html.embed body{background:none!important;background-image:none!important;padding:0!important}';
+  const widthOf = () => { const w = DEV.find(x => x[0] === dev)[1]; return innerWidth < 600 && w > 1024 ? 1024 : w; };
+  const strip = () => { try { const d = fr.contentDocument; if (d && d.head && !d.getElementById('gridi-chrome')) { const st = d.createElement('style'); st.id = 'gridi-chrome'; st.textContent = CHROME; d.head.appendChild(st); }
+    if (fr.contentWindow.NV && !strip.done) { strip.done = true; fr.contentWindow.NV.size('fit'); } } catch (err) {} };
+  const fit = () => { const w = widthOf(), k = Math.min(1, (stage.clientWidth - 16) / w), h = Math.min((stage.clientHeight - 16) / k, innerWidth < 600 ? 2000 : 4000);
+    box.style.width = w + 'px'; box.style.height = h + 'px'; box.style.transform = k < 1 ? `scale(${k})` : '';
+    el.querySelectorAll('[data-d]').forEach(x => x.classList.toggle('on', x.dataset.d === dev)); };
+  const send = () => { strip(); try { fr.contentWindow.postMessage(naviPayload(p), '*'); } catch (err) {} setTimeout(strip, 400); };
   const onMsg = ev => { if (ev.source === fr.contentWindow && ev.data && ev.data.type === 'navi:ready') send(); };
   addEventListener('message', onMsg); fr.addEventListener('load', () => setTimeout(send, 200));
-  let rt = null; const onRes = () => { clearTimeout(rt); rt = setTimeout(fit, 120); };
+  let rt = null; const onRes = () => { clearTimeout(rt); rt = setTimeout(fit, 150); };
   addEventListener('resize', onRes); fit();
-  el.querySelectorAll('[data-d]').forEach(x => x.onclick = () => { dev = x.dataset.d; G.ls.set('dev', dev); fit(); });
+  el.querySelectorAll('[data-d]').forEach(x => x.onclick = () => { dev = x.dataset.d; G.ls.set('dev', dev); fit(); setTimeout(() => { try { fr.contentWindow.NV && fr.contentWindow.NV.size('fit'); } catch (err) {} }, 60); });
   el.querySelector('#pvX').onclick = () => { removeEventListener('message', onMsg); removeEventListener('resize', onRes); el.remove(); document.body.classList.remove('noscroll'); };
 };
 
@@ -425,11 +429,12 @@ const fmtBar = (into) => {
   if (fmtEl) fmtEl.remove();
   fmtEl = document.createElement('div'); fmtEl.className = 'fmt'; fmtEl.hidden = true;
   /* роли строки — в шапке на месте названия, рядом ✓: клавиатура их не закрывает */
-  fmtEl.innerHTML = `<div class="fmt-row">${KINDS.map(x => `<button data-k="${x.k}" aria-label="${e(x.label || x.g)}"><i>${e(x.g || 'Аа')}</i>${x.label && x.k !== 'p' ? `<span>${e(x.label)}</span>` : ''}</button>`).join('')}<button data-split><i>${I.cut}</i><span>Разделить</span></button></div>`;
-  const host = into || document.getElementById('eField'); (host || document.body).appendChild(fmtEl);
+  fmtEl.innerHTML = `<div class="fmt-in"><div class="fmt-row">${KINDS.map(x => `<button data-k="${x.k}" aria-label="${e(x.label || x.g)}"><i>${e(x.g || 'Аа')}</i>${x.label && x.k !== 'p' ? `<span>${e(x.label)}</span>` : ''}</button>`).join('')}<button data-split><i>${I.cut}</i><span>Разделить</span></button></div><button class="ib round ok" data-done aria-label="Готово">${I.check}</button></div>`;
+  const host = into || document.getElementById('eDock'); (host || document.body).appendChild(fmtEl);
   fmtEl.addEventListener('pointerdown', ev => ev.preventDefault());
   fmtEl.querySelectorAll('[data-k]').forEach(x => x.onclick = () => { const ln = A.line; if (!ln || !ln.isConnected) return; setKind(ln, ln.dataset.k === x.dataset.k && x.dataset.k !== 'p' ? 'p' : x.dataset.k); sync(ln.closest('.ed')); fmtSync(); });
   fmtEl.querySelector('[data-split]').onclick = splitBlock;
+  fmtEl.querySelector('[data-done]').onclick = () => { const a = document.activeElement; if (a && a.blur) a.blur(); getSelection().removeAllRanges(); fmtSync(); };
   if (!fmtBar.bound) { fmtBar.bound = true; document.addEventListener('focusout', () => setTimeout(fmtSync, 50)); }
 };
 const touch = matchMedia('(pointer: coarse)').matches;
@@ -455,7 +460,7 @@ const fmtSync = () => {
   const on = !!(ln && ed && ed.contains(ln) && A.view === 'edit');
   if (on) A.line = ln;
   fmtEl.hidden = !on; document.body.classList.toggle('typing', on);
-  const hd = document.getElementById('eHd'); if (hd) { hd.classList.toggle('editing', on && !document.querySelector('.sh-wrap:not(.free)')); pin(); }
+  const dock = document.getElementById('eDock'); if (dock) dock.classList.toggle('typing', on); pin();
   const cur = (A.line && A.line.isConnected) ? A.line.dataset.k : '';
   fmtEl.querySelectorAll('[data-k]').forEach(x => x.classList.toggle('on', x.dataset.k === cur));
   const sp = fmtEl.querySelector('[data-split]'); sp.hidden = !!document.querySelector('.sh-wrap');
@@ -483,7 +488,7 @@ const blockMenu = id => {
   const mv = d => { p.blocks.splice(i, 1); p.blocks.splice(i + d, 0, b); save(); s.close(); render(); const el = $app.querySelector(`[data-id="${b.id}"]`); el && el.scrollIntoView({block: 'center'}); };
   const ins = d => { const nb = G.newBlock(b.role === 'hero' ? defRole() : b.role, ''); p.blocks.splice(i + d, 0, nb); save(); s.close(true);
     if (A.mode === 'note') { render(); const ed = $app.querySelector(`.ed[data-id="${nb.id}"]`); if (ed) { ed.scrollIntoView({block: 'center'}); caretTo(ed.firstChild, 0); } }
-    else { unselect(); canvas(); textSheet(nb); } };
+    else toText(nb); };
   s.$('#bmNewU').onclick = () => ins(0); s.$('#bmNewD').onclick = () => ins(1);
   const mu = s.$('#bmMvU'); if (mu) mu.onclick = () => mv(-1);
   const md2 = s.$('#bmMvD'); if (md2) md2.onclick = () => mv(1);
@@ -516,7 +521,7 @@ const blockHTML0 = (b, p, t) => {
 const canvas = () => {
   const p = A.page, main = $app.querySelector('#eMain'), iss = report(p).byBlock;
   main.innerHTML = `<div class="cv">${p.blocks.map((b, i) => `<div class="cb ${A.sel === b.id ? 'sel' : ''} ${iss[b.id] ? 'warn' : ''}" data-id="${e(b.id)}"><b class="bn">${i + 1}</b>${blockHTML(b, p)}</div>`).join('')}${addChips()}</div>`;
-  main.querySelectorAll('.cb').forEach(x => x.onclick = ev => { ev.stopPropagation(); if (A.sel === x.dataset.id) { unselect(); return; } select(x.dataset.id); });
+  main.querySelectorAll('.cb').forEach(x => x.onclick = ev => { ev.stopPropagation(); if (A.sel) { unselect(); return; } select(x.dataset.id); });
   /* клик мимо блока снимает выбор */
   main.onclick = ev => { if (A.sel && !ev.target.closest('.cb,.add')) unselect(); };
   bindAdd(main);
@@ -558,7 +563,7 @@ const runPrompt = async (b, id) => { const p = A.page, P = G.prompt(id); let val
   } catch (err) { if (err.message !== 'cancel') toast(err.message); }
   finally { G.adaptable = adp; if (G._tplIndex) delete G._tplIndex.__free; if (b.tpl === '__free') { b.tpl = keep.tpl; b.tplLock = keep.lock; } } };
 const selBar = () => {
-  const p = A.page, b = p.blocks.find(x => x.id === A.sel), dock = $app.querySelector('#eDock'); if (!b || !dock) return;
+  const p = A.page, b = p.blocks.find(x => x.id === A.sel), dock = $app.querySelector('#eDockMain'); if (!b || !dock) return;
   const i = p.blocks.indexOf(b), slots = G.imageSlots(b, p), fixN = G.fixNotes(b, p).length;
   const adapt = G.lib.all('prompts').filter(x => x.stage === 'adapt' && !x.system && !['fit', 'fix'].includes(x.id));
   dock.innerHTML = `<div class="selbar" role="toolbar" aria-label="Блок ${i + 1}">
@@ -573,7 +578,7 @@ const selBar = () => {
   dock.onclick = ev => { const a = ev.target.closest('[data-a]'), pr = ev.target.closest('[data-p]'); if (!a && !pr) return; ev.stopPropagation();
     if (pr) return runPrompt(b, pr.dataset.p);
     const k = a.dataset.a;
-    if (k === 'text') textSheet(b);
+    if (k === 'text') toText(b);
     if (k === 'img') imageSheet(b);
     if (k === 'tpl') catalog();
     if (k === 'more') blockMenu(b.id);
@@ -601,7 +606,7 @@ const catalog = () => {
   draw();
   cat.root.addEventListener('click', ev => {
     const tb = ev.target.closest('[data-tab]'), tp = ev.target.closest('[data-t]'), es = ev.target.closest('[data-es]');
-    if (es) { const k = es.dataset.es; cat.close(); if (k === 'text') textSheet(b); if (k === 'role') blockMenu(b.id); return; }
+    if (es) { const k = es.dataset.es; cat.close(); if (k === 'text') toText(b); if (k === 'role') blockMenu(b.id); return; }
     if (tb) { tab = tb.dataset.tab; draw(); cat.$('.sh-b').scrollTop = 0; }
     if (tp) { b.tpl = tp.dataset.t; b.tplLock = true; b.values = null; save(); redrawBlock(b);
       cat.$$('.tc').forEach(x => { x.classList.toggle('on', x === tp); const o = x.querySelector('.tc-ok'); if (o) o.remove(); });
