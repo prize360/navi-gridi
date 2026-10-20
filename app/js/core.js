@@ -22,7 +22,7 @@ G.copy = async text => {
   }
 };
 /* пространство хранения: у экспериментальной копии своё, чтобы не смешиваться с пилотом (тот же адрес prize360.github.io) */
-G.NS = 'gridi-next';
+G.NS = 'gridi';
 G.ls = {
   get(k, d) { try { const v = localStorage.getItem(G.NS + '.' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
   set(k, v) { try { localStorage.setItem(G.NS + '.' + k, JSON.stringify(v)); return true; } catch (e) { return false; } },
@@ -235,3 +235,26 @@ G.iconMatch = (text, n = 12) => {
 G.iconText = (b, key) => { const s = G.src(b); if (key && key[0] === 'i') { const it = s.items[+key.slice(1)] || {}; return [it.title, it.text].join(' '); } return [s.title, s.lead].join(' '); };
 /* выбранная иконка или подобранная автоматически */
 G.iconFor = (b, key) => { const im = (b.images || {})[key] || {}; if (im.icon) { const ic = G.icons().find(x => x.id === im.icon); if (ic) return {ic, auto: false}; } const m = G.iconMatch(G.iconText(b, key), 1)[0]; return m ? {ic: m, auto: true} : null; };
+/* вставка из Google Docs и Word: заголовки, списки, картинки, таблицы → разметка */
+G.htmlToMarkup = html => {
+  const d = new DOMParser().parseFromString(html, 'text/html'), out = [];
+  const walk = n => {
+    if (n.nodeType !== 1) return;
+    const tag = n.tagName.toLowerCase(), t = () => n.textContent.replace(/\s+/g, ' ').trim();
+    if (/^h1$/.test(tag)) return out.push('[h1] ' + t());
+    if (/^h2$/.test(tag)) return out.push('[h2] ' + t());
+    if (/^h[3-6]$/.test(tag)) return out.push('[h3] ' + t());
+    if (tag === 'li') return out.push('- ' + t());
+    if (tag === 'img') return n.alt ? out.push('[картинка] ' + n.alt) : null;
+    if (tag === 'tr') return out.push([...n.children].map(c => c.textContent.replace(/\s+/g, ' ').trim()).join(' | '));
+    if (tag === 'p' || tag === 'div' && !n.querySelector('p,div,li,h1,h2,h3,table,img')) {
+      const x = t(), a = n.querySelector('a[href]');
+      if (x && a && a.textContent.trim().length >= x.length / 2) out.push('[кнопка] ' + x + ' | ' + a.getAttribute('href'));
+      else if (x) out.push(x);
+      n.querySelectorAll('img').forEach(walk); return;
+    }
+    [...n.children].forEach(walk);
+  };
+  [...d.body.children].forEach(walk);
+  return out.join('\n');
+};

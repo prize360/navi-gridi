@@ -241,7 +241,7 @@ const settings = () => {
         <label class="lbl" for="sKey">Ключ — хранится только в этом браузере</label><input class="in" id="sKey" type="password" value="${e(st.key)}" autocomplete="off">
       </div>
       <p class="lbl">Библиотека</p>
-      <a class="pill ghost wide" href="${window.GRIDI_LIB_URL || 'index.html#/lib/templates'}">Шаблоны, сценарии и промты</a>
+      <a class="pill ghost wide" href="${window.GRIDI_LIB_URL || 'lib.html#/lib/templates'}">Шаблоны, сценарии и промты</a>
       <p class="lbl">Страница от коллеги</p>
       <label class="pill ghost wide file">Открыть архив или page.json<input type="file" id="sImp" accept=".zip,.json,application/zip,application/json"></label>
       <p class="hint">Текст страницы из чата просто вставьте в новую страницу.</p>
@@ -356,15 +356,22 @@ const draft = () => {
   main.innerHTML = `<textarea class="draft" id="dTxt" placeholder="Вставьте или напишите текст.\n\nРазметка не обязательна — Гриди разложит текст сам. Можно вставить и текст страницы, присланный коллегой.">${e(p.text || '')}</textarea>`;
   const ta = main.querySelector('#dTxt'); setTimeout(() => ta.focus(), 50);
   ta.oninput = () => { p.text = ta.value; save(); };
-  $app.querySelector('#eDock').innerHTML = `<button class="pill grad wide" id="dGo">Собрать ${sc().kind === 'article' ? 'статью' : 'страницу'}</button>`;
-  $app.querySelector('#dGo').onclick = () => build(ta.value);
+  ta.addEventListener('paste', ev => { const html = ev.clipboardData && ev.clipboardData.getData('text/html');
+    if (!html || !/<(h[1-6]|li|table|img|a\s)/i.test(html)) return; const md = G.htmlToMarkup(html); if (!md.trim()) return;
+    ev.preventDefault(); const a = ta.selectionStart, z = ta.selectionEnd; ta.value = ta.value.slice(0, a) + md + ta.value.slice(z); ta.selectionStart = ta.selectionEnd = a + md.length;
+    p.text = ta.value; save(); ta.dispatchEvent(new Event('input')); toast('Заголовки, списки и ссылки размечены автоматически'); });
+  /* разметка Гриди (вставка из Docs/Word) уходит в промт разбора — модель видит заголовки и списки; без модели — только по разметке */
+  const dock = $app.querySelector('#eDock');
+  const bar = () => { dock.innerHTML = `<div class="d-acts">${G.fullyMarked(ta.value) ? '<button class="pill ghost" id="dAsm">Без модели</button>' : ''}<button class="pill grad wide" id="dGo">Собрать ${sc().kind === 'article' ? 'статью' : 'страницу'}</button></div>`;
+    dock.querySelector('#dGo').onclick = () => build(ta.value); const asm = dock.querySelector('#dAsm'); if (asm) asm.onclick = () => build(ta.value, true); };
+  bar(); ta.addEventListener('input', () => { if (!!dock.querySelector('#dAsm') !== G.fullyMarked(ta.value)) bar(); });
 };
-const build = async text => {
+const build = async (text, plain) => {
   const p = A.page; text = String(text || '').trim(); if (!text) return toast('Сначала вставьте текст.');
   p.text = text;
   try {
     if (isShare(text)) fromShare(p, text);
-    else if (G.fullyMarked(text)) { G.assemble(p); G.autoPick(p, true); }
+    else if (plain && G.fullyMarked(text)) { G.assemble(p); G.autoPick(p, true); }
     else { const j = await G.ask('Разбор: ' + sc().name, G.segPrompt(p)); const r = G.applySeg(p, j); if (r.lost) toast(`Модель пропустила ${G.num(r.lost, 'абзац', 'абзаца', 'абзацев')} — они в последнем блоке.`); }
   } catch (err) { if (err.message !== 'cancel') toast(err.message); return; }
   if (p.name === 'Без названия') { const h = p.blocks.find(b => b.role === 'hero'); const t = h && G.src(h).title; if (t) p.name = t.slice(0, 80); }
@@ -424,7 +431,7 @@ const bindEd = ed => {
     }
   });
   ed.addEventListener('paste', ev => {
-    ev.preventDefault(); const txt = (ev.clipboardData || window.clipboardData).getData('text/plain') || '';
+    ev.preventDefault(); const cd = ev.clipboardData || window.clipboardData, html = cd.getData('text/html'); const txt = (html && /<(h[1-6]|li|table|a\s)/i.test(html) && G.htmlToMarkup(html)) || cd.getData('text/plain') || '';
     const ls = txt.split(/\r?\n/).map(x => x.trim()).filter(Boolean); if (!ls.length) return;
     document.execCommand('insertText', false, ls[0]);
     let at = curLine(); ls.slice(1).forEach(l => { const x = parseLine(l), nl = mkLine(x.k, x.t); at.after(nl); at = nl; });
@@ -583,22 +590,22 @@ const selBar = () => {
   const p = A.page, b = p.blocks.find(x => x.id === A.sel), dock = $app.querySelector('#eDockMain'); if (!b || !dock) return;
   const i = p.blocks.indexOf(b), slots = G.imageSlots(b, p), fixN = G.fixNotes(b, p).length;
   const adapt = G.lib.all('prompts').filter(x => x.stage === 'adapt' && !x.system && !['fit', 'fix'].includes(x.id));
-  dock.innerHTML = `<div class="selbar" role="toolbar" aria-label="Блок ${i + 1}">
+  dock.innerHTML = `<div class="selbar${A.mode === 'note' ? ' sb-s' : ''}" role="toolbar" aria-label="Блок ${i + 1}">
     <div class="sb-chips">${fixN ? `<button class="chip hot" data-p="fix">Поправить ошибки <i>${fixN}</i></button>` : ''}${G.adaptable(b, G.prompt('fit'), p) ? '<button class="chip" data-p="fit">Уложить в шаблон</button>' : ''}${adapt.map(x => `<button class="chip" data-p="${e(x.id)}">${e(x.name)}</button>`).join('')}</div>
-    <div class="sb-acts">
-      ${A.mode === 'note' ? `<button data-a="role" aria-label="Роль">${I.pen}<span>Роль</span></button>` : `<button data-a="text" aria-label="Текст">${I.pen}<span>Текст</span></button>
+    <div class="sb-acts" style="--n:${A.mode === 'note' ? 4 : 6}">
+      ${A.mode === 'note' ? `<button data-a="tpl" aria-label="Шаблон">${I.grid}<span>Шаблон</span></button><button data-a="role" aria-label="Роль">${I.pen}<span>Роль</span></button>` : `<button data-a="text" aria-label="Текст">${I.pen}<span>Текст</span></button>
       <button data-a="img" aria-label="Картинки" class="${slots.length ? '' : 'soft'}">${I.img}<span>Картинки</span></button>`}
       <button data-a="up" ${i ? '' : 'disabled'} aria-label="Выше">${I.up}<span>Выше</span></button>
       <button data-a="down" ${i < p.blocks.length - 1 ? '' : 'disabled'} aria-label="Ниже">${I.down}<span>Ниже</span></button>
-      <button data-a="tpl" aria-label="Шаблоны">${I.grid}<span>Шаблоны</span></button>
-      <button data-a="more" aria-label="Ещё">${I.dots}<span>Ещё</span></button></div></div>`;
+      ${A.mode === 'note' ? '' : `<button data-a="tpl" aria-label="Шаблоны">${I.grid}<span>Шаблоны</span></button>
+      <button data-a="more" aria-label="Ещё">${I.dots}<span>Ещё</span></button>`}</div></div>`;
   dock.onclick = ev => { const a = ev.target.closest('[data-a]'), pr = ev.target.closest('[data-p]'); if (!a && !pr) return; ev.stopPropagation();
     if (pr) return runPrompt(b, pr.dataset.p);
     const k = a.dataset.a;
     if (k === 'text') toText(b);
     if (k === 'img') imageSheet(b);
     if (k === 'role') roleSheet(b);
-    if (k === 'tpl') { if (A.mode === 'note') { A.mode = 'page'; G.autoPick(p); A.sel = b.id; A.jump = b.id; A.openCat = true; editor(); } else catalog(); }
+    if (k === 'tpl') { if (A.mode === 'note') { A.mode = 'page'; G.autoPick(p); A.sel = b.id; A.jump = b.id; editor(); } else catalog(); }
     if (k === 'more') blockMenu(b.id);
     if (k === 'up' || k === 'down') { const M = document.getElementById('eMain'), el0 = $app.querySelector(`${BK()}[data-id="${b.id}"]`), y0 = el0 ? el0.getBoundingClientRect().top : 0;
       const j = i + (k === 'up' ? -1 : 1); p.blocks.splice(i, 1); p.blocks.splice(j, 0, b); save(); A.mode === 'note' ? notes() : canvas();
