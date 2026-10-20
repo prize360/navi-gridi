@@ -36,7 +36,7 @@ const I = {
   trash: '<svg viewBox="0 0 24 24"><path d="M5 7h14M10 7V5h4v2M7 7l1 13h8l1-13"/></svg>',
 };
 
-/* иконки из библиотеки (SDDS): ИИ — StarCircle, смена шаблона — CardstackHoriz */
+/* иконки из библиотеки (SDDS): ИИ — Ai, выбор иконок — StarCircle, смена шаблона — CardstackHoriz */
 const sd = (name, fb) => { try { const ic = G.icons().find(x => x.name === name); return ic ? ic.svg.replace('<svg', '<svg class="sd"') : fb; } catch (err) { return fb; } };
 
 /* ---------- строки разметки ---------- */
@@ -779,8 +779,8 @@ const selBar = () => {
   const p = A.page, b = p.blocks.find(x => x.id === A.sel), dock = $app.querySelector('#eAct'); if (!b || !dock) return;
   document.body.classList.add('has-sel');
   const i = p.blocks.indexOf(b), slots = G.imageSlots(b, p), icons = iconSlots(b), T = A.mode === 'note', hot = G.fixNotes(b, p).length;
-  const acts = [['ai', sd('StarCircle', I.ai), 'Улучшить с ИИ', false, hot ? 'hot' : ''],
-    ...(T ? [['role', I.tag, 'Роль']] : [['cat', sd('CardstackHoriz', I.grid), 'Шаблон'], ...(slots.length ? [['img', I.img, 'Картинки']] : icons.length ? [['img', I.icons, 'Иконки']] : [])]),
+  const acts = [['ai', sd('Ai', I.ai), 'Улучшить с ИИ', false, hot ? 'hot' : ''],
+    ...(T ? [['role', I.tag, 'Роль']] : [['cat', sd('CardstackHoriz', I.grid), 'Шаблон'], ...(slots.length ? [['img', I.img, 'Картинки']] : icons.length ? [['img', sd('StarCircle', I.icons), 'Иконки']] : [])]),
     ['up', I.up, 'Выше', !i], ['down', I.down, 'Ниже', i >= p.blocks.length - 1], ['more', I.dots, 'Ещё']];
   dock.innerHTML = `<div class="bacts" role="toolbar" aria-label="Блок ${i + 1}">${acts.map(([k, ic, n, dis, cls]) => `<button data-a="${k}" aria-label="${n}" title="${n}" class="${cls || ''}" ${dis ? 'disabled' : ''}>${ic}</button>`).join('')}</div>`;
   dock.onclick = ev => { const a = ev.target.closest('[data-a]'); if (!a) return; ev.stopPropagation();
