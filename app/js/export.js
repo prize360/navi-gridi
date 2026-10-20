@@ -93,7 +93,8 @@ G.exportParts = page => {
     }
     return o.join('\n');
   };
-  parts.project = () => JSON.stringify({gridi: 1, library: ver, templates: [...new Set(page.blocks.map(b => b.tpl).filter(Boolean))].map(id => G.tpl(id)).filter(t => t && !t.component).map(t => { const c = {...t}; delete c._local; delete c._base; return c; }), page: {...page, blocks: page.blocks.map(b => { const c = {...b}; delete c._src; delete c._srcFor; return c; })}}, null, 1);
+  parts.project = () => JSON.stringify(G.pagePack(page, {full: true}), null, 1);
+  parts.projectOld = () => JSON.stringify({gridi: 1, library: ver, templates: [...new Set(page.blocks.map(b => b.tpl).filter(Boolean))].map(id => G.tpl(id)).filter(t => t && !t.component).map(t => { const c = {...t}; delete c._local; delete c._base; return c; }), page: {...page, blocks: page.blocks.map(b => { const c = {...b}; delete c._src; delete c._srcFor; return c; })}}, null, 1);
   parts.name = name;
   parts.images = () => rows.flatMap(r => r.imgs.filter(im => im.data).map(im => ({path: fileOf(r, im), blob: dataBlob(im.data)})));
   return parts;
@@ -111,7 +112,7 @@ G.doExport = async page => {
   const P = G.exportParts(page), files = [];
   files.push({path: 'text.md', data: P.text()});
   const admin = JSON.parse(P.json()), proj = JSON.parse(P.project());
-  files.push({path: 'page.json', data: JSON.stringify({...admin, gridi: proj.gridi, library: proj.library, templates: proj.templates, page: proj.page}, null, 2)});
+  files.push({path: 'page.json', data: JSON.stringify({...admin, gridi: proj.gridi, library: proj.library, scenario: proj.scenario, templates: proj.templates, page: proj.page}, null, 2)});
   files.push({path: 'graphics/graphics.md', data: P.graphics()});
   for (const im of P.images()) files.push({path: im.path, data: im.blob});
   files.push({path: 'wireframe.html', data: P.wire()});
@@ -150,6 +151,50 @@ G.pilotExport = async withTexts => {
   if (withTexts) pages.forEach((p, i) => z.file(`pages/${String(i + 1).padStart(2, '0')}-${slug(p.name)}.md`, `# ${p.name}\n\n` + p.blocks.map(b => `<!-- ${b.role} · ${(G.tpl(b.tpl) || {}).name || '—'} -->\n${b.text}`).join('\n\n')));
   G.download(`gridi-pilot-${d}.zip`, await z.generateAsync({type: 'blob'}));
 };
+/* ---------- страница целиком, со всем, от чего она зависит: свой сценарий и свои шаблоны ----------
+   Для ссылки и архива. Встроенные шаблоны и сценарии не кладутся — они есть у всех. */
+const clean = o => { const c = {...o}; delete c._local; delete c._base; delete c._src; delete c._srcFor; return c; };
+G.pagePack = (page, {full = false} = {}) => {
+  const sc = G.lib.get('scenarios', page.scenario), ids = [...new Set(page.blocks.map(b => b.tpl).filter(Boolean))];
+  const tpls = ids.map(id => G.tpl(id)).filter(t => t && !t.component && (full || t._local || t.imported)).map(clean);
+  const blocks = page.blocks.map(b => { const o = {role: b.role, text: b.text}; if (b.tpl) o.tpl = b.tpl; if (b.tplLock) o.lock = 1;
+    const ic = {}; Object.entries(b.images || {}).forEach(([k, v]) => { if (v && v.icon) ic[k] = {icon: v.icon}; if (full && v && v.data) ic[k] = {...(ic[k] || {}), data: v.data, alt: v.alt}; }); if (Object.keys(ic).length) o.images = ic; return o; });
+  return {gridi: 2, library: G.lib.version(), scenario: sc && (full || sc._local) ? clean(sc) : null, templates: tpls, page: {name: page.name, scenario: page.scenario, blocks}};
+};
+/* пакет → страница у получателя. Шаблон автора, которого нет или он другой, — «импортированный», только для этой страницы;
+   сценарий автора, которого нет, — добавляется в библиотеку с пометкой «от коллеги». Свои правки получателя не трогаются */
+G.unpack = j => {
+  const p = G.newPage(j.page.name, j.page.scenario, ''); p.blocks = (j.page.blocks || []).map(x => { const b = G.newBlock(x.role, x.text || ''); if (x.tpl) b.tpl = x.tpl; b.tplLock = !!x.lock || !!x.tpl; b.images = x.images || {}; return b; });
+  p.text = p.blocks.map(b => b.text).join('\n\n');
+  const norm = t => { const c = {...t}; ['id', 'name', '_base', '_local', 'imported'].forEach(k => delete c[k]); return JSON.stringify(c); };
+  const hash = x => { let h = 0; for (let i = 0; i < x.length; i++) h = (h * 31 + x.charCodeAt(i)) | 0; return (h >>> 0).toString(36); };
+  let n = 0;
+  for (const t of j.templates || []) { if (!t || !t.id) continue; const cur = G.tpl(t.id);
+    if (cur && norm(cur) === norm(t)) continue;
+    const id = t.imported ? t.id : 'imp-' + hash(norm(t)); if (!G.tpl(id)) { G.imported.add({...t, id, imported: true}); n++; }
+    p.blocks.forEach(b => { if (b.tpl === t.id) b.tpl = id; }); }
+  let scAdded = false;
+  if (j.scenario && !G.lib.get('scenarios', j.scenario.id)) { G.lib.save('scenarios', {...j.scenario, name: j.scenario.name + ' (от коллеги)', imported: true}); scAdded = true; }
+  if (!G.lib.get('scenarios', p.scenario)) p.scenario = (G.lib.all('scenarios')[0] || {}).id;
+  p.blocks.forEach(b => { if (b.tpl && !G.tpl(b.tpl)) { b.tpl = null; b.tplLock = false; } });
+  G.autoPick(p);
+  return {page: p, tpls: n, scAdded};
+};
+/* ссылка: пакет сжимается в браузере (deflate) и кладётся в адрес после #s= — эта часть адреса не уходит на сайт */
+const b64u = buf => { let s = ''; const a = new Uint8Array(buf); for (let i = 0; i < a.length; i += 0x8000) s += String.fromCharCode.apply(null, a.subarray(i, i + 0x8000)); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
+const unb64u = s => { s = s.replace(/-/g, '+').replace(/_/g, '/'); while (s.length % 4) s += '='; const bin = atob(s), a = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i); return a; };
+const pipe = async (data, stream) => new Uint8Array(await new Response(new Blob([data]).stream().pipeThrough(stream)).arrayBuffer());
+G.pageLink = async page => {
+  const json = JSON.stringify(G.pagePack(page)), base = location.href.replace(/#.*$/, '');
+  if (!window.CompressionStream) return base + '#j=' + b64u(new TextEncoder().encode(json));
+  return base + '#s=' + b64u(await pipe(new TextEncoder().encode(json), new CompressionStream('deflate-raw')));
+};
+G.readLink = async hash => {
+  const m = String(hash).match(/^#([sj])=(.+)$/); if (!m) return null;
+  const raw = unb64u(m[2]), bytes = m[1] === 's' ? await pipe(raw, new DecompressionStream('deflate-raw')) : raw;
+  const j = JSON.parse(new TextDecoder().decode(bytes)); if (!j.page || !j.page.blocks) throw new Error('В ссылке нет страницы Гриди.'); return j;
+};
+
 G.importProject = async file => {
   let raw;
   /* архив целиком — как его пришлют: page.json достаётся изнутри */
@@ -157,6 +202,7 @@ G.importProject = async file => {
   else raw = await file.text();
   let j; try { j = JSON.parse(raw); } catch (err) { throw new Error('Это не файл Гриди — нужен архив выгрузки или page.json из него.'); }
   if (!j.page || !j.page.blocks) throw new Error('Это не файл Гриди — нужен архив выгрузки или page.json из него.');
+  if (j.gridi === 2) { const r = G.unpack(j), p0 = r.page; p0.name += ' (от коллеги)'; await G.store.put(p0); return p0; }
   const p = j.page; p.id = G.uid('p'); { const names = (await G.store.list()).map(x => x.name); let n = p.name + ' (от коллеги)', k = 2; while (names.includes(n)) n = `${p.name} (от коллеги ${k++})`; p.name = n; }
   /* шаблоны, сценарии и промты автора, которых нет у получателя, — переносятся; свои правки получателя не трогаются */
   /* макет открывается как у автора: шаблон, которого у получателя нет или он другой, сохраняется как «импортированный» только для показа */

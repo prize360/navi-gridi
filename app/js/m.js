@@ -157,7 +157,7 @@ const save = () => { clearTimeout(saveT); saveT = setTimeout(() => A.page && A.p
 
 /* текст страницы для чата: блоки через границы с ролью; вставка такого текста восстанавливает страницу */
 /* в строке блока — роль, выбранный шаблон и иконки: «--- Роль · шаблон: id · иконки: i0=id, i1=id». Картинки в чат не идут — только в архив */
-const shareMeta = b => { const t = b.tplLock && b.tpl ? ' · шаблон: ' + b.tpl : '', ic = Object.entries(b.images || {}).filter(([, v]) => v && v.icon).map(([k, v]) => k + '=' + v.icon).join(', ');
+const shareMeta = b => { const t = b.tpl ? ' · шаблон: ' + b.tpl : '', ic = Object.entries(b.images || {}).filter(([, v]) => v && v.icon).map(([k, v]) => k + '=' + v.icon).join(', ');
   return t + (ic ? ' · иконки: ' + ic : ''); };
 const shareText = p => [`=== ${p.name} · ${G.scenario(p.scenario).name}`, ...p.blocks.map(b => `--- ${G.roleOf(G.scenario(p.scenario), b.role).name}${shareMeta(b)}\n${b.text}`)].join('\n');
 const isShare = t => /^---\s+\S/m.test(t);
@@ -452,11 +452,11 @@ const naviPayload = p => { const s0 = G.scenario(p.scenario), goal = GOAL[s0.id]
       cta: {title: cs.title || '', text: cs.lead || '', btn: (cs.cta || [])[0] || ''}},
     css: G.WIRE_CSS + '.wf-miss,.wf-item-miss{display:none!important}'}; };
 const DEV = [['mob', 375, 'Телефон', '<svg viewBox="0 0 24 24"><rect x="7" y="3" width="10" height="18" rx="2"/></svg>'], ['desk', 1440, 'Компьютер', '<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="11" rx="1.5"/><path d="M9 20h6"/></svg>']];
-const preview = () => {
-  const p = A.page; G.autoPick(p);
+const preview = (p = A.page, shared = null) => {
+  G.autoPick(p);
   let dev = G.ls.get('dev', innerWidth >= 900 ? 'desk' : 'mob'); if (!DEV.some(x => x[0] === dev)) dev = 'mob';
   const el = document.createElement('div'); el.className = 'pv pvn';
-  el.innerHTML = `<header class="hd"><button class="ib round" id="pvX" aria-label="Закрыть">${I.x}</button><div class="ttl"><b>Превью</b><small>${e(p.name)}</small></div>
+  el.innerHTML = `<header class="hd"><button class="ib round" id="pvX" aria-label="Закрыть">${I.x}</button><div class="ttl"><b>${shared ? e(p.name) : 'Превью'}</b><small>${shared ? 'Страница Гриди · ' + e(G.scenario(p.scenario).name) : e(p.name)}</small></div>${shared ? '<button class="pill sm pri" id="pvOpen">Открыть в Гриди</button>' : ''}
     <div class="seg" role="tablist">${DEV.map(([k, , n, ic]) => `<button data-d="${k}" aria-label="${n}" title="${n}">${ic}</button>`).join('')}</div></header>
     <div class="pvn-stage"><div class="pvn-dev"><iframe title="Прототип Нави" src="navi.html?embed"></iframe></div></div>`;
   document.body.appendChild(el); document.body.classList.add('noscroll'); el.animate([{opacity: 0}, {opacity: 1}], {duration: 140});
@@ -476,7 +476,10 @@ const preview = () => {
   let rt = null; const onRes = () => { clearTimeout(rt); rt = setTimeout(fit, 150); };
   addEventListener('resize', onRes); fit();
   el.querySelectorAll('[data-d]').forEach(x => x.onclick = () => { dev = x.dataset.d; G.ls.set('dev', dev); fit(); setTimeout(() => { try { fr.contentWindow.NV && fr.contentWindow.NV.size('fit'); } catch (err) {} }, 60); });
-  el.querySelector('#pvX').onclick = () => { removeEventListener('message', onMsg); removeEventListener('resize', onRes); el.remove(); document.body.classList.remove('noscroll'); };
+  const shut = () => { removeEventListener('message', onMsg); removeEventListener('resize', onRes); el.remove(); document.body.classList.remove('noscroll'); };
+  el.querySelector('#pvX').onclick = () => { shut(); if (shared) { history.replaceState(null, '', '#/'); go('home'); } };
+  const po = el.querySelector('#pvOpen'); if (po) po.onclick = async () => { const r = shared(); shut(); await G.store.put(r.page); history.replaceState(null, '', '#/p/' + r.page.id); await go('edit', r.page.id);
+    toast(['Страница сохранена у вас — можно править', r.scAdded ? 'сценарий автора добавлен в библиотеку' : '', r.tpls ? G.num(r.tpls, 'шаблон', 'шаблона', 'шаблонов') + ' автора — только для этой страницы' : ''].filter(Boolean).join(' · ')); };
 };
 
 /* настройки страницы: название и сценарий */
@@ -930,7 +933,8 @@ const exportView = () => {
           ${g.des.length ? sum('Нужен дизайн блоков', `${G.num(g.des.length, 'блок', 'блока', 'блоков')}: ${nums(g.des)} — шаблона нет в админке, ТЗ в архиве`, g.des[0].b.id) : ''}</div>` : ''}
         ${g.recs.length ? `<p class="lbl">Рекомендации · ${g.recs.length}</p><div class="xrs">${g.recs.map((x, k) => row({b: x.b || null, text: x.text}, `<button class="ib sm" data-hide="${k}" aria-label="Скрыть">${I.x}</button>`)).join('')}</div>` : ''}
         <p class="lbl">Передать</p>
-        <div class="list"><button class="row" id="xShare"><b>Текстом в чат</b><small>Вставка этого текста в Гриди собирает ту же страницу — с шаблонами и иконками</small></button>
+        <div class="list"><button class="row" id="xLink"><b>Ссылка на превью</b><small>Откроется страница как у читателя и кнопка «Открыть в Гриди». Со сценарием, шаблонами и иконками; картинки — только в архиве</small></button>
+          <button class="row" id="xShare"><b>Текстом в чат</b><small>Чтобы править текст в чате. Вставка в Гриди собирает ту же страницу; свой сценарий и шаблоны — только по ссылке</small></button>
           <button class="row" id="xZip"><b>Архив для вёрстки</b><small>Текст по полям, схема, картинки, ТЗ на картинки с именами слотов</small></button></div>
       </main>
       ${canAll ? `<div class="dock"><div class="fixall"><p class="hint">${e([plan.model.length ? 'Модель поправит: ' + plan.model.join(', ') : '', plan.code ? 'Гриди сам поправит: ' + G.num(plan.code, 'ошибку', 'ошибки', 'ошибок') + ' разметки' : '', (() => { const no = [...plan.no.filter(x => x !== 'остальное — вручную'), ...(g.data.some(x => /без ссылки/.test(x.text)) ? ['ссылки у кнопок'] : []), ...(g.data.some(x => /нет (картинки|фото|иконки)/.test(x.text)) ? ['картинки и иконки'] : []), ...(g.data.some(x => /нужно от автора/.test(x.text)) ? ['пометки «нужно от автора»'] : []), ...(g.des.length ? ['дизайн шаблонов'] : [])]; return no.length ? 'Вручную останутся: ' + [...new Set(no)].join(', ') : ''; })()].filter(Boolean).join('. '))}</p><button class="pill grad wide" id="xFix">Поправить всё</button></div></div>` : ''}`;
@@ -941,6 +945,8 @@ const exportView = () => {
       try { const ids = g.lim.map(x => x.b.id).filter(id => G.adaptable(p.blocks.find(b => b.id === id), G.prompt('fix'), p)); const n = await G.runAdapt(p, 'fix', ids); if (n) g.lim.forEach(x => repick(x.b)); save(); draw(); } catch (err) { if (err.message !== 'cancel') toast(err.message); } };
     el.querySelectorAll('[data-pf]').forEach(x => x.onclick = ev => { ev.stopPropagation(); const c = R.page[+x.dataset.pf].c;
       if (g.pageFix(c) === 'add') { p.blocks.push(G.newBlock(c.fix.addRole, '')); toast('Блок добавлен в конец — заполните его текстом'); } else G.fixByCode(p); save(); draw(); });
+    el.querySelector('#xLink').onclick = async () => { try { const u = await G.pageLink(p); await G.copy(u);
+        toast(u.length > 30000 ? `Ссылка скопирована, но длинная (${Math.round(u.length / 1000)} тыс. знаков) — мессенджер может её обрезать. Надёжнее архив.` : `Ссылка скопирована · ${(u.length / 1000).toFixed(1)} тыс. знаков`); } catch (err) { toast(err.message); } };
     el.querySelector('#xShare').onclick = async () => { const t = shareText(p); if (navigator.share && /Mobi|Android|iPhone/i.test(navigator.userAgent)) { try { await navigator.share({title: p.name, text: t}); return; } catch (err) { if (err.name === 'AbortError') return; } } await G.copy(t); toast('Текст страницы скопирован — вставьте в чат'); };
     el.querySelector('#xZip').onclick = async () => { try { await G.doExport(p); } catch (err) { toast(err.message); } };
     const fx = el.querySelector('#xFix'); if (fx) fx.onclick = async () => {
@@ -975,10 +981,21 @@ const route = () => {
   S.dirty = false; lastHash = location.hash;
   /* смена экрана закрывает открытые шторки (настройки → библиотека) */
   document.querySelectorAll('.sh-wrap').forEach(x => x.remove()); document.body.classList.remove('noscroll');
+  if (/^#[sj]=/.test(location.hash)) return;
   const m = location.hash.match(/^#\/p\/(.+)$/), l = libRoute();
   if (l) { if (A.view === 'edit') save(); A.view = 'lib'; A.page = null; document.body.classList.remove('shell', 'picking'); libView(); return; }
   if (m && (!A.page || A.page.id !== m[1])) go('edit', m[1]); else if (!m && A.view !== 'home') go('home'); };
+/* ссылка со страницей: сразу превью, «Открыть в Гриди» — сохранить себе. Пока не сохранили — у получателя ничего не появляется */
+const openLink = async () => {
+  try { const j = await G.readLink(location.hash); if (!j) return false;
+    const prev = G.unpack({...j, templates: [], scenario: null}).page; /* для показа — без записи чужих шаблонов и сценария */
+    j.templates.forEach(t => { if (!G.tpl(t.id)) G._tplIndex = {...(G._tplIndex || {}), [t.id]: t}; });
+    prev.blocks.forEach((b, i) => { const x = j.page.blocks[i]; if (x && x.tpl && G.tpl(x.tpl)) { b.tpl = x.tpl; b.tplLock = true; } });
+    document.body.classList.remove('shell'); A.view = 'home'; await home();
+    preview(prev, () => { G._tplIndex = null; return G.unpack(j); }); return true;
+  } catch (err) { toast('Ссылка повреждена или обрезана: ' + err.message); history.replaceState(null, '', '#/'); return false; } };
+addEventListener('hashchange', () => { if (/^#[sj]=/.test(location.hash)) openLink(); });
 addEventListener('hashchange', route);
-const m0 = location.hash.match(/^#\/p\/(.+)$/); if (m0) go('edit', m0[1]); else if (libRoute()) route(); else render();
+const m0 = location.hash.match(/^#\/p\/(.+)$/); if (/^#[sj]=/.test(location.hash)) openLink(); else if (m0) go('edit', m0[1]); else if (libRoute()) route(); else render();
 G.m = {A, shareText, fromShare, build, lines, parseLine};
 })();
