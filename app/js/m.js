@@ -310,18 +310,20 @@ const preview = () => {
   document.body.appendChild(el); document.body.classList.add('noscroll'); el.animate([{opacity: 0}, {opacity: 1}], {duration: 140});
   const fr = el.querySelector('iframe'), box = el.querySelector('.pvn-dev'), stage = el.querySelector('.pvn-stage');
   const fit = () => { const w = DEV.find(d => d[0] === dev)[1], avail = stage.clientWidth - 24, k = Math.min(1, avail / w);
-    box.style.width = w + 'px'; box.style.height = ((stage.clientHeight - 24) / k) + 'px'; box.style.transform = `scale(${k})`;
+    box.style.width = w + 'px'; box.style.height = ((stage.clientHeight - 24) / k) + 'px';
+    if ('zoom' in box.style) { box.style.zoom = k; box.style.transform = ''; } else box.style.transform = `scale(${k})`;
     el.querySelectorAll('[data-d]').forEach(x => x.classList.toggle('on', x.dataset.d === dev)); box.dataset.dev = dev; strip(); };
   /* от Нави берём только сам прототип: без её фона, рамки устройства, ручки ширины и панелей — ширину задаём мы */
   const CHROME = 'html.embed .stage{padding:0!important;background:transparent!important;overflow:hidden!important}html.embed .device-wrap{width:100%!important;height:100%!important;transform:none!important;margin:0!important;box-shadow:none!important;border:0!important;border-radius:0!important}html.embed .device{border-radius:0!important;box-shadow:none!important}html.embed .resize-h,html.embed .shell__bar,html.embed .pop,html.embed .pop-bg{display:none!important}html.embed body,html.embed .shell,html.embed .shell__body{background:transparent!important}html.embed .hstage,html.embed #naviRoot,html.embed .nvr,html.embed .stage{background:none!important;background-image:none!important;padding:0!important}';
   const strip = () => { try { const d = fr.contentDocument; if (d && !d.getElementById('gridi-chrome')) { const st = d.createElement('style'); st.id = 'gridi-chrome'; st.textContent = CHROME; d.head.appendChild(st); }
-    const w = DEV.find(x => x[0] === dev)[1]; if (fr.contentWindow.NV) fr.contentWindow.NV.size(w); } catch (err) {} };
+    const w = DEV.find(x => x[0] === dev)[1]; if (fr.contentWindow.NV && strip.w !== w) { strip.w = w; fr.contentWindow.NV.size(w); } } catch (err) {} };
   const send = () => { strip(); try { fr.contentWindow.postMessage(naviPayload(p), '*'); } catch (err) {} setTimeout(strip, 300); };
   const onMsg = ev => { if (ev.source === fr.contentWindow && ev.data && ev.data.type === 'navi:ready') send(); };
   addEventListener('message', onMsg); fr.addEventListener('load', () => setTimeout(send, 200));
-  addEventListener('resize', fit); fit();
+  let rt = null; const onRes = () => { clearTimeout(rt); rt = setTimeout(fit, 120); };
+  addEventListener('resize', onRes); fit();
   el.querySelectorAll('[data-d]').forEach(x => x.onclick = () => { dev = x.dataset.d; G.ls.set('dev', dev); fit(); });
-  el.querySelector('#pvX').onclick = () => { removeEventListener('message', onMsg); removeEventListener('resize', fit); el.remove(); document.body.classList.remove('noscroll'); };
+  el.querySelector('#pvX').onclick = () => { removeEventListener('message', onMsg); removeEventListener('resize', onRes); el.remove(); document.body.classList.remove('noscroll'); };
 };
 
 /* настройки страницы: название и сценарий */
@@ -434,10 +436,17 @@ const touch = matchMedia('(pointer: coarse)').matches;
 /* клавиатура на телефоне: оболочка редактора занимает ровно видимую область, окно держим в нуле —
    iOS не на что сдвигать страницу, шапка остаётся на месте, прокручивается только текст */
 const fitShell = () => { const vv = window.visualViewport; if (!vv) return;
-  document.documentElement.style.setProperty('--vh', vv.height + 'px');
-  if (document.body.classList.contains('shell') && (window.scrollY || vv.offsetTop)) window.scrollTo(0, 0); };
+  const r = document.documentElement.style; r.setProperty('--vh', vv.height + 'px'); r.setProperty('--vt', Math.max(0, vv.offsetTop) + 'px');
+  if (document.body.classList.contains('shell') && window.scrollY) window.scrollTo(0, 0); };
+/* пока клавиатура выезжает, iOS пытается сдвинуть страницу — возвращаем её на место и сами прокручиваем текст к каретке */
+const caretIntoView = () => { const M = document.getElementById('eMain'), s0 = getSelection(); if (!M || !s0.rangeCount) return;
+  let r = s0.getRangeAt(0).getBoundingClientRect(); if (!r.height) { const ln = curLine(); if (!ln) return; r = ln.getBoundingClientRect(); }
+  const box = M.getBoundingClientRect(), bottom = box.top + M.clientHeight - 24;
+  if (r.bottom > bottom) M.scrollTop += r.bottom - bottom + 40; else if (r.top < box.top + 8) M.scrollTop -= box.top + 8 - r.top + 40; };
+document.addEventListener('focusin', ev => { if (!document.body.classList.contains('shell') || !ev.target.closest || !ev.target.closest('.ed')) return;
+  const t0 = performance.now(); const tick = () => { fitShell(); if (performance.now() - t0 < 900) requestAnimationFrame(tick); else caretIntoView(); }; requestAnimationFrame(tick); });
 const pin = fitShell;
-if (window.visualViewport) { visualViewport.addEventListener('resize', fitShell); visualViewport.addEventListener('scroll', fitShell); fitShell(); }
+if (window.visualViewport) { visualViewport.addEventListener('resize', () => { fitShell(); caretIntoView(); }); visualViewport.addEventListener('scroll', fitShell); fitShell(); }
 const keyboardOpen = () => { if (!touch) return true; const vv = window.visualViewport; return !!vv && innerHeight - vv.height > 120; };
 const fmtSync = () => {
   if (!fmtEl || !fmtEl.isConnected) return;
@@ -535,15 +544,25 @@ const tplLabel = t => { const c = t.ctor; if (!c) return {name: t.name, sub: '',
 const why = r => [...(r.bad || []), ...(r.why || []).filter(x => !/^(всё на месте|компонент|рекомендован|текстовый|ряды)/.test(x))].slice(0, 3).join(' · ');
 const runPrompt = async (b, id) => { const p = A.page, P = G.prompt(id); let vals = {};
   if (P.ask && P.ask.length) { vals = await askVals(P); if (!vals) return; }
-  if (!G.adaptable(b, P, p)) return toast('Этот блок не переписывается: у его шаблона текст как есть.');
-  try { const n = await G.runAdapt(p, P.id, [b.id], vals); if (n) { repick(b); save(); redrawBlock(b); toast(`«${P.name}»: текст блока обновлён — и в заметке тоже`); } }
-  catch (err) { if (err.message !== 'cancel') toast(err.message); } };
+  const free = !G.adaptable(b, P, p);
+  if (free && (P.id === 'fit' || !b.text.trim())) return toast('Этот блок не укладывается в поля: у его шаблона текст как есть.');
+  /* текст статьи и другие блоки «как есть»: промт получает блок как «заголовок + текст» и возвращает текст целиком */
+  const VT = {id: '__free', name: 'Текст блока', status: {prod: true}, layout: 'stack',
+    fields: [{k: 't', label: 'Текст: абзацы, пункты списка с «- »', max: Math.max(2000, Math.round(G.len(b.text) * 1.6)), role: 'text'}]};
+  const keep = {tpl: b.tpl, lock: b.tplLock}, adp = G.adaptable;
+  try {
+    if (free) { G.tpl('__x'); G._tplIndex.__free = VT; b.tpl = '__free'; G.adaptable = () => true; }
+    const n = await G.runAdapt(p, P.id, [b.id], vals);
+    if (free) { G.adaptable = adp; delete G._tplIndex.__free; b.tpl = keep.tpl; b.tplLock = keep.lock; }
+    if (n) { repick(b); save(); redrawBlock(b); toast(`«${P.name}»: текст блока обновлён — и в заметке тоже`); }
+  } catch (err) { if (err.message !== 'cancel') toast(err.message); }
+  finally { G.adaptable = adp; if (G._tplIndex) delete G._tplIndex.__free; if (b.tpl === '__free') { b.tpl = keep.tpl; b.tplLock = keep.lock; } } };
 const selBar = () => {
   const p = A.page, b = p.blocks.find(x => x.id === A.sel), dock = $app.querySelector('#eDock'); if (!b || !dock) return;
   const i = p.blocks.indexOf(b), slots = G.imageSlots(b, p), fixN = G.fixNotes(b, p).length;
   const adapt = G.lib.all('prompts').filter(x => x.stage === 'adapt' && !x.system && !['fit', 'fix'].includes(x.id));
   dock.innerHTML = `<div class="selbar" role="toolbar" aria-label="Блок ${i + 1}">
-    <div class="sb-chips">${fixN ? `<button class="chip hot" data-p="fix">Поправить ошибки <i>${fixN}</i></button>` : ''}<button class="chip" data-p="fit">Уложить в шаблон</button>${adapt.map(x => `<button class="chip" data-p="${e(x.id)}">${e(x.name)}</button>`).join('')}</div>
+    <div class="sb-chips">${fixN ? `<button class="chip hot" data-p="fix">Поправить ошибки <i>${fixN}</i></button>` : ''}${G.adaptable(b, G.prompt('fit'), p) ? '<button class="chip" data-p="fit">Уложить в шаблон</button>' : ''}${adapt.map(x => `<button class="chip" data-p="${e(x.id)}">${e(x.name)}</button>`).join('')}</div>
     <div class="sb-acts">
       <button data-a="text" aria-label="Текст">${I.pen}<span>Текст</span></button>
       <button data-a="img" aria-label="Картинки" class="${slots.length ? '' : 'soft'}">${I.img}<span>Картинки</span></button>
