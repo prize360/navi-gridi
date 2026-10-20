@@ -542,3 +542,10 @@ svg.sd path{fill:currentColor}
 .xrs.orange .xr-t .mono{color:#b4561c}
 .xrs.red .xr.sum{background:var(--err-bg)}
 .pv .hd .grow{flex:1}
+.tlw{position:relative;display:flex;flex-direction:column}.tlw>.tl{flex:1}
+.tl-del{position:absolute;top:8px;right:8px;width:32px;height:32px;background:var(--card);box-shadow:0 1px 4px rgba(0,0,0,.15);opacity:0;pointer-events:none;transition:opacity .14s}
+@media (hover:hover){.tlw:hover .tl-del{opacity:1;pointer-events:auto}.tl-del:hover{color:var(--bad)}.row:hover{filter:brightness(.96)}}
+.tl-del:focus-visible{opacity:1;pointer-events:auto}
+a.row,label.row{color:inherit;text-decoration:none;cursor:pointer}.row.file input{display:none}.row.ic>span{display:flex;flex-direction:column}
+.pill.danger{background:var(--bad);color:#fff}.sh-f .pill{flex:1}
+.sh-f:has(#dYes){display:flex;gap:8px}

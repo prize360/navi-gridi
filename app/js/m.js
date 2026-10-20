@@ -284,7 +284,7 @@ const home = async () => {
   const cnt = id => all.filter(p => p.scenario === id).length;
   $app.innerHTML = `<header class="hd"><div class="logo"><img class="lg-mark" src="${G.LOGO || ''}" alt="">Гриди</div><button class="ib round" id="hMenu" aria-label="Меню">${I.menu}</button></header>
     <nav class="tabs" role="tablist">${tabs.map(([id, n]) => `<button role="tab" class="${id === A.tab ? 'on' : ''}" data-tab="${id}">${n}${cnt(id) ? `<i>${cnt(id)}</i>` : ''}</button>`).join('')}</nav>
-    <main class="home">${pages.length ? '' : '<!--'}<div class="grid">${pages.map(p => `<button class="tl" data-id="${e(p.id)}">${cover(p)}<span class="tl-n">${e(p.name)}</span></button>`).join('')}${'<span class="tl-slot"></span>'.repeat(slots)}</div>${pages.length ? '' : '-->'}
+    <main class="home">${pages.length ? '' : '<!--'}<div class="grid">${pages.map(p => `<div class="tlw"><button class="tl" data-id="${e(p.id)}">${cover(p)}<span class="tl-n">${e(p.name)}</span></button><button class="ib round tl-del" data-del="${e(p.id)}" aria-label="Удалить страницу" title="Удалить">${I.x}</button></div>`).join('')}${'<span class="tl-slot"></span>'.repeat(slots)}</div>${pages.length ? '' : '-->'}
       ${!pages.length ? empty(`Здесь пока нет ${({article: 'статей', course: 'курсов', event: 'событий', sale: 'продуктов', promo: 'промо-страниц'})[A.tab] || 'страниц «' + ((tabs.find(([id]) => id === A.tab) || [, ''])[1]) + '»'}`, 'Вставьте текст — Гриди разложит его по блокам и подберёт шаблоны.', [['new', 'Создать', true]]) : ''}</main>
     <div class="dock"><button class="pill grad wide" id="hNew">Новая страница</button></div>`;
   $app.querySelectorAll('[data-tab]').forEach(c => c.onclick = () => { A.tab = c.dataset.tab; G.ls.set('tab', A.tab); home().then(appear); });
@@ -293,6 +293,7 @@ const home = async () => {
     c.addEventListener('pointerdown', () => { t = setTimeout(() => { c.dataset.held = 1; pageMenu(all.find(x => x.id === c.dataset.id)); }, 480); });
     ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => c.addEventListener(ev, () => clearTimeout(t)));
     c.addEventListener('contextmenu', ev => { ev.preventDefault(); c.dataset.held = 1; pageMenu(all.find(x => x.id === c.dataset.id)); }); });
+  $app.querySelectorAll('[data-del]').forEach(x => x.onclick = ev => { ev.stopPropagation(); delAsk(all.find(p => p.id === x.dataset.del)); });
   const es = $app.querySelector('[data-es=new]'); if (es) es.onclick = () => $app.querySelector('#hNew').click();
   /* новая страница живёт только на экране, пока её не собрали: пустые в список не попадают */
   $app.querySelector('#hNew').onclick = () => { A.page = G.newPage('Без названия', A.tab, ''); A.view = 'edit'; A.mode = 'note'; A.sel = null;
@@ -300,11 +301,18 @@ const home = async () => {
   $app.querySelector('#hMenu').onclick = settings;
   requestAnimationFrame(() => $app.querySelectorAll('.tl-pv').forEach(x => x.style.setProperty('--k', x.clientWidth / 560)));
 };
-/* долгое нажатие на обложку: переименовать, дублировать, удалить */
+/* удаление страницы — с предупреждением: страница живёт только в этом браузере, восстановить нельзя */
+const delAsk = p => { if (!p) return;
+  const s = sheet(`<div class="sh-h"><h2>Удалить страницу?</h2><button class="ib" data-close aria-label="Закрыть">${I.x}</button></div>
+    <div class="sh-b"><p class="hint">«${e(p.name)}» удалится из этого браузера. Восстановить её не получится — если она ещё нужна, сначала скачайте архив или скопируйте ссылку.</p></div>
+    <div class="sh-f"><button class="pill ghost" data-close>Отмена</button><button class="pill danger" id="dYes">Удалить</button></div>`);
+  s.$('#dYes').onclick = async () => { await G.store.del(p.id); s.close(); home(); toast('Страница удалена'); };
+};
+/* долгое нажатие на обложку: дублировать, удалить */
 const pageMenu = p => {
-  const s = sheet(`<div class="sh-h"><h2>${e(p.name)}</h2></div><div class="sh-b"><div class="list"><button class="row" id="rDup">Дублировать</button><button class="row danger" id="rDel">Удалить</button></div></div>`);
+  const s = sheet(`<div class="sh-h"><h2>${e(p.name)}</h2><button class="ib" data-close aria-label="Закрыть">${I.x}</button></div><div class="sh-b"><div class="list"><button class="row ic" id="rDup">${I.page}<b>Дублировать</b></button><button class="row ic danger" id="rDel">${I.trash}<b>Удалить</b></button></div></div>`);
   s.$('#rDup').onclick = async () => { const n = {...G.clone(p), id: G.uid('p'), name: p.name + ' (копия)'}; await G.store.put(n); s.close(); home(); };
-  s.$('#rDel').onclick = () => sure(s.$('#rDel'), 'Удалить навсегда', async () => { await G.store.del(p.id); s.close(); home(); });
+  s.$('#rDel').onclick = () => { s.close(true); delAsk(p); };
 };
 
 /* инструкция — обычная страница Гриди (статья), собранная по разметке. Только общие сведения: её можно показывать по публичной ссылке */
@@ -371,14 +379,13 @@ const settings = () => {
         <label class="lbl" for="sModel">Модель</label><input class="in" id="sModel" value="${e(st.model)}">
         <label class="lbl" for="sKey">Ключ — хранится только в этом браузере</label><input class="in" id="sKey" type="password" value="${e(st.key)}" autocomplete="off">
       </div>
-      <p class="lbl">Библиотека</p>
-      <a class="pill ghost wide" href="#/lib/templates">Шаблоны, сценарии и промты</a>
       <p class="lbl">Ещё</p>
-      <button class="pill ghost wide" id="sGuide">Как работает Гриди</button>
-      <a class="pill ghost wide" href="navi.html" target="_blank" rel="noopener">Нави — гайд и прототип навигации ↗</a>
-      <p class="lbl">Страница от коллеги</p>
-      <label class="pill ghost wide file">Открыть архив или page.json<input type="file" id="sImp" accept=".zip,.json,application/zip,application/json"></label>
-      <p class="hint">Текст страницы из чата просто вставьте в новую страницу.</p>
+      <div class="list">
+        <a class="row ic" href="#/lib/templates">${I.grid}<span><b>Библиотека</b><small>Шаблоны, сценарии, промты и иконки</small></span></a>
+        <label class="row ic file">${I.plus}<span><b>Страница от коллеги</b><small>Архив или page.json. Текст из чата — просто вставьте в новую страницу</small></span><input type="file" id="sImp" accept=".zip,.json,application/zip,application/json"></label>
+        <button class="row ic" id="sGuide">${I.note}<span><b>Как работает Гриди</b><small>Коротко обо всём</small></span></button>
+        <a class="row ic" href="navi.html" target="_blank" rel="noopener">${I.eye}<span><b>Нави ↗</b><small>Гайд и прототип навигации — в новой вкладке</small></span></a>
+      </div>
     </div>
     <div class="sh-f"><button class="pill pri wide" id="sOk">Сохранить</button></div>`, {cls: 'tall'});
   let mode = st.mode === 'api' ? 'api' : 'manual';
