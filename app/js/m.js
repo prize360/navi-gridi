@@ -24,15 +24,16 @@ const I = {
   up: '<svg viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></svg>',
   down: '<svg viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></svg>',
   img: '<svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M20 16l-5-5-8 8"/></svg>',
+  grid: '<svg viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg>',
   dots: '<svg viewBox="0 0 24 24"><circle cx="6" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="18" cy="12" r="1.4"/></svg>',
 };
 
 /* ---------- строки разметки ---------- */
 const KINDS = [
   {k: 'p', label: 'Текст', g: ''},
-  {k: 'h1', label: 'H1', g: 'H1'},
-  {k: 'h2', label: 'H2', g: 'H2'},
-  {k: 'h3', label: 'H3', g: 'H3'},
+  {k: 'h1', label: '', g: 'H1'},
+  {k: 'h2', label: '', g: 'H2'},
+  {k: 'h3', label: '', g: 'H3'},
   {k: 'meta', label: 'Мета', g: '@'},
   {k: 'li', label: 'Пункт', g: '•'},
   {k: 'btn', label: 'Кнопка', g: '▸'}, /* кнопка и ссылка — одно: текст, адрес через « | » */
@@ -244,7 +245,7 @@ const settings = () => {
 
 /* 2. Редактор */
 const editor = () => {
-  if (bsh) { const h = bsh; bsh = null; h.close(true); } document.body.classList.remove('picking');
+  if (cat) { const h = cat; cat = null; h.close(true); } document.body.classList.remove('picking');
   const sc0 = document.getElementById('eMain'), y0 = sc0 ? sc0.scrollTop : 0, p = A.page, b = A.sel && p.blocks.find(x => x.id === A.sel), v = b && verdict(b);
   const miss = p.blocks.length ? report(p).count : 0;
   const title = `<b>${e(p.name)}</b><small>${e(sc().name)}${p.blocks.length ? ' · ' + (G.len(p.blocks.map(x => x.text).join('')) / 1000).toFixed(1).replace('.0', '') + 'k знаков' : ''}</small>`;
@@ -262,7 +263,7 @@ const editor = () => {
   if (!p.blocks.length) return draft();
   A.mode === 'note' ? notes() : canvas();
   island();
-  if (A.sel && A.mode === 'page') { select(A.sel); if (A.openFull && bsh) bsh.full(true); } A.openFull = false;
+  if (A.sel && A.mode === 'page') { select(A.sel); if (A.openCat) catalog(); } A.openCat = false;
   /* перерисовка не сбрасывает положение; прокрутка к блоку — только когда к нему переходят */
   const M = document.getElementById('eMain');
   if (A.jump) { const el = $app.querySelector(`[data-id="${A.jump}"]`); if (el && M) M.scrollTop += el.getBoundingClientRect().top - M.getBoundingClientRect().top - (A.jumpTop ? 8 : M.clientHeight / 3); A.jump = null; A.jumpTop = false; } else if (M) M.scrollTop = y0;
@@ -307,8 +308,12 @@ const preview = () => {
   const fr = el.querySelector('iframe'), box = el.querySelector('.pvn-dev'), stage = el.querySelector('.pvn-stage');
   const fit = () => { const w = DEV.find(d => d[0] === dev)[1], avail = stage.clientWidth - 24, k = Math.min(1, avail / w);
     box.style.width = w + 'px'; box.style.height = ((stage.clientHeight - 24) / k) + 'px'; box.style.transform = `scale(${k})`;
-    el.querySelectorAll('[data-d]').forEach(x => x.classList.toggle('on', x.dataset.d === dev)); box.dataset.dev = dev; };
-  const send = () => { try { fr.contentWindow.postMessage(naviPayload(p), '*'); } catch (err) {} };
+    el.querySelectorAll('[data-d]').forEach(x => x.classList.toggle('on', x.dataset.d === dev)); box.dataset.dev = dev; strip(); };
+  /* от Нави берём только сам прототип: без её фона, рамки устройства, ручки ширины и панелей — ширину задаём мы */
+  const CHROME = 'html.embed .stage{padding:0!important;background:transparent!important;overflow:hidden!important}html.embed .device-wrap{width:100%!important;height:100%!important;transform:none!important;margin:0!important;box-shadow:none!important;border:0!important;border-radius:0!important}html.embed .device{border-radius:0!important;box-shadow:none!important}html.embed .resize-h,html.embed .shell__bar,html.embed .pop,html.embed .pop-bg{display:none!important}html.embed body,html.embed .shell,html.embed .shell__body{background:transparent!important}html.embed .hstage,html.embed #naviRoot,html.embed .nvr,html.embed .stage{background:none!important;background-image:none!important;padding:0!important}';
+  const strip = () => { try { const d = fr.contentDocument; if (d && !d.getElementById('gridi-chrome')) { const st = d.createElement('style'); st.id = 'gridi-chrome'; st.textContent = CHROME; d.head.appendChild(st); }
+    const w = DEV.find(x => x[0] === dev)[1]; if (fr.contentWindow.NV) fr.contentWindow.NV.size(w); } catch (err) {} };
+  const send = () => { strip(); try { fr.contentWindow.postMessage(naviPayload(p), '*'); } catch (err) {} setTimeout(strip, 300); };
   const onMsg = ev => { if (ev.source === fr.contentWindow && ev.data && ev.data.type === 'navi:ready') send(); };
   addEventListener('message', onMsg); fr.addEventListener('load', () => setTimeout(send, 200));
   addEventListener('resize', fit); fit();
@@ -414,7 +419,7 @@ const fmtBar = (into) => {
   if (fmtEl) fmtEl.remove();
   fmtEl = document.createElement('div'); fmtEl.className = 'fmt'; fmtEl.hidden = true;
   /* роли строки — в шапке на месте названия, рядом ✓: клавиатура их не закрывает */
-  fmtEl.innerHTML = `<div class="fmt-row">${KINDS.map(x => `<button data-k="${x.k}"><i>${e(x.g || 'Аа')}</i><span>${e(x.label)}</span></button>`).join('')}<button data-split><i>${I.cut}</i><span>Разделить</span></button></div>`;
+  fmtEl.innerHTML = `<div class="fmt-row">${KINDS.map(x => `<button data-k="${x.k}" aria-label="${e(x.label || x.g)}"><i>${e(x.g || 'Аа')}</i>${x.label && x.k !== 'p' ? `<span>${e(x.label)}</span>` : ''}</button>`).join('')}<button data-split><i>${I.cut}</i><span>Разделить</span></button></div>`;
   const host = into || document.getElementById('eField'); (host || document.body).appendChild(fmtEl);
   fmtEl.addEventListener('pointerdown', ev => ev.preventDefault());
   fmtEl.querySelectorAll('[data-k]').forEach(x => x.onclick = () => { const ln = A.line; if (!ln || !ln.isConnected) return; setKind(ln, ln.dataset.k === x.dataset.k && x.dataset.k !== 'p' ? 'p' : x.dataset.k); sync(ln.closest('.ed')); fmtSync(); });
@@ -461,11 +466,15 @@ const blockMenu = id => {
   const roles = [...(s0.roles || [])]; if (!roles.some(r => r.id === 'hero')) roles.unshift({id: 'hero', name: 'Первый экран'});
   const s = sheet(`<div class="sh-h"><h2>Блок ${i + 1}</h2><button class="ib" data-close aria-label="Закрыть">${I.x}</button></div>
     <div class="sh-b"><p class="lbl">Роль блока</p><div class="chips" id="bmR">${roles.map(r => `<button class="chip ${r.id === b.role ? 'on' : ''}" data-r="${e(r.id)}">${e(r.name.split(':')[0])}</button>`).join('')}</div>
-    <div class="list"><button class="row" id="bmTpl">Шаблон блока</button>${i > 0 ? `<button class="row" id="bmMvU">Переместить выше</button>` : ''}${i < p.blocks.length - 1 ? `<button class="row" id="bmMvD">Переместить ниже</button>` : ''}${i > 0 ? '<button class="row" id="bmUp">Объединить с блоком выше</button>' : ''}<button class="row danger" id="bmDel">Удалить блок</button></div></div>`);
+    <div class="list"><button class="row" id="bmNewU">Новый блок выше</button><button class="row" id="bmNewD">Новый блок ниже</button><button class="row" id="bmTpl">Шаблон блока</button>${i > 0 ? `<button class="row" id="bmMvU">Переместить выше</button>` : ''}${i < p.blocks.length - 1 ? `<button class="row" id="bmMvD">Переместить ниже</button>` : ''}${i > 0 ? '<button class="row" id="bmUp">Объединить с блоком выше</button>' : ''}<button class="row danger" id="bmDel">Удалить блок</button></div></div>`);
   const mv = d => { p.blocks.splice(i, 1); p.blocks.splice(i + d, 0, b); save(); s.close(); render(); const el = $app.querySelector(`[data-id="${b.id}"]`); el && el.scrollIntoView({block: 'center'}); };
+  const ins = d => { const nb = G.newBlock(b.role === 'hero' ? defRole() : b.role, ''); p.blocks.splice(i + d, 0, nb); save(); s.close(true);
+    if (A.mode === 'note') { render(); const ed = $app.querySelector(`.ed[data-id="${nb.id}"]`); if (ed) { ed.scrollIntoView({block: 'center'}); caretTo(ed.firstChild, 0); } }
+    else { unselect(); canvas(); textSheet(nb); } };
+  s.$('#bmNewU').onclick = () => ins(0); s.$('#bmNewD').onclick = () => ins(1);
   const mu = s.$('#bmMvU'); if (mu) mu.onclick = () => mv(-1);
   const md2 = s.$('#bmMvD'); if (md2) md2.onclick = () => mv(1);
-  s.$('#bmTpl').onclick = () => { s.close(true); A.mode = 'page'; G.autoPick(p); A.sel = b.id; A.jump = b.id; A.openFull = true; editor(); };
+  s.$('#bmTpl').onclick = () => { s.close(true); A.mode = 'page'; G.autoPick(p); A.sel = b.id; A.jump = b.id; A.openCat = true; editor(); };
   s.$$('#bmR .chip').forEach(c => c.onclick = () => { b.role = c.dataset.r; b.tplLock = false; repick(b); save(); s.close(); render(); });
   const up = s.$('#bmUp'); if (up) up.onclick = () => { const pr = p.blocks[i - 1]; pr.text = [pr.text, b.text].filter(Boolean).join('\n'); pr.tplLock = false; p.blocks.splice(i, 1); repick(pr); save(); s.close(); render(); };
   s.$('#bmDel').onclick = () => sure(s.$('#bmDel'), 'Удалить вместе с текстом', () => { p.blocks.splice(i, 1); save(); s.close(); A.sel = null; render(); });
@@ -492,78 +501,88 @@ const blockHTML0 = (b, p, t) => {
 const canvas = () => {
   const p = A.page, main = $app.querySelector('#eMain'), iss = report(p).byBlock;
   main.innerHTML = `<div class="cv">${p.blocks.map((b, i) => `<div class="cb ${A.sel === b.id ? 'sel' : ''} ${iss[b.id] ? 'warn' : ''}" data-id="${e(b.id)}"><b class="bn">${i + 1}</b>${blockHTML(b, p)}</div>`).join('')}${addChips()}</div>`;
-  main.querySelectorAll('.cb').forEach(x => x.onclick = () => { if (A.sel === x.dataset.id) { unselect(); return; } select(x.dataset.id); });
+  main.querySelectorAll('.cb').forEach(x => x.onclick = ev => { ev.stopPropagation(); if (A.sel === x.dataset.id) { unselect(); return; } select(x.dataset.id); });
+  /* клик мимо блока снимает выбор */
+  main.onclick = ev => { if (A.sel && !ev.target.closest('.cb,.add')) unselect(); };
   bindAdd(main);
 };
-/* выбор блока: страница не перерисовывается, остальные блоки приглушены, шторка — без затемнения */
-let bsh = null;
+let cat = null;
 const select = id => { A.sel = id; document.body.classList.add('picking');
   $app.querySelectorAll('.cb').forEach(x => x.classList.toggle('sel', x.dataset.id === id));
-  blockSheet();
-  /* выбранный блок не прячется под шторкой */
-  requestAnimationFrame(() => { const el = $app.querySelector(`.cb[data-id="${id}"]`), sh = bsh && bsh.sh; if (!el || !sh) return; const r = el.getBoundingClientRect(), lim = innerHeight - sh.offsetHeight - 12;
-    const M = document.getElementById('eMain'); if (M && (r.top < 72 || r.top > lim - 80)) M.scrollBy({top: r.top - 80, behavior: 'smooth'}); }); };
-const unselect = (quiet) => { A.sel = null; document.body.classList.remove('picking'); $app.querySelectorAll('.cb.sel').forEach(x => x.classList.remove('sel')); if (bsh) { const h = bsh; bsh = null; h.close(true); } };
-const redrawBlock = b => { const el = $app.querySelector(`.cb[data-id="${b.id}"]`); if (!el) return; const iss = report(A.page).byBlock;
-  el.innerHTML = `<b class="bn">${A.page.blocks.indexOf(b) + 1}</b>` + blockHTML(b, A.page); el.classList.toggle('warn', !!iss[b.id]);
-  const bd = $app.querySelector('#eOut .badge'), n = report(A.page).count; if (bd) bd.textContent = n; };
+  selBar();
+  requestAnimationFrame(() => { const el = $app.querySelector(`.cb[data-id="${id}"]`), bar = $app.querySelector('.selbar'), M = document.getElementById('eMain'); if (!el || !bar || !M) return;
+    const r = el.getBoundingClientRect(), lim = bar.getBoundingClientRect().top - 12, top = M.getBoundingClientRect().top + 8;
+    if (r.top < top) M.scrollBy({top: r.top - top, behavior: 'smooth'}); else if (r.top > lim - 120) M.scrollBy({top: r.top - top, behavior: 'smooth'}); }); };
+const unselect = () => { A.sel = null; document.body.classList.remove('picking'); $app.querySelectorAll('.cb.sel').forEach(x => x.classList.remove('sel')); if (cat) { const h = cat; cat = null; h.close(true); } if (A.view === 'edit' && A.page && A.page.blocks.length) island(); };
+const redrawBlock = b => { const el = $app.querySelector(`.cb[data-id="${b.id}"]`); if (!el) return; const r = report(A.page);
+  el.innerHTML = `<b class="bn">${A.page.blocks.indexOf(b) + 1}</b>` + blockHTML(b, A.page); el.classList.toggle('warn', !!r.byBlock[b.id]);
+  const bd = $app.querySelector('#eOut .badge'); if (bd) { bd.textContent = r.count; bd.hidden = !r.count; }
+  if (A.sel === b.id) selBar(); };
 
-/* шторка блока: промты, подходящие шаблоны, текст, картинка */
-const tplLabel = t => { const c = t.ctor; if (!c) return t.name; const q = c.p || {}, o = [];
+/* панель выбранного блока: промты одной строкой + быстрые действия */
+const tplLabel = t => { const c = t.ctor; if (!c) return {name: t.name, sub: '', type: t.component ? 'Компоненты' : t.name.split('-')[0]}; const q = c.p || {}, o = [];
   if (q.n) o.push(q.n + (c.type === 'Карточки' ? ' в ряд' : ''));
   if (q.pos) o.push({Lt: 'слева', Rt: 'справа', Ct: 'по центру', Bg: 'на фоне'}[q.pos] || q.pos);
   if (q.media && q.media !== 'нет') o.push({I: 'иконки', A: 'фото', L: 'большая картинка', M: 'картинка', S: 'малая картинка'}[q.media] || q.media);
   if (+q.btn) o.push(q.btn === '1' ? 'кнопка' : q.btn + ' кнопки'); if (q.ibtn === 'да') o.push('кнопки у карточек');
-  return {name: c.type, sub: o.join(' · ')}; };
-const why = r => [...(r.bad || []), ...(r.why || []).filter(x => !/^(всё на месте|компонент|рекомендован|текстовый)/.test(x))].slice(0, 3).join(' · ');
-const blockSheet = () => {
-  const p = A.page, b = p.blocks.find(x => x.id === A.sel); if (!b) return;
-  const i = p.blocks.indexOf(b), t = G.tpl(b.tpl), v = verdict(b), slots = G.imageSlots(b, p);
-  const fixN = G.fixNotes(b, p).length, adapt = G.lib.all('prompts').filter(x => x.stage === 'adapt' && !x.system && !['fit', 'fix'].includes(x.id));
-  const compact = () => `<div class="sh-h"><div><h2>${i + 1}. ${e(roleName(b))}</h2><p class="sub ${v.bad ? 'bad' : ''}">${e(t ? (tplLabel(t).name || t.name) + ' · ' : '')}${e(v.txt)}</p></div></div>
-    <div class="bs-h"><button class="bs-a" data-a="text">${I.pen}<span>Текст</span></button>
-      <button class="bs-a" data-a="img" ${slots.length ? '' : 'disabled'}>${I.img}<span>Картинки</span></button>
-      <button class="bs-a" data-a="up" ${i ? '' : 'disabled'}>${I.up}<span>Выше</span></button>
-      <button class="bs-a" data-a="down" ${i < p.blocks.length - 1 ? '' : 'disabled'}>${I.down}<span>Ниже</span></button>
-      <button class="bs-a" data-a="more">${I.dots}<span>Ещё</span></button></div>
-    <div class="sh-b"><div class="chips">
-      <button class="chip ${fixN ? 'hot' : ''}" data-p="fix" ${fixN ? '' : 'disabled'}>Поправить ошибки${fixN ? ` <i>${fixN}</i>` : ''}</button>
-      <button class="chip" data-p="fit">Уложить в шаблон</button>
-      ${adapt.map(x => `<button class="chip" data-p="${e(x.id)}">${e(x.name)}</button>`).join('')}</div>
-      <button class="more-tpl" data-a="tpl">${matchMedia('(min-width:900px)').matches ? 'Все шаблоны' : 'Сменить шаблон — потяните вверх'}</button></div>`;
-  const full = () => { const ranked = G.rank(b, p), cur = ranked.find(r => r.t.id === b.tpl);
-    const card = r => { const l = tplLabel(r.t), w = why(r), bad = (r.tier || 0) >= 2;
-      return `<button class="tc ${r.t.id === b.tpl ? 'on' : ''} ${bad ? 'dim' : ''}" data-t="${e(r.t.id)}"><div class="tc-pv">${blockHTML(b, p, r.t)}</div>
-        <span class="tc-n">${e(l.name || l)}${r.t.id === b.tpl ? `<i>${I.check}</i>` : ''}</span>${l.sub ? `<span class="tc-s">${e(l.sub)}</span>` : ''}
-        ${!G.isLive(r.t) ? '<span class="tc-w">нужен дизайн</span>' : ''}${w && (r.tier || 0) ? `<span class="tc-why">${e(w)}</span>` : ''}</button>`; };
-    const groups = G.TIERS.map((n, k) => ({n, list: ranked.filter(r => (r.tier || 0) === k)})).filter(g => g.list.length);
-    return `<div class="sh-h"><div><h2>Шаблон · ${i + 1}. ${e(roleName(b))}</h2><p class="sub">${ranked.length} шаблонов · сначала подходящие</p></div><button class="ib round" data-a="back" aria-label="Свернуть">${I.down}</button></div>
-      <div class="sh-b">${groups.map(g => `<p class="lbl">${e(g.n)} · ${g.list.length}</p><div class="tgrid">${g.list.map(card).join('')}</div>`).join('')}</div>`; };
-  const scale = () => requestAnimationFrame(() => bsh && bsh.$$('.tc-pv').forEach(x => x.style.setProperty('--k', x.clientWidth / 560)));
-  const draw = () => { bsh.set(bsh.sh.classList.contains('full') ? full() : compact()); scale(); };
-  if (bsh && !bsh.closed) { bsh.sh.classList.remove('full'); }
-  else bsh = sheet('', {free: true, cls: 'block', onClose: () => { bsh = null; unselect(); }, onFull: () => draw()});
-  draw();
-  bsh.root.onclick = async ev => {
-    const a = ev.target.closest('[data-a]'), pr = ev.target.closest('[data-p]'), tp = ev.target.closest('[data-t]');
-    if (a) { const k = a.dataset.a;
-      if (k === 'text') { const h = bsh; bsh = null; h.close(true); textSheet(b); }
-      if (k === 'img') imageSheet(b);
-      if (k === 'more') blockMenu(b.id);
-      if (k === 'tpl') bsh.full(true);
-      if (k === 'back') bsh.full(false);
-      if (k === 'up' || k === 'down') { const j = i + (k === 'up' ? -1 : 1); p.blocks.splice(i, 1); p.blocks.splice(j, 0, b); save(); canvas(); select(b.id); const el = $app.querySelector(`.cb[data-id="${b.id}"]`); el && el.scrollIntoView({block: 'center', behavior: 'smooth'}); }
-    }
-    if (pr && !pr.disabled) { const P = G.prompt(pr.dataset.p); let vals = {};
-      if (P.ask && P.ask.length) { vals = await askVals(P); if (!vals) return; }
-      if (!G.adaptable(b, P, p)) return toast('Этот блок не переписывается: у его шаблона текст как есть.');
-      try { const n = await G.runAdapt(p, P.id, [b.id], vals); if (n) { repick(b); save(); redrawBlock(b); draw(); toast(`«${P.name}»: текст блока обновлён — и в заметке тоже`); } }
-      catch (err) { if (err.message !== 'cancel') toast(err.message); } }
-    if (tp) { b.tpl = tp.dataset.t; b.tplLock = true; b.values = null; save(); redrawBlock(b);
-      bsh.$$('.tc').forEach(x => { x.classList.toggle('on', x === tp); const n = x.querySelector('.tc-n i'); if (n) n.remove(); });
-      tp.querySelector('.tc-n').insertAdjacentHTML('beforeend', `<i>${I.check}</i>`); }
+  return {name: c.type, sub: o.join(' · '), type: c.type}; };
+const why = r => [...(r.bad || []), ...(r.why || []).filter(x => !/^(всё на месте|компонент|рекомендован|текстовый|ряды)/.test(x))].slice(0, 3).join(' · ');
+const runPrompt = async (b, id) => { const p = A.page, P = G.prompt(id); let vals = {};
+  if (P.ask && P.ask.length) { vals = await askVals(P); if (!vals) return; }
+  if (!G.adaptable(b, P, p)) return toast('Этот блок не переписывается: у его шаблона текст как есть.');
+  try { const n = await G.runAdapt(p, P.id, [b.id], vals); if (n) { repick(b); save(); redrawBlock(b); toast(`«${P.name}»: текст блока обновлён — и в заметке тоже`); } }
+  catch (err) { if (err.message !== 'cancel') toast(err.message); } };
+const selBar = () => {
+  const p = A.page, b = p.blocks.find(x => x.id === A.sel), dock = $app.querySelector('#eDock'); if (!b || !dock) return;
+  const i = p.blocks.indexOf(b), slots = G.imageSlots(b, p), fixN = G.fixNotes(b, p).length;
+  const adapt = G.lib.all('prompts').filter(x => x.stage === 'adapt' && !x.system && !['fit', 'fix'].includes(x.id));
+  dock.innerHTML = `<div class="selbar" role="toolbar" aria-label="Блок ${i + 1}">
+    <div class="sb-chips">${fixN ? `<button class="chip hot" data-p="fix">Поправить ошибки <i>${fixN}</i></button>` : ''}<button class="chip" data-p="fit">Уложить в шаблон</button>${adapt.map(x => `<button class="chip" data-p="${e(x.id)}">${e(x.name)}</button>`).join('')}</div>
+    <div class="sb-acts">
+      <button data-a="text" aria-label="Текст">${I.pen}<span>Текст</span></button>
+      <button data-a="img" ${slots.length ? '' : 'disabled'} aria-label="Картинки">${I.img}<span>Картинки</span></button>
+      <button data-a="up" ${i ? '' : 'disabled'} aria-label="Выше">${I.up}<span>Выше</span></button>
+      <button data-a="down" ${i < p.blocks.length - 1 ? '' : 'disabled'} aria-label="Ниже">${I.down}<span>Ниже</span></button>
+      <button data-a="tpl" aria-label="Шаблоны">${I.grid}<span>Шаблоны</span></button>
+      <button data-a="more" aria-label="Ещё">${I.dots}<span>Ещё</span></button></div></div>`;
+  dock.onclick = ev => { const a = ev.target.closest('[data-a]'), pr = ev.target.closest('[data-p]'); if (!a && !pr) return; ev.stopPropagation();
+    if (pr) return runPrompt(b, pr.dataset.p);
+    const k = a.dataset.a;
+    if (k === 'text') textSheet(b);
+    if (k === 'img') imageSheet(b);
+    if (k === 'tpl') catalog();
+    if (k === 'more') blockMenu(b.id);
+    if (k === 'up' || k === 'down') { const j = i + (k === 'up' ? -1 : 1); p.blocks.splice(i, 1); p.blocks.splice(j, 0, b); save(); canvas(); select(b.id); }
   };
 };
+/* каталог шаблонов: категории по типу, сначала подходящие, у каждого — почему не подходит */
+const catalog = () => {
+  const p = A.page, b = p.blocks.find(x => x.id === A.sel); if (!b) return;
+  const i = p.blocks.indexOf(b), ranked = G.rank(b, p);
+  const types = []; ranked.forEach(r => { const t = tplLabel(r.t).type; if (!types.includes(t)) types.push(t); });
+  let tab = 'fit';
+  const card = r => { const l = tplLabel(r.t), w = why(r), bad = (r.tier || 0) >= 2;
+    return `<button class="tc ${r.t.id === b.tpl ? 'on' : ''} ${bad ? 'dim' : ''}" data-t="${e(r.t.id)}"><div class="tc-pv">${blockHTML(b, p, r.t)}${r.t.id === b.tpl ? `<i class="tc-ok">${I.check}</i>` : ''}</div>
+      <span class="tc-n">${e(l.name)}</span>${l.sub ? `<span class="tc-s">${e(l.sub)}</span>` : ''}
+      <span class="tc-v ${bad ? 'bad' : ''}">${e(G.TIERS[r.tier || 0])}${!G.isLive(r.t) ? ' · нужен дизайн' : ''}</span>${w && (r.tier || 0) ? `<span class="tc-why">${e(w)}</span>` : ''}</button>`; };
+  const list = () => tab === 'fit' ? ranked.filter(r => (r.tier || 0) <= 1) : ranked.filter(r => tplLabel(r.t).type === tab);
+  const draw = () => { const L = list();
+    cat.set(`<div class="sh-h"><div><h2>Шаблон · ${i + 1}. ${e(roleName(b))}</h2><p class="sub">${ranked.length} шаблонов</p></div><button class="ib round ok" data-close aria-label="Готово">${I.check}</button></div>
+      <div class="cat-tabs">${[['fit', 'Подходящие', ranked.filter(r => (r.tier || 0) <= 1).length], ...types.map(t => [t, t, ranked.filter(r => tplLabel(r.t).type === t).length])].map(([k, n, c]) => `<button class="chip ${k === tab ? 'on' : ''}" data-tab="${e(k)}">${e(n)} <i>${c}</i></button>`).join('')}</div>
+      <div class="sh-b">${L.length ? `<div class="tgrid">${L.map(card).join('')}</div>` : '<p class="hint">Подходящих нет — посмотрите категории: у каждого шаблона написано, что придётся поменять.</p>'}</div>`);
+    requestAnimationFrame(() => cat && cat.$$('.tc-pv').forEach(x => x.style.setProperty('--k', x.clientWidth / 560))); };
+  if (cat) cat.close(true);
+  cat = sheet('', {cls: 'full cat', onClose: () => { cat = null; }});
+  draw();
+  cat.root.addEventListener('click', ev => {
+    const tb = ev.target.closest('[data-tab]'), tp = ev.target.closest('[data-t]');
+    if (tb) { tab = tb.dataset.tab; draw(); cat.$('.sh-b').scrollTop = 0; }
+    if (tp) { b.tpl = tp.dataset.t; b.tplLock = true; b.values = null; save(); redrawBlock(b);
+      cat.$$('.tc').forEach(x => { x.classList.toggle('on', x === tp); const o = x.querySelector('.tc-ok'); if (o) o.remove(); });
+      tp.querySelector('.tc-pv').insertAdjacentHTML('beforeend', `<i class="tc-ok">${I.check}</i>`); }
+  });
+};
+const blockSheet = selBar;
 /* картинки блока: своя или ТЗ для Krea */
 const imageSheet = b => {
   const p = A.page, slots = G.imageSlots(b, p);
@@ -581,7 +600,7 @@ const imageSheet = b => {
 const textSheet = b => {
   const s = sheet(`<div class="sh-h ts-h"><div class="ts-field"><h2>${e(roleName(b))}</h2></div><button class="ib round ok" data-close aria-label="Готово">${I.check}</button></div>
     <div class="sh-b"><div class="ed solo" contenteditable="true" spellcheck="true" data-id="${e(b.id)}">${(lines(b.text).length ? lines(b.text) : [{k: 'p', t: ''}]).map(l => lineHTML(l.k, l.t)).join('')}</div></div>`,
-    {onClose: () => { if (!b.text.trim()) A.page.blocks = A.page.blocks.filter(x => x.id !== b.id); else repick(b); save(); if (fmtEl) fmtEl.hidden = true; document.body.classList.remove('typing'); canvas(); if (b.text.trim()) select(b.id); else unselect(); }, cls: 'full'});
+    {onClose: () => { if (!b.text.trim()) A.page.blocks = A.page.blocks.filter(x => x.id !== b.id); else repick(b); save(); if (fmtEl) fmtEl.hidden = true; document.body.classList.remove('typing'); canvas(); if (b.text.trim()) select(b.id); else unselect(); }, cls: 'full text'});
   const ed = s.$('.ed'); bindEd(ed); fmtBar(s.$('.ts-field'));
   setTimeout(() => caretTo(ed.lastElementChild, ed.lastElementChild.textContent.length), 120);
 };
