@@ -549,3 +549,6 @@ svg.sd path{fill:currentColor}
 a.row,label.row{color:inherit;text-decoration:none;cursor:pointer}.row.file input{display:none}.row.ic>span{display:flex;flex-direction:column}
 .pill.danger{background:var(--bad);color:#fff}.sh-f .pill{flex:1}
 .sh-f:has(#dYes){display:flex;gap:8px}
+.hello{display:flex;align-items:center;gap:8px;margin:0 auto 16px;max-width:728px;padding:6px 6px 6px 16px;border-radius:var(--r2);background:var(--card)}
+.hello-b{flex:1;display:flex;flex-direction:column;align-items:flex-start;text-align:left;padding:8px 0}.hello-b small{color:var(--mute);font-size:13px}
+@media (hover:hover){.hello-b:hover b{text-decoration:underline}}
