@@ -184,16 +184,32 @@ G.unpack = j => {
 const b64u = buf => { let s = ''; const a = new Uint8Array(buf); for (let i = 0; i < a.length; i += 0x8000) s += String.fromCharCode.apply(null, a.subarray(i, i + 0x8000)); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
 const unb64u = s => { s = s.replace(/-/g, '+').replace(/_/g, '/'); while (s.length % 4) s += '='; const bin = atob(s), a = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i); return a; };
 const pipe = async (data, stream) => new Uint8Array(await new Response(new Blob([data]).stream().pipeThrough(stream)).arrayBuffer());
+/* компактно для ссылки: массивы вместо ключей и кириллица одним байтом (как cp1251) — ссылка короче почти вдвое */
+const cyr = s => { const out = []; for (const ch of s) { const c = ch.codePointAt(0);
+    if (c < 128) out.push(c); else if (c >= 0x410 && c <= 0x44f) out.push(c - 0x410 + 0xc0); else if (c === 0x451) out.push(0xb8); else if (c === 0x401) out.push(0xa8);
+    else (c > 0xffff ? [0xd800 + ((c - 0x10000) >> 10), 0xdc00 + ((c - 0x10000) & 0x3ff)] : [c]).forEach(u => '\\u'.concat(u.toString(16).padStart(4, '0')).split('').forEach(x => out.push(x.charCodeAt(0)))); }
+  return new Uint8Array(out); };
+const uncyr = a => { let s = ''; for (const b of a) s += String.fromCharCode(b < 128 ? b : b === 0xb8 ? 0x451 : b === 0xa8 ? 0x401 : b - 0xc0 + 0x410); return s; };
+const toArr = j => [3, j.library, j.scenario || 0, j.templates.length ? j.templates : 0, j.page.name, j.page.scenario,
+  j.page.blocks.map(b => { const a = [b.role, b.text, b.tpl || 0, b.lock || 0, b.images || 0]; while (a.length > 2 && !a[a.length - 1]) a.pop(); return a; })];
+const fromArr = a => ({gridi: 2, library: a[1], scenario: a[2] || null, templates: a[3] || [], page: {name: a[4], scenario: a[5],
+  blocks: a[6].map(([role, text, tpl, lock, images]) => { const o = {role, text}; if (tpl) o.tpl = tpl; if (lock) o.lock = 1; if (images) o.images = images; return o; })}});
+G.LINK_MAX = 4000; /* Телеграм режет сообщение длиннее 4096 знаков */
 G.pageLink = async page => {
-  const json = JSON.stringify(G.pagePack(page)), base = location.href.replace(/#.*$/, '');
-  if (!window.CompressionStream) return base + '#j=' + b64u(new TextEncoder().encode(json));
-  return base + '#s=' + b64u(await pipe(new TextEncoder().encode(json), new CompressionStream('deflate-raw')));
+  const json = JSON.stringify(toArr(G.pagePack(page))), base = location.href.replace(/#.*$/, '');
+  if (!window.CompressionStream) return base + '#j=' + b64u(new TextEncoder().encode(JSON.stringify(G.pagePack(page))));
+  return base + '#z=' + b64u(await pipe(cyr(json), new CompressionStream('deflate-raw')));
 };
 G.readLink = async hash => {
-  const m = String(hash).match(/^#([sj])=(.+)$/); if (!m) return null;
-  const raw = unb64u(m[2]), bytes = m[1] === 's' ? await pipe(raw, new DecompressionStream('deflate-raw')) : raw;
-  const j = JSON.parse(new TextDecoder().decode(bytes)); if (!j.page || !j.page.blocks) throw new Error('В ссылке нет страницы Гриди.'); return j;
+  const m = String(hash).match(/^#([szj])=(.+)$/); if (!m) return null;
+  const raw = unb64u(m[2]), bytes = m[1] === 'j' ? raw : await pipe(raw, new DecompressionStream('deflate-raw'));
+  let j = m[1] === 'z' ? JSON.parse(uncyr(bytes)) : JSON.parse(new TextDecoder().decode(bytes)); if (Array.isArray(j)) j = fromArr(j);
+  if (!j.page || !j.page.blocks) throw new Error('В ссылке нет страницы Гриди.'); return j;
 };
+/* длинная страница: файл-ссылка — открывается в браузере и сразу ведёт в превью; адрес в браузере длины не ограничен */
+G.linkFile = (url, name) => { const h = s => String(s).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+  const html = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${h(name)} — Гриди</title><body style="font:16px sans-serif;padding:24px"><p>Страница Гриди «${h(name)}».</p><p><a href="${h(url)}">Открыть превью</a></p><script>location.replace(${JSON.stringify(url)})</script>`;
+  G.download(`${name.replace(/[\\/:*?"<>|]+/g, ' ').trim().slice(0, 60) || 'страница'} — Гриди.html`, new Blob([html], {type: 'text/html'})); };
 
 G.importProject = async file => {
   let raw;

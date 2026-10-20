@@ -403,7 +403,7 @@ const editor = () => {
   $app.querySelector('#eTtl').onclick = () => { if (!A.sel) pageSettings(); };
   $app.querySelector('#eOk').onclick = () => { const a = document.activeElement; if (a && a.blur) a.blur(); getSelection().removeAllRanges(); fmtSync(); };
   const tn = $app.querySelector('#eTune'); if (tn) tn.onclick = pageSettings;
-  const pv = $app.querySelector('#ePrev'); if (pv) pv.onclick = preview;
+  const pv = $app.querySelector('#ePrev'); if (pv) pv.onclick = () => preview();
   const out = $app.querySelector('#eOut'); if (out) out.onclick = exportView;
   if (!p.blocks.length) return draft();
   A.mode === 'note' ? notes() : canvas();
@@ -456,7 +456,7 @@ const preview = (p = A.page, shared = null) => {
   G.autoPick(p);
   let dev = G.ls.get('dev', innerWidth >= 900 ? 'desk' : 'mob'); if (!DEV.some(x => x[0] === dev)) dev = 'mob';
   const el = document.createElement('div'); el.className = 'pv pvn';
-  el.innerHTML = `<header class="hd"><button class="ib round" id="pvX" aria-label="Закрыть">${I.x}</button><div class="ttl"><b>${shared ? e(p.name) : 'Превью'}</b><small>${shared ? 'Страница Гриди · ' + e(G.scenario(p.scenario).name) : e(p.name)}</small></div>${shared ? '<button class="pill sm pri" id="pvOpen">Открыть в Гриди</button>' : ''}
+  el.innerHTML = `<header class="hd">${shared ? '<button class="pill sm pri" id="pvOpen" title="Сохранить страницу себе и открыть в редакторе">Открыть в Гриди</button><span class="grow"></span>' : `<button class="ib round" id="pvX" aria-label="Закрыть">${I.x}</button><div class="ttl"><b>Превью</b><small>${e(p.name)}</small></div>`}
     <div class="seg" role="tablist">${DEV.map(([k, , n, ic]) => `<button data-d="${k}" aria-label="${n}" title="${n}">${ic}</button>`).join('')}</div></header>
     <div class="pvn-stage"><div class="pvn-dev"><iframe title="Прототип Нави" src="navi.html?embed"></iframe></div></div>`;
   document.body.appendChild(el); document.body.classList.add('noscroll'); el.animate([{opacity: 0}, {opacity: 1}], {duration: 140});
@@ -477,7 +477,7 @@ const preview = (p = A.page, shared = null) => {
   addEventListener('resize', onRes); fit();
   el.querySelectorAll('[data-d]').forEach(x => x.onclick = () => { dev = x.dataset.d; G.ls.set('dev', dev); fit(); setTimeout(() => { try { fr.contentWindow.NV && fr.contentWindow.NV.size('fit'); } catch (err) {} }, 60); });
   const shut = () => { removeEventListener('message', onMsg); removeEventListener('resize', onRes); el.remove(); document.body.classList.remove('noscroll'); };
-  el.querySelector('#pvX').onclick = () => { shut(); if (shared) { history.replaceState(null, '', '#/'); go('home'); } };
+  const px = el.querySelector('#pvX'); if (px) px.onclick = shut;
   const po = el.querySelector('#pvOpen'); if (po) po.onclick = async () => { const r = shared(); shut(); await G.store.put(r.page); history.replaceState(null, '', '#/p/' + r.page.id); await go('edit', r.page.id);
     toast(['Страница сохранена у вас — можно править', r.scAdded ? 'сценарий автора добавлен в библиотеку' : '', r.tpls ? G.num(r.tpls, 'шаблон', 'шаблона', 'шаблонов') + ' автора — только для этой страницы' : ''].filter(Boolean).join(' · ')); };
 };
@@ -945,8 +945,9 @@ const exportView = () => {
       try { const ids = g.lim.map(x => x.b.id).filter(id => G.adaptable(p.blocks.find(b => b.id === id), G.prompt('fix'), p)); const n = await G.runAdapt(p, 'fix', ids); if (n) g.lim.forEach(x => repick(x.b)); save(); draw(); } catch (err) { if (err.message !== 'cancel') toast(err.message); } };
     el.querySelectorAll('[data-pf]').forEach(x => x.onclick = ev => { ev.stopPropagation(); const c = R.page[+x.dataset.pf].c;
       if (g.pageFix(c) === 'add') { p.blocks.push(G.newBlock(c.fix.addRole, '')); toast('Блок добавлен в конец — заполните его текстом'); } else G.fixByCode(p); save(); draw(); });
-    el.querySelector('#xLink').onclick = async () => { try { const u = await G.pageLink(p); await G.copy(u);
-        toast(u.length > 30000 ? `Ссылка скопирована, но длинная (${Math.round(u.length / 1000)} тыс. знаков) — мессенджер может её обрезать. Надёжнее архив.` : `Ссылка скопирована · ${(u.length / 1000).toFixed(1)} тыс. знаков`); } catch (err) { toast(err.message); } };
+    el.querySelector('#xLink').onclick = async () => { try { const u = await G.pageLink(p);
+        if (u.length <= G.LINK_MAX) { await G.copy(u); toast(`Ссылка скопирована · ${(u.length / 1000).toFixed(1)} тыс. знаков`); }
+        else { G.linkFile(u, p.name); toast(`Страница длинная — ссылка ${(u.length / 1000).toFixed(1)} тыс. знаков, Телеграм пропускает до 4. Скачан файл-ссылка: отправьте его, у получателя он откроет превью`); } } catch (err) { toast(err.message); } };
     el.querySelector('#xShare').onclick = async () => { const t = shareText(p); if (navigator.share && /Mobi|Android|iPhone/i.test(navigator.userAgent)) { try { await navigator.share({title: p.name, text: t}); return; } catch (err) { if (err.name === 'AbortError') return; } } await G.copy(t); toast('Текст страницы скопирован — вставьте в чат'); };
     el.querySelector('#xZip').onclick = async () => { try { await G.doExport(p); } catch (err) { toast(err.message); } };
     const fx = el.querySelector('#xFix'); if (fx) fx.onclick = async () => {
@@ -981,7 +982,7 @@ const route = () => {
   S.dirty = false; lastHash = location.hash;
   /* смена экрана закрывает открытые шторки (настройки → библиотека) */
   document.querySelectorAll('.sh-wrap').forEach(x => x.remove()); document.body.classList.remove('noscroll');
-  if (/^#[sj]=/.test(location.hash)) return;
+  if (/^#[szj]=/.test(location.hash)) return;
   const m = location.hash.match(/^#\/p\/(.+)$/), l = libRoute();
   if (l) { if (A.view === 'edit') save(); A.view = 'lib'; A.page = null; document.body.classList.remove('shell', 'picking'); libView(); return; }
   if (m && (!A.page || A.page.id !== m[1])) go('edit', m[1]); else if (!m && A.view !== 'home') go('home'); };
@@ -994,8 +995,8 @@ const openLink = async () => {
     document.body.classList.remove('shell'); A.view = 'home'; await home();
     preview(prev, () => { G._tplIndex = null; return G.unpack(j); }); return true;
   } catch (err) { toast('Ссылка повреждена или обрезана: ' + err.message); history.replaceState(null, '', '#/'); return false; } };
-addEventListener('hashchange', () => { if (/^#[sj]=/.test(location.hash)) openLink(); });
+addEventListener('hashchange', () => { if (/^#[szj]=/.test(location.hash)) openLink(); });
 addEventListener('hashchange', route);
-const m0 = location.hash.match(/^#\/p\/(.+)$/); if (/^#[sj]=/.test(location.hash)) openLink(); else if (m0) go('edit', m0[1]); else if (libRoute()) route(); else render();
+const m0 = location.hash.match(/^#\/p\/(.+)$/); if (/^#[szj]=/.test(location.hash)) openLink(); else if (m0) go('edit', m0[1]); else if (libRoute()) route(); else render();
 G.m = {A, shareText, fromShare, build, lines, parseLine};
 })();

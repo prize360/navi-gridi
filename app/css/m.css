@@ -541,3 +541,4 @@ svg.sd path{fill:currentColor}
 .xrs.orange .xr{background:var(--warn-bg)}
 .xrs.orange .xr-t .mono{color:#b4561c}
 .xrs.red .xr.sum{background:var(--err-bg)}
+.pv .hd .grow{flex:1}
