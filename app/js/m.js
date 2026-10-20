@@ -166,6 +166,8 @@ const askVals = pr => new Promise(res => {
   s.$('#askOk').onclick = () => { const o = {}; pr.ask.forEach(a => o[a.k] = s.$('#ask-' + CSS.escape(a.k)).value.trim()); s.close(true); res(o); };
 });
 
+/* пустое состояние: что здесь будет и одно-два действия */
+const empty = (title, text, acts = []) => `<div class="es"><b>${e(title)}</b>${text ? `<p>${e(text)}</p>` : ''}${acts.length ? `<div class="es-a">${acts.map(([id, label, pri]) => `<button class="pill sm ${pri ? 'pri' : ''}" data-es="${e(id)}">${e(label)}</button>`).join('')}</div>` : ''}</div>`;
 /* ---------- экраны ---------- */
 /* смена экрана — короткое проявление, без снимков страницы (они тормозили на длинных страницах) */
 const morph = fn => fn();
@@ -197,8 +199,8 @@ const home = async () => {
   const cnt = id => all.filter(p => p.scenario === id).length;
   $app.innerHTML = `<header class="hd"><div class="logo"><img class="lg-mark" src="${G.LOGO || ''}" alt="">Гриди</div><button class="ib round" id="hMenu" aria-label="Меню">${I.menu}</button></header>
     <nav class="tabs" role="tablist">${tabs.map(([id, n]) => `<button role="tab" class="${id === A.tab ? 'on' : ''}" data-tab="${id}">${n}${cnt(id) ? `<i>${cnt(id)}</i>` : ''}</button>`).join('')}</nav>
-    <main class="home"><div class="grid">${pages.map(p => `<button class="tl" data-id="${e(p.id)}">${cover(p)}<span class="tl-n">${e(p.name)}</span></button>`).join('')}${'<span class="tl-slot"></span>'.repeat(slots)}</div>
-      ${!pages.length ? `<p class="hint center">Здесь будут ${(tabs.find(([id]) => id === A.tab) || [, 'страницы'])[1].toLowerCase()}. Вставьте текст — Гриди соберёт страницу по шаблонам.</p>` : ''}</main>
+    <main class="home">${pages.length ? '' : '<!--'}<div class="grid">${pages.map(p => `<button class="tl" data-id="${e(p.id)}">${cover(p)}<span class="tl-n">${e(p.name)}</span></button>`).join('')}${'<span class="tl-slot"></span>'.repeat(slots)}</div>${pages.length ? '' : '-->'}
+      ${!pages.length ? empty(`Здесь пока нет ${({article: 'статей', course: 'курсов', event: 'событий', sale: 'продуктов', promo: 'промо-страниц'})[A.tab] || 'страниц'}`, 'Вставьте текст — Гриди разложит его по блокам и подберёт шаблоны.', [['new', 'Создать', true]]) : ''}</main>
     <div class="dock"><button class="pill grad wide" id="hNew">Новая страница</button></div>`;
   $app.querySelectorAll('[data-tab]').forEach(c => c.onclick = () => { A.tab = c.dataset.tab; G.ls.set('tab', A.tab); home().then(appear); });
   $app.querySelectorAll('.tl').forEach(c => { let t = null;
@@ -206,6 +208,7 @@ const home = async () => {
     c.addEventListener('pointerdown', () => { t = setTimeout(() => { c.dataset.held = 1; pageMenu(all.find(x => x.id === c.dataset.id)); }, 480); });
     ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => c.addEventListener(ev, () => clearTimeout(t)));
     c.addEventListener('contextmenu', ev => { ev.preventDefault(); c.dataset.held = 1; pageMenu(all.find(x => x.id === c.dataset.id)); }); });
+  const es = $app.querySelector('[data-es=new]'); if (es) es.onclick = () => $app.querySelector('#hNew').click();
   $app.querySelector('#hNew').onclick = async () => { const p = G.newPage('Без названия', A.tab, ''); await G.store.put(p); go('edit', p.id); };
   $app.querySelector('#hMenu').onclick = settings;
   requestAnimationFrame(() => $app.querySelectorAll('.tl-pv').forEach(x => x.style.setProperty('--k', x.clientWidth / 560)));
@@ -358,6 +361,7 @@ const build = async text => {
 /* 2б. Заметки: блоки — линии с ролью, строки — разметка */
 const notes = () => {
   const p = A.page, main = $app.querySelector('#eMain'), iss = report(p).byBlock;
+  if (!p.blocks.length) { main.innerHTML = `<div class="note">${empty('На странице нет блоков', 'Добавьте первый блок ниже или вставьте текст заново.')}${addChips()}</div>`; bindAdd(main); return; }
   main.innerHTML = `<div class="note">${p.blocks.map((b, i) => `<section class="nb" data-id="${e(b.id)}">
       <button class="nb-line ${iss[b.id] ? 'warn' : ''}" data-role="${e(b.id)}"><b class="bn">${i + 1}</b><span>${e(roleName(b))}</span>${mediaHint(b)}</button>
       <div class="ed" contenteditable="true" spellcheck="true" data-id="${e(b.id)}">${(lines(b.text).length ? lines(b.text) : [{k: 'p', t: ''}]).map(l => lineHTML(l.k, l.t)).join('')}</div></section>`).join('')}
@@ -489,6 +493,8 @@ const rowsPlan = (b, t) => { if (!t || !t.items || !GRID.includes(t.layout)) ret
 /* один сломанный блок не должен ронять всю страницу: показываем заглушку и пишем в консоль */
 const blockHTML = (b, p, t = G.tpl(b.tpl)) => { try { return blockHTML0(b, p, t); } catch (err) { console.error('Блок не отрисовался', b, err); return `<div class="wf-page"><section class="wf wf-none"><div class="wf-empty">Блок не отрисовался: ${e(err.message)}</div></section></div>`; } };
 const blockHTML0 = (b, p, t) => {
+  if (!b.text.trim()) return `<div class="wf-page">${empty('Пустой блок', 'Добавьте текст — шаблон подберётся сам.')}</div>`;
+  if (!t) return `<div class="wf-page">${empty('Шаблон не подобран', 'Под такой текст шаблона нет. Измените текст или выберите шаблон вручную.')}</div>`;
   const plan = rowsPlan(b, t);
   if (!plan) return `<div class="wf-page">${G.wireBlock(t, t && (t.id === b.tpl ? G.values(b, p) : G.autoFill(b, t, p)), G.wireImgs(b, t))}</div>`;
   const all = G.autoFill(b, {...t, items: {...t.items, n: G.src(b).items.length}}, p), imgs = G.wireImgs(b, t); let at = 0;
@@ -540,7 +546,7 @@ const selBar = () => {
     <div class="sb-chips">${fixN ? `<button class="chip hot" data-p="fix">Поправить ошибки <i>${fixN}</i></button>` : ''}<button class="chip" data-p="fit">Уложить в шаблон</button>${adapt.map(x => `<button class="chip" data-p="${e(x.id)}">${e(x.name)}</button>`).join('')}</div>
     <div class="sb-acts">
       <button data-a="text" aria-label="Текст">${I.pen}<span>Текст</span></button>
-      <button data-a="img" ${slots.length ? '' : 'disabled'} aria-label="Картинки">${I.img}<span>Картинки</span></button>
+      <button data-a="img" aria-label="Картинки" class="${slots.length ? '' : 'soft'}">${I.img}<span>Картинки</span></button>
       <button data-a="up" ${i ? '' : 'disabled'} aria-label="Выше">${I.up}<span>Выше</span></button>
       <button data-a="down" ${i < p.blocks.length - 1 ? '' : 'disabled'} aria-label="Ниже">${I.down}<span>Ниже</span></button>
       <button data-a="tpl" aria-label="Шаблоны">${I.grid}<span>Шаблоны</span></button>
@@ -569,13 +575,14 @@ const catalog = () => {
   const draw = () => { const L = list();
     cat.set(`<div class="sh-h"><div><h2>Шаблон · ${i + 1}. ${e(roleName(b))}</h2><p class="sub">${ranked.length} шаблонов</p></div><button class="ib round ok" data-close aria-label="Готово">${I.check}</button></div>
       <div class="cat-tabs">${[['fit', 'Подходящие', ranked.filter(r => (r.tier || 0) <= 1).length], ...types.map(t => [t, t, ranked.filter(r => tplLabel(r.t).type === t).length])].map(([k, n, c]) => `<button class="chip ${k === tab ? 'on' : ''}" data-tab="${e(k)}">${e(n)} <i>${c}</i></button>`).join('')}</div>
-      <div class="sh-b">${L.length ? `<div class="tgrid">${L.map(card).join('')}</div>` : '<p class="hint">Подходящих нет — посмотрите категории: у каждого шаблона написано, что придётся поменять.</p>'}</div>`);
+      <div class="sh-b">${L.length ? `<div class="tgrid">${L.map(card).join('')}</div>` : !ranked.length ? empty('Шаблонов для этой роли нет', 'Попробуйте другую роль блока или добавьте шаблон в библиотеке.', [['role', 'Сменить роль', true]]) : empty('Подходящих шаблонов нет', 'Поменяйте текст блока или попробуйте другую роль. В категориях выше — все шаблоны и что в них придётся поменять.', [['text', 'Изменить текст', true], ['role', 'Сменить роль']])}</div>`);
     requestAnimationFrame(() => cat && cat.$$('.tc-pv').forEach(x => x.style.setProperty('--k', x.clientWidth / 560))); };
   if (cat) cat.close(true);
   cat = sheet('', {cls: 'full cat', onClose: () => { cat = null; }});
   draw();
   cat.root.addEventListener('click', ev => {
-    const tb = ev.target.closest('[data-tab]'), tp = ev.target.closest('[data-t]');
+    const tb = ev.target.closest('[data-tab]'), tp = ev.target.closest('[data-t]'), es = ev.target.closest('[data-es]');
+    if (es) { const k = es.dataset.es; cat.close(); if (k === 'text') textSheet(b); if (k === 'role') blockMenu(b.id); return; }
     if (tb) { tab = tb.dataset.tab; draw(); cat.$('.sh-b').scrollTop = 0; }
     if (tp) { b.tpl = tp.dataset.t; b.tplLock = true; b.values = null; save(); redrawBlock(b);
       cat.$$('.tc').forEach(x => { x.classList.toggle('on', x === tp); const o = x.querySelector('.tc-ok'); if (o) o.remove(); });
@@ -586,6 +593,7 @@ const blockSheet = selBar;
 /* картинки блока: своя или ТЗ для Krea */
 const imageSheet = b => {
   const p = A.page, slots = G.imageSlots(b, p);
+  if (!slots.length) { const s0 = sheet(`<div class="sh-h"><h2>Картинки</h2><button class="ib round" data-close aria-label="Закрыть">${I.x}</button></div><div class="sh-b">${empty('В этом шаблоне нет картинок', 'Выберите шаблон с картинкой — она появится здесь.', [['tpl', 'Шаблоны', true]])}</div>`); s0.$('[data-es]').onclick = () => { s0.close(true); catalog(); }; return; }
   const s = sheet(`<div class="sh-h"><h2>Картинки</h2><button class="ib round" data-close aria-label="Закрыть">${I.x}</button></div>
     <div class="sh-b"><div class="imgs">${slots.map(o => `<div class="im"><div class="im-pv" style="aspect-ratio:${o.ratio.replace(':', '/')}">${o.data ? `<img src="${o.data}" alt="">` : `<span class="mono">${e(o.ratio)}${o.size ? ' · ' + e(o.size) : ''}</span>`}</div>
       <div class="im-b"><b>${o.n ? 'Элемент ' + o.n : 'Основная'}</b><small>${e(o.alt || '')}</small>
@@ -617,7 +625,7 @@ const exportView = () => {
     el.innerHTML = `<header class="hd"><button class="ib round" id="xX" aria-label="Закрыть">${I.x}</button><div class="ttl"><b>Выгрузка</b><small>${e(sc().name)} · ${r.count ? G.num(r.count, 'замечание', 'замечания', 'замечаний') : 'замечаний нет'}</small></div></header>
       <main class="ex-b">
         ${list.length ? `<div class="checks">${list.map((c, k) => { const f = fixable(c, p);
-          return `<div class="ck ck-${c.level}"><div class="ck-t"><span class="mono">${num(c.block)}${lvl[c.level]}</span>${e(c.text)}${f ? `<span class="ck-act"><button class="pill sm pri" data-fix="${k}">Поправить</button>${c.block ? `<button class="pill sm" data-go="${k}">К блоку</button>` : ''}</span>` : c.block ? `<span class="ck-act"><button class="pill sm" data-go="${k}">К блоку</button></span>` : ''}</div>${c.level === 'info' ? `<button class="ck-x" data-x="${k}" aria-label="Скрыть">${I.x}</button>` : ''}</div>`; }).join('')}</div>` : `<p class="ok-note">${I.check}Замечаний нет</p>`}
+          return `<div class="ck ck-${c.level}"><div class="ck-t"><span class="mono">${num(c.block)}${lvl[c.level]}</span>${e(c.text)}${f ? `<span class="ck-act"><button class="pill sm pri" data-fix="${k}">Поправить</button>${c.block ? `<button class="pill sm" data-go="${k}">К блоку</button>` : ''}</span>` : c.block ? `<span class="ck-act"><button class="pill sm" data-go="${k}">К блоку</button></span>` : ''}</div>${c.level === 'info' ? `<button class="ck-x" data-x="${k}" aria-label="Скрыть">${I.x}</button>` : ''}</div>`; }).join('')}</div>` : `<div class="es ok"><b>${I.check}Замечаний нет</b><p>Страницу можно передавать: текстом в чат или архивом для вёрстки.</p></div>`}
         ${r.missing.length ? `<p class="lbl">Нужен дизайн · ${r.missing.length}</p><div class="checks">${r.missing.map(m => `<div class="ck ck-design"><div class="ck-t"><span class="mono">${num(m.b)}${e(m.role.split(':')[0])}</span>${e(m.need || '')}</div></div>`).join('')}</div>` : ''}
         <p class="lbl">Передать</p>
         <div class="list"><button class="row" id="xShare"><b>Текстом в чат</b><small>Вставка этого текста в Гриди собирает ту же страницу</small></button>

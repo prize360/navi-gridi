@@ -345,3 +345,12 @@ body.shell #eMain{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling
   .sh.cat .tgrid{grid-template-columns:repeat(4,minmax(0,1fr))}
 }
 @media (min-width:900px){ .sh-wrap:not(.free) .sh.cat{width:min(1040px,calc(100vw - 48px));height:min(88dvh,900px)} }
+/* пустые состояния */
+.es{display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;padding:28px 20px;margin:8px 0;border-radius:var(--r2);background:var(--card);border:1.5px dashed var(--line)}
+.es b{display:flex;align-items:center;gap:6px;font-size:16px;font-weight:700;text-wrap:balance}
+.es p{margin:0;max-width:34ch;color:var(--mute);font-size:14px;text-wrap:pretty}
+.es-a{display:flex;flex-wrap:wrap;justify-content:center;gap:6px;margin-top:8px}
+.es.ok{background:var(--acc-soft);border-color:transparent}.es.ok b{color:var(--acc-ink)}.es.ok svg{width:18px;height:18px}
+.home .es{margin-top:16px}
+.cb .es,.wf-page .es{margin:10px;background:var(--bg)}
+.sb-acts button.soft{opacity:.45}
