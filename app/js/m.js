@@ -116,7 +116,9 @@ const sheet = (html, {onClose, cls = '', free = false, onFull} = {}) => {
     set: html2 => { root.querySelector('.sh-in').innerHTML = html2; },
     full: on => { sh.classList.toggle('full', on); if (onFull) onFull(on); },
     close: (silent) => { if (h.closed) return; h.closed = true; root.classList.remove('on'); setTimeout(() => root.remove(), 200); if (!silent && onClose) onClose(); }};
-  root.querySelector('.sh-dim').onclick = () => h.close();
+  root.querySelector('.sh-dim').onclick = () => free && sh.classList.contains('full') ? h.full(false) : h.close();
+  const esc = ev => { if (ev.key !== 'Escape' || h.closed || document.querySelector('.sh-wrap:last-of-type') !== root) return; free && sh.classList.contains('full') ? h.full(false) : h.close(); };
+  addEventListener('keydown', esc);
   root.addEventListener('click', ev => { if (ev.target.closest('[data-close]')) h.close(); });
   /* тянется за ручку и шапку: вверх — на весь экран, вниз — свернуть или закрыть */
   let y0 = null, dy = 0, moved = false;
@@ -172,7 +174,7 @@ const go = async (view, id) => {
   A.view = view; A.sel = null; A.line = null;
   if (view === 'edit') { A.page = await G.store.get(id); if (!A.page) { A.view = 'home'; } else A.mode = A.page.blocks.length ? 'page' : 'note'; }
   location.hash = view === 'edit' && A.page ? '#/p/' + A.page.id : '#/';
-  render(); appear(); scrollTo(0, 0);
+  document.body.classList.toggle('shell', A.view === 'edit'); render(); appear(); scrollTo(0, 0);
 };
 
 /* 1. Главная: вкладки сценариев, страницы — сеткой обложек */
@@ -243,7 +245,7 @@ const settings = () => {
 /* 2. Редактор */
 const editor = () => {
   if (bsh) { const h = bsh; bsh = null; h.close(true); } document.body.classList.remove('picking');
-  const y0 = scrollY, p = A.page, b = A.sel && p.blocks.find(x => x.id === A.sel), v = b && verdict(b);
+  const sc0 = document.getElementById('eMain'), y0 = sc0 ? sc0.scrollTop : 0, p = A.page, b = A.sel && p.blocks.find(x => x.id === A.sel), v = b && verdict(b);
   const miss = p.blocks.length ? report(p).count : 0;
   const title = `<b>${e(p.name)}</b><small>${e(sc().name)}${p.blocks.length ? ' · ' + (G.len(p.blocks.map(x => x.text).join('')) / 1000).toFixed(1).replace('.0', '') + 'k знаков' : ''}</small>`;
   $app.innerHTML = `<header class="hd" id="eHd"><div class="hd-edit"><div class="hfield" id="eField"></div><button class="ib round ok" id="eOk" aria-label="Готово">${I.check}</button></div>
@@ -262,7 +264,8 @@ const editor = () => {
   island();
   if (A.sel && A.mode === 'page') { select(A.sel); if (A.openFull && bsh) bsh.full(true); } A.openFull = false;
   /* перерисовка не сбрасывает положение; прокрутка к блоку — только когда к нему переходят */
-  if (A.jump) { const el = $app.querySelector(`[data-id="${A.jump}"]`); if (el) { el.scrollIntoView({block: A.jumpTop ? 'start' : 'center'}); if (A.jumpTop) scrollBy(0, -96); } A.jump = null; A.jumpTop = false; } else scrollTo(0, y0);
+  const M = document.getElementById('eMain');
+  if (A.jump) { const el = $app.querySelector(`[data-id="${A.jump}"]`); if (el && M) M.scrollTop += el.getBoundingClientRect().top - M.getBoundingClientRect().top - (A.jumpTop ? 8 : M.clientHeight / 3); A.jump = null; A.jumpTop = false; } else if (M) M.scrollTop = y0;
 };
 /* нижний островок: только Текст ↔ Шаблоны; на экране остаётся тот же блок */
 const island = () => {
@@ -281,14 +284,36 @@ const bindAdd = main => main.querySelectorAll('[data-add]').forEach(c => c.oncli
   const nb = G.newBlock(c.dataset.add, ''); A.page.blocks.push(nb); save();
   if (A.mode === 'note') { notes(); const ed = $app.querySelector(`.ed[data-id="${nb.id}"]`); if (ed) { ed.scrollIntoView({block: 'center'}); caretTo(ed.firstChild, 0); } }
   else { canvas(); textSheet(nb); } });
-/* превью: страница как увидит читатель, без рамок и замечаний */
+/* превью: страница в прототипе Нави, три ширины экрана */
+const GOAL = {event: 'event', article: 'info', course: 'course', sale: 'sale', product: 'sale'};
+const naviPayload = p => { const s0 = G.scenario(p.scenario), goal = GOAL[s0.id] || (s0.kind === 'article' ? 'info' : 'event');
+  const hero = p.blocks.find(b => b.role === 'hero'), hs = hero ? G.src(hero) : {};
+  const blocks = p.blocks.map(b => { const t = G.tpl(b.tpl), s = G.src(b); return {kind: b.role === 'hero' ? 'hero' : G.isCta(b) ? 'cta' : 'grid', navi: false, title: s.level === 'h3' || s.level === 'h1' ? '' : s.title || '', html: `<section class="blk">${blockHTML(b, p)}</section>`}; });
+  const cta = p.blocks.find(b => G.isCta(b)), cs = cta ? G.src(cta) : {};
+  return {type: 'gridi:page', cat: {id: 'g-' + p.id, name: hs.title || p.name, goal, lead: hs.lead || '', meta: (hs.meta || [])[0] || ''},
+    fill: {overlay: true, name: hs.title || p.name, goal, blocks, program: [], programTitle: '',
+      hero: {title: hs.title || '', lead: hs.lead || '', badge: (hs.meta || [])[0] || '', btn: (hs.cta || [])[0] || ''},
+      cta: {title: cs.title || '', text: cs.lead || '', btn: (cs.cta || [])[0] || ''}},
+    css: G.WIRE_CSS + '.wf-miss,.wf-item-miss{display:none!important}'}; };
+const DEV = [['mob', 390, 'Телефон', '<svg viewBox="0 0 24 24"><rect x="7" y="3" width="10" height="18" rx="2"/></svg>'], ['tab', 820, 'Планшет', '<svg viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="2"/></svg>'], ['desk', 1280, 'Компьютер', '<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="11" rx="1.5"/><path d="M9 20h6"/></svg>']];
 const preview = () => {
   const p = A.page; G.autoPick(p);
-  const el = document.createElement('div'); el.className = 'pv';
-  el.innerHTML = `<header class="hd"><button class="ib round" id="pvX" aria-label="Закрыть">${I.x}</button><div class="ttl"><b>Превью</b><small>${e(p.name)}</small></div></header>
-    <div class="pv-b">${p.blocks.map(b => blockHTML(b, p)).join('')}</div>`;
+  let dev = G.ls.get('dev', innerWidth >= 900 ? 'desk' : 'mob');
+  const el = document.createElement('div'); el.className = 'pv pvn';
+  el.innerHTML = `<header class="hd"><button class="ib round" id="pvX" aria-label="Закрыть">${I.x}</button><div class="ttl"><b>Превью</b><small>${e(p.name)}</small></div>
+    <div class="seg" role="tablist">${DEV.map(([k, , n, ic]) => `<button data-d="${k}" aria-label="${n}" title="${n}">${ic}</button>`).join('')}</div></header>
+    <div class="pvn-stage"><div class="pvn-dev"><iframe title="Прототип Нави" src="navi.html?embed"></iframe></div></div>`;
   document.body.appendChild(el); document.body.classList.add('noscroll'); el.animate([{opacity: 0}, {opacity: 1}], {duration: 140});
-  el.querySelector('#pvX').onclick = () => { el.remove(); document.body.classList.remove('noscroll'); };
+  const fr = el.querySelector('iframe'), box = el.querySelector('.pvn-dev'), stage = el.querySelector('.pvn-stage');
+  const fit = () => { const w = DEV.find(d => d[0] === dev)[1], avail = stage.clientWidth - 24, k = Math.min(1, avail / w);
+    box.style.width = w + 'px'; box.style.height = ((stage.clientHeight - 24) / k) + 'px'; box.style.transform = `scale(${k})`;
+    el.querySelectorAll('[data-d]').forEach(x => x.classList.toggle('on', x.dataset.d === dev)); box.dataset.dev = dev; };
+  const send = () => { try { fr.contentWindow.postMessage(naviPayload(p), '*'); } catch (err) {} };
+  const onMsg = ev => { if (ev.source === fr.contentWindow && ev.data && ev.data.type === 'navi:ready') send(); };
+  addEventListener('message', onMsg); fr.addEventListener('load', () => setTimeout(send, 200));
+  addEventListener('resize', fit); fit();
+  el.querySelectorAll('[data-d]').forEach(x => x.onclick = () => { dev = x.dataset.d; G.ls.set('dev', dev); fit(); });
+  el.querySelector('#pvX').onclick = () => { removeEventListener('message', onMsg); removeEventListener('resize', fit); el.remove(); document.body.classList.remove('noscroll'); };
 };
 
 /* настройки страницы: название и сценарий */
@@ -397,11 +422,13 @@ const fmtBar = (into) => {
   if (!fmtBar.bound) { fmtBar.bound = true; document.addEventListener('focusout', () => setTimeout(fmtSync, 50)); }
 };
 const touch = matchMedia('(pointer: coarse)').matches;
-/* iOS сдвигает страницу под клавиатуру: шапку держим у верхнего края видимой области */
-const pin = () => { const hd = document.getElementById('eHd'), vv = window.visualViewport; if (!hd) return;
-  const on = document.body.classList.contains('typing') && vv; document.body.classList.toggle('pinned', !!on);
-  hd.style.transform = on ? `translateY(${Math.max(0, vv.offsetTop)}px)` : ''; };
-if (window.visualViewport) { visualViewport.addEventListener('resize', pin); visualViewport.addEventListener('scroll', pin); }
+/* клавиатура на телефоне: оболочка редактора занимает ровно видимую область, окно держим в нуле —
+   iOS не на что сдвигать страницу, шапка остаётся на месте, прокручивается только текст */
+const fitShell = () => { const vv = window.visualViewport; if (!vv) return;
+  document.documentElement.style.setProperty('--vh', vv.height + 'px');
+  if (document.body.classList.contains('shell') && (window.scrollY || vv.offsetTop)) window.scrollTo(0, 0); };
+const pin = fitShell;
+if (window.visualViewport) { visualViewport.addEventListener('resize', fitShell); visualViewport.addEventListener('scroll', fitShell); fitShell(); }
 const keyboardOpen = () => { if (!touch) return true; const vv = window.visualViewport; return !!vv && innerHeight - vv.height > 120; };
 const fmtSync = () => {
   if (!fmtEl || !fmtEl.isConnected) return;
@@ -475,7 +502,7 @@ const select = id => { A.sel = id; document.body.classList.add('picking');
   blockSheet();
   /* выбранный блок не прячется под шторкой */
   requestAnimationFrame(() => { const el = $app.querySelector(`.cb[data-id="${id}"]`), sh = bsh && bsh.sh; if (!el || !sh) return; const r = el.getBoundingClientRect(), lim = innerHeight - sh.offsetHeight - 12;
-    if (r.top < 72 || r.top > lim - 80) scrollBy({top: r.top - 80, behavior: 'smooth'}); }); };
+    const M = document.getElementById('eMain'); if (M && (r.top < 72 || r.top > lim - 80)) M.scrollBy({top: r.top - 80, behavior: 'smooth'}); }); };
 const unselect = (quiet) => { A.sel = null; document.body.classList.remove('picking'); $app.querySelectorAll('.cb.sel').forEach(x => x.classList.remove('sel')); if (bsh) { const h = bsh; bsh = null; h.close(true); } };
 const redrawBlock = b => { const el = $app.querySelector(`.cb[data-id="${b.id}"]`); if (!el) return; const iss = report(A.page).byBlock;
   el.innerHTML = `<b class="bn">${A.page.blocks.indexOf(b) + 1}</b>` + blockHTML(b, A.page); el.classList.toggle('warn', !!iss[b.id]);
@@ -503,7 +530,7 @@ const blockSheet = () => {
       <button class="chip ${fixN ? 'hot' : ''}" data-p="fix" ${fixN ? '' : 'disabled'}>Поправить ошибки${fixN ? ` <i>${fixN}</i>` : ''}</button>
       <button class="chip" data-p="fit">Уложить в шаблон</button>
       ${adapt.map(x => `<button class="chip" data-p="${e(x.id)}">${e(x.name)}</button>`).join('')}</div>
-      <button class="more-tpl" data-a="tpl">Сменить шаблон — потяните вверх</button></div>`;
+      <button class="more-tpl" data-a="tpl">${matchMedia('(min-width:900px)').matches ? 'Все шаблоны' : 'Сменить шаблон — потяните вверх'}</button></div>`;
   const full = () => { const ranked = G.rank(b, p), cur = ranked.find(r => r.t.id === b.tpl);
     const card = r => { const l = tplLabel(r.t), w = why(r), bad = (r.tier || 0) >= 2;
       return `<button class="tc ${r.t.id === b.tpl ? 'on' : ''} ${bad ? 'dim' : ''}" data-t="${e(r.t.id)}"><div class="tc-pv">${blockHTML(b, p, r.t)}</div>
