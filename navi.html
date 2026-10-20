@@ -4224,12 +4224,13 @@ route();
 </script>
 <script>
 /* Гриди теперь отдельный инструмент. Ссылки «Гриди» ведут в него:
-   открыли Нави из Гриди — возвращаемся в ту вкладку; иначе gridi.html рядом (или адрес из localStorage navi.gridiUrl) */
+   открывается в новой вкладке: gridi.html рядом (или адрес из localStorage navi.gridiUrl) */
 (function () {
   if (/[?&]embed\b/.test(location.search) || /^#embed/.test(location.hash)) return;
   const def = /^https?:$/.test(location.protocol) ? './' : 'gridi.html'; /* на сайте Гриди — index.html рядом, в папке — gridi.html */
   const url = () => { try { return localStorage.getItem('navi.gridiUrl') || def; } catch (e) { return def; } };
-  const go = () => { if (/^https?:$/.test(location.protocol)) { location.href = url(); return; } try { if (window.opener && !window.opener.closed) { window.opener.focus(); window.close(); return; } } catch (e) {} location.href = url(); };
+  /* Гриди — в новой вкладке; не дали открыть окно — переход здесь же */
+  const go = () => { const w = window.open(url(), '_blank'); if (!w) location.href = url(); };
   document.addEventListener('click', ev => { const a = ev.target.closest && ev.target.closest('a[href^="#/gridi"], a[href^="#/puti"]'); if (!a) return; ev.preventDefault(); ev.stopPropagation(); go(); }, true);
   const out = () => { if (/^#\/(gridi|puti)\b/.test(location.hash)) { history.replaceState(null, '', '#/navi'); dispatchEvent(new HashChangeEvent('hashchange')); go(); } };
   addEventListener('hashchange', out); out();

@@ -36,6 +36,9 @@ const I = {
   trash: '<svg viewBox="0 0 24 24"><path d="M5 7h14M10 7V5h4v2M7 7l1 13h8l1-13"/></svg>',
 };
 
+/* иконки из библиотеки (SDDS): ИИ — StarCircle, смена шаблона — CardstackHoriz */
+const sd = (name, fb) => { try { const ic = G.icons().find(x => x.name === name); return ic ? ic.svg.replace('<svg', '<svg class="sd"') : fb; } catch (err) { return fb; } };
+
 /* ---------- строки разметки ---------- */
 const KINDS = [
   {k: 'p', label: 'Текст', g: ''},
@@ -98,10 +101,27 @@ const rowsOf = (p, checks, byBlock) => {
   checks.filter(c => !c.block && c.kind === 'page').forEach(c => out.page.push({c, text: c.text}));
   checks.filter(c => !c.block && c.kind === 'hint').forEach(c => out.hint.push({b: null, text: c.text}));
   return out; };
+/* градация выгрузки: красное — ошибки, правила Нави, лимиты, структура; оранжевое — не хватает данных (ссылки, картинки, иконки,
+   факты от автора) и дизайна; рекомендации — отдельно. Зелёный статус — когда закрыто всё, и рекомендации тоже */
+const CODEFIX = /H1 — только|Первых экранов|Целевых действий/;
+const LIM = /длиннее/, DES = /^нужен (шаблон в админке|дизайн шаблона)$/, DATA = /без ссылки|нет (картинки|фото|иконки)|нужно от автора|пуст/;
+const gradeOf = (p, R) => {
+  const pageFix = c => c && c.fix && c.fix.addRole ? 'add' : c && CODEFIX.test(c.text) ? 'code' : '';
+  const parts = x => x.text.split(' · '), pick = (x, re) => ({...x, text: parts(x).filter(l => re(l)).join(' · ')});
+  const lim = R.fit.filter(x => parts(x).some(l => LIM.test(l))), des = R.fit.filter(x => parts(x).some(l => DES.test(l)));
+  const struct = R.fit.map(x => pick(x, l => !LIM.test(l) && !DES.test(l) && !DATA.test(l))).filter(x => x.text);
+  const data = R.fit.map(x => pick(x, l => DATA.test(l))).filter(x => x.text);
+  const red = [...R.stop.map(x => ({...x, kind: 'stop'})), ...R.rule.map(x => ({...x, kind: 'rule'})), ...R.page.filter(x => x.c.level === 'error' || pageFix(x.c)).map(x => ({...x, kind: 'page'}))];
+  const recs = [...R.page.filter(x => !(x.c.level === 'error' || pageFix(x.c))), ...R.hint];
+  /* счётчик — по замечаниям, не по блокам: убрали одно — число уменьшилось */
+  const n = list => list.reduce((a, x) => a + parts(x).length, 0);
+  const nRed = red.length + lim.length + n(struct), nOr = n(data) + des.length;
+  return {red, lim, struct, data, des, recs, pageFix, level: nRed ? 'red' : nOr ? 'orange' : recs.length ? 'recs' : 'green', total: nRed + nOr + recs.length};
+};
 /* ---------- страница ---------- */
 /* замечания считаются один раз на состояние страницы: бейдж, точки и экран выгрузки берут одно и то же */
 const report = p => {
-  const key = p.scenario + '|' + p.blocks.map(b => b.id + ':' + b.tpl + ':' + b.role + ':' + b.text.length + ':' + G.len(b.text.slice(0, 40))).join('|') + '|' + (p.dismissed || []).length;
+  const key = p.scenario + '|' + p.blocks.map(b => b.id + ':' + b.tpl + ':' + b.role + ':' + b.text.length + ':' + G.len(b.text.slice(0, 40)) + ':' + Object.entries(b.images || {}).map(([k, v]) => k + (v && v.data ? 'd' : '') + (v && v.icon || '')).join(',')).join('|') + '|' + (p.dismissed || []).length;
   if (p._rep && p._rep.key === key) return p._rep;
   const dis = p.dismissed || [], checks = G.checks(p).filter(c => !dis.includes(c.text) && !/^Нави /.test(c.text));
   p.blocks.forEach(b => { const s0 = G.src(b); s0.cta.forEach((c, k) => { if (!(s0.urls || [])[k]) { const t = `Нет ссылки у кнопки «${c}» — допишите адрес через « | »`; if (!dis.includes(t)) checks.push({level: 'info', text: t, block: b}); } });
@@ -115,7 +135,8 @@ const report = p => {
   checks.forEach(c => { if (c.block && (c.kind === 'stop' || c.kind === 'fit') && c.label) (byBlock[c.block.id] = byBlock[c.block.id] || []).push(c); });
   missing.forEach(m => { (byBlock[m.b.id] = byBlock[m.b.id] || []).push({level: 'design', kind: 'fit', label: 'нужен шаблон в админке', text: 'Нужен шаблон в админке'}); });
   const rows = rowsOf(p, checks, byBlock);
-  Object.defineProperty(p, '_rep', {value: {key, checks, missing, byBlock, rows, count: rows.stop.length + rows.fit.length + rows.page.length + rows.rule.length}, configurable: true, writable: true, enumerable: false});
+  const grade = gradeOf(p, rows);
+  Object.defineProperty(p, '_rep', {value: {key, checks, missing, byBlock, rows, grade, count: grade.total}, configurable: true, writable: true, enumerable: false});
   return p._rep;
 };
 const sc = () => G.scenario(A.page.scenario);
@@ -135,7 +156,10 @@ let saveT = null;
 const save = () => { clearTimeout(saveT); saveT = setTimeout(() => A.page && A.page.blocks.length && G.store.put(A.page), 300); };
 
 /* текст страницы для чата: блоки через границы с ролью; вставка такого текста восстанавливает страницу */
-const shareText = p => [`=== ${p.name} · ${G.scenario(p.scenario).name}`, ...p.blocks.map(b => `--- ${G.roleOf(G.scenario(p.scenario), b.role).name}\n${b.text}`)].join('\n');
+/* в строке блока — роль, выбранный шаблон и иконки: «--- Роль · шаблон: id · иконки: i0=id, i1=id». Картинки в чат не идут — только в архив */
+const shareMeta = b => { const t = b.tplLock && b.tpl ? ' · шаблон: ' + b.tpl : '', ic = Object.entries(b.images || {}).filter(([, v]) => v && v.icon).map(([k, v]) => k + '=' + v.icon).join(', ');
+  return t + (ic ? ' · иконки: ' + ic : ''); };
+const shareText = p => [`=== ${p.name} · ${G.scenario(p.scenario).name}`, ...p.blocks.map(b => `--- ${G.roleOf(G.scenario(p.scenario), b.role).name}${shareMeta(b)}\n${b.text}`)].join('\n');
 const isShare = t => /^---\s+\S/m.test(t);
 const fromShare = (p, text) => {
   const head = text.match(/^===\s*(.*?)\s*·\s*(.+)$/m);
@@ -144,14 +168,18 @@ const fromShare = (p, text) => {
   const blocks = []; let cur = null;
   for (const raw of text.split('\n')) {
     const m = raw.match(/^---\s+(.+)$/);
-    if (m) { cur = G.newBlock(find(m[1]), ''); blocks.push(cur); continue; }
+    if (m) { const [role, ...meta] = m[1].split(' · '); cur = G.newBlock(find(role), ''); blocks.push(cur);
+      meta.forEach(x => { const t = x.match(/^шаблон:\s*(.+)$/), ic = x.match(/^иконки:\s*(.+)$/);
+        if (t && G.tpl(t[1].trim())) { cur.tpl = t[1].trim(); cur.tplLock = true; }
+        if (ic) ic[1].split(/,\s*/).forEach(kv => { const [k, v] = kv.split('='); if (k && v) { cur.images[k.trim()] = {icon: v.trim()}; } }); });
+      continue; }
     if (/^===/.test(raw)) continue;
     if (!cur) { cur = G.newBlock(blocks.length ? defRole() : 'hero', ''); blocks.push(cur); }
     cur.text += (cur.text ? '\n' : '') + raw;
   }
   blocks.forEach(b => { b.text = b.text.trim(); });
   p.blocks = blocks.filter(b => b.text); p.text = p.blocks.map(b => b.text).join('\n\n');
-  G.autoPick(p, true);
+  G.autoPick(p);
 };
 
 /* ---------- оболочка: тосты, шторки, ожидание модели ---------- */
@@ -238,14 +266,18 @@ const cover = p => { const b = p.blocks.find(x => x.role === 'hero') || p.blocks
   return `<div class="tl-pv">${blockHTML(b, p)}</div>`; };
 const seed = async () => {
   if (G.ls.get('seeded', false)) return; G.ls.set('seeded', true);
-  for (const x of G.examples) { const p = G.fromExample(x); p.name = p.name.replace(/\s*\([^)]*\)\s*$/, ''); if (!p.blocks.length && p.text) G.assemble(p); G.autoPick(p, true); await G.store.put(p); }
+  for (const x of G.examples) { const p = G.fromExample(x); p.name = p.name.replace(/\s*\([^)]*\)\s*$/, ''); if (!p.blocks.length && p.text) G.assemble(p);
+    /* первый экран: подзаголовок и кнопка — шаблоны первого экрана в админке с кнопкой */
+    const h = p.blocks.find(b => b.role === 'hero'); if (h) h.text = '[h1] Как работает Гриди\nСобрать страницу из текста: вставить, разобрать, проверить и передать.\n[кнопка] Создать страницу | https://prize360.github.io/navi-gridi/\n[кнопка] Открыть Нави | https://prize360.github.io/navi-gridi/navi.html';
+    G.autoPick(p, true); await G.store.put(p); }
 };
 const home = async () => {
   await seed();
   const raw = await G.store.list();
   for (const x of raw) if (!x.blocks.length && !String(x.text || '').trim()) await G.store.del(x.id); /* пустые страницы без текста — их создали и бросили */
   const all = raw.filter(x => x.blocks.length).sort((a, b) => (b.updated || 0) - (a.updated || 0));
-  const tabs = TABS.filter(([id]) => G.lib.get('scenarios', id));
+  /* табы — сценарии: сначала основные, потом созданные в библиотеке */
+  const tabs = [...TABS.filter(([id]) => G.lib.get('scenarios', id)), ...G.lib.all('scenarios').filter(x => !TABS.some(([id]) => id === x.id)).map(x => [x.id, x.name])];
   A.tab = A.tab || G.ls.get('tab', 'article'); if (!tabs.some(([id]) => id === A.tab)) A.tab = (tabs[0] || ['article'])[0];
   const list = all.filter(p => p.scenario === A.tab), other = all.filter(p => !tabs.some(([id]) => id === p.scenario) && A.tab === tabs[0][0]);
   const pages = [...list, ...other], slots = Math.max(0, 9 - pages.length);
@@ -253,7 +285,7 @@ const home = async () => {
   $app.innerHTML = `<header class="hd"><div class="logo"><img class="lg-mark" src="${G.LOGO || ''}" alt="">Гриди</div><button class="ib round" id="hMenu" aria-label="Меню">${I.menu}</button></header>
     <nav class="tabs" role="tablist">${tabs.map(([id, n]) => `<button role="tab" class="${id === A.tab ? 'on' : ''}" data-tab="${id}">${n}${cnt(id) ? `<i>${cnt(id)}</i>` : ''}</button>`).join('')}</nav>
     <main class="home">${pages.length ? '' : '<!--'}<div class="grid">${pages.map(p => `<button class="tl" data-id="${e(p.id)}">${cover(p)}<span class="tl-n">${e(p.name)}</span></button>`).join('')}${'<span class="tl-slot"></span>'.repeat(slots)}</div>${pages.length ? '' : '-->'}
-      ${!pages.length ? empty(`Здесь пока нет ${({article: 'статей', course: 'курсов', event: 'событий', sale: 'продуктов', promo: 'промо-страниц'})[A.tab] || 'страниц'}`, 'Вставьте текст — Гриди разложит его по блокам и подберёт шаблоны.', [['new', 'Создать', true]]) : ''}</main>
+      ${!pages.length ? empty(`Здесь пока нет ${({article: 'статей', course: 'курсов', event: 'событий', sale: 'продуктов', promo: 'промо-страниц'})[A.tab] || 'страниц «' + ((tabs.find(([id]) => id === A.tab) || [, ''])[1]) + '»'}`, 'Вставьте текст — Гриди разложит его по блокам и подберёт шаблоны.', [['new', 'Создать', true]]) : ''}</main>
     <div class="dock"><button class="pill grad wide" id="hNew">Новая страница</button></div>`;
   $app.querySelectorAll('[data-tab]').forEach(c => c.onclick = () => { A.tab = c.dataset.tab; G.ls.set('tab', A.tab); home().then(appear); });
   $app.querySelectorAll('.tl').forEach(c => { let t = null;
@@ -275,6 +307,57 @@ const pageMenu = p => {
   s.$('#rDel').onclick = () => sure(s.$('#rDel'), 'Удалить навсегда', async () => { await G.store.del(p.id); s.close(); home(); });
 };
 
+/* инструкция — обычная страница Гриди (статья), собранная по разметке. Только общие сведения: её можно показывать по публичной ссылке */
+const GUIDE = `[h1] Как работает Гриди
+Гриди собирает страницу из текста. Вы вставляете текст — Гриди раскладывает его по блокам и подбирает к каждому блоку шаблон сетки. Текст один: в режиме «Текст» вы правите смысл и структуру, в режиме «Шаблоны» видите, как это выглядит.
+
+[h2] Из текста — в страницу
+- Вставьте текст — из документа или со страницы: заголовки, списки, таблицы и ссылки размечаются сами.
+- Нажмите «Разобрать» — Гриди соберёт блоки по разметке, модель проверит границы блоков и роли.
+- Посмотрите страницу — у каждого блока уже есть шаблон. Текста нет — начните с чистого листа.
+
+[h2] Два режима одного текста
+Переключатель внизу справа: «Текст» — смысл и структура, «Шаблоны» — дизайн. Правка в одном режиме сразу видна в другом: шаблон только показывает текст блока.
+- Текст — роль блока, порядок, объединение и разделение блоков, разметка строк.
+- Шаблоны — выбор шаблона, картинки и иконки.
+- Улучшить с ИИ — поправить ошибки, уложить в шаблон, придумать текст или запустить свой промт.
+
+[h2] Как подбирается шаблон
+Шаблон выбирается по тому, что есть в тексте блока: число пунктов, кнопки, заголовок, цитата, таблица. Картинки в подборе не участвуют — их добавляют потом. Больше четырёх пунктов — ряды подряд, меньший ряд первым: пять — это два и три.
+- Подходит — всё на месте.
+- Почти — текст нужно немного поправить, например сократить.
+- Не подходит — в шаблоне нет места под часть текста.
+Подходящего шаблона нет в библиотеке — Гриди нарисует нужный и отметит «нужен дизайн».
+
+[h2] Правила страницы
+- Первый экран — один и всегда первым, H1 — только в нём.
+- Целевое действие — не больше одного, с кнопкой или формой.
+- Кнопка — глагол и результат, до 24 знаков.
+- Заголовок раздела — отдельный блок над шаблоном.
+
+[h2] Проверка и выгрузка
+Значок выгрузки показывает, сколько осталось поправить, а цвет — готовность: красный — ошибки, лимиты и структура; оранжевый — не хватает данных: ссылок, картинок, иконок; зелёный — всё закрыто, и рекомендации тоже. Нажмите на строку — откроется этот блок.
+- Текстом в чат — коллега вставит текст в Гриди и получит ту же страницу с шаблонами и иконками.
+- Архив для вёрстки — текст по полям, схема, картинки и ТЗ на картинки.
+- Картинки — Гриди сам обрезает их под формат слота, уменьшает под веб и сохраняет в webp.
+
+[h2] Библиотека
+Шаблоны, сценарии, промты и иконки — в настройках, раздел «Библиотека». Ваши правки хранятся в этом браузере.
+- Сценарий — тип страницы: какие блоки нужны и в каком порядке. Свой сценарий появится вкладкой на главной.
+- Промт — задача для модели. Свои промты появляются в меню «Улучшить с ИИ».
+- Иконки — подбираются по словам пункта, любую можно сменить.
+
+[h2] Модель
+Гриди работает с любой моделью. Без ключа — вручную: Гриди даёт промт, вы отправляете его в свою модель и вставляете ответ. С ключом модель вызывается сама, ключ хранится только в этом браузере. При разборе модель отвечает номерами строк, а не текстом, поэтому не может исказить ваш текст.`;
+const openGuide = async () => {
+  const all = await G.store.list(); let p = all.find(x => x.guide && x.guideV === GUIDE.length);
+  if (!p) { for (const x of all.filter(x => x.guide)) await G.store.del(x.id);
+    p = G.newPage('Как работает Гриди', 'article', GUIDE); p.guide = true; p.guideV = GUIDE.length; G.assemble(p);
+    /* первый экран: подзаголовок и кнопка — шаблоны первого экрана в админке с кнопкой */
+    const h = p.blocks.find(b => b.role === 'hero'); if (h) h.text = '[h1] Как работает Гриди\nСобрать страницу из текста: вставить, разобрать, проверить и передать.\n[кнопка] Создать страницу | https://prize360.github.io/navi-gridi/\n[кнопка] Открыть Нави | https://prize360.github.io/navi-gridi/navi.html';
+    G.autoPick(p, true); await G.store.put(p); }
+  go('edit', p.id); };
+
 /* настройки: модель и импорт */
 const settings = () => {
   const st = G.llmSettings();
@@ -290,6 +373,9 @@ const settings = () => {
       </div>
       <p class="lbl">Библиотека</p>
       <a class="pill ghost wide" href="#/lib/templates">Шаблоны, сценарии и промты</a>
+      <p class="lbl">Ещё</p>
+      <button class="pill ghost wide" id="sGuide">Как работает Гриди</button>
+      <a class="pill ghost wide" href="navi.html" target="_blank" rel="noopener">Нави — гайд и прототип навигации ↗</a>
       <p class="lbl">Страница от коллеги</p>
       <label class="pill ghost wide file">Открыть архив или page.json<input type="file" id="sImp" accept=".zip,.json,application/zip,application/json"></label>
       <p class="hint">Текст страницы из чата просто вставьте в новую страницу.</p>
@@ -298,6 +384,7 @@ const settings = () => {
   let mode = st.mode === 'api' ? 'api' : 'manual';
   s.$$('#sMode button').forEach(b => b.onclick = () => { mode = b.dataset.v; s.$$('#sMode button').forEach(x => x.classList.toggle('on', x === b)); s.$('#sApi').hidden = mode !== 'api'; });
   s.$('#sOk').onclick = () => { G.ls.set('llm', {mode, base: s.$('#sBase').value.trim(), model: s.$('#sModel').value.trim(), key: s.$('#sKey').value.trim()}); G._modelOkAt = 0; s.close(); toast('Сохранено'); };
+  s.$('#sGuide').onclick = () => { s.close(true); openGuide(); };
   s.$('#sImp').onchange = async ev => { try { await G.importProject(ev.target.files[0]); s.close(); toast('Страница добавлена'); home(); } catch (err) { toast(err.message); } };
 };
 
@@ -310,7 +397,7 @@ const editor = () => {
   $app.innerHTML = `<header class="hd" id="eHd"><div class="hd-edit"><div class="hfield" id="eField"></div><button class="ib round ok" id="eOk" aria-label="Готово">${I.check}</button></div>
     <button class="ib round" id="eBack" aria-label="Назад">${I.back}</button><button class="ttl" id="eTtl">${title}</button>
       ${p.blocks.length ? `<button class="ib round" id="ePrev" aria-label="Превью">${I.eye}</button>
-      <button class="ib round dark" id="eOut" aria-label="Выгрузка">${I.out}${miss ? `<span class="badge">${miss}</span>` : ''}</button>` : `<button class="ib round" id="eTune" aria-label="Настройки страницы">${I.tune}</button>`}</header>
+      <button class="ib round dark" id="eOut" aria-label="Выгрузка">${I.out}${miss ? `<span class="badge ${report(p).grade.level}">${miss}</span>` : ''}</button>` : `<button class="ib round" id="eTune" aria-label="Настройки страницы">${I.tune}</button>`}</header>
     <main id="eMain"></main><div class="dock" id="eDock"><div id="eDockMain"><div class="bar"><div id="eAct"></div><i class="bar-div" aria-hidden="true"></i><div id="eSw"></div></div></div></div>`;
   $app.querySelector('#eBack').onclick = () => { if (A.sel) { unselect(); return; } save(); go('home'); };
   $app.querySelector('#eTtl').onclick = () => { if (!A.sel) pageSettings(); };
@@ -654,9 +741,9 @@ const placeSel = () => { if (!selEl || !selEl.isConnected || !A.sel) return; con
   y = Math.max(v.top, Math.min(y, v.bottom - h));
   selEl.style.top = Math.round(y - host.top) + 'px'; };
 const unselect = () => { A.sel = null; if (selEl) { selEl.remove(); selEl = null; } document.body.classList.remove('picking'); const ea = $app.querySelector('#eAct'); if (ea) ea.innerHTML = ''; $app.querySelectorAll('.cb.sel,.nb.sel').forEach(x => x.classList.remove('sel')); if (cat) { const h = cat; cat = null; h.close(true); } if (A.view === 'edit' && A.page && A.page.blocks.length) island(); };
-const redrawBlock = b => { if (A.mode === 'note') { const id = A.sel; notes(); if (id) select(id); const bd = $app.querySelector('#eOut .badge'), r = report(A.page); if (bd) { bd.textContent = r.count; bd.hidden = !r.count; } return; } const el = $app.querySelector(`.cb[data-id="${b.id}"]`); if (!el) return; const r = report(A.page);
+const redrawBlock = b => { if (A.mode === 'note') { const id = A.sel; notes(); if (id) select(id); const bd = $app.querySelector('#eOut .badge'), r = report(A.page); if (bd) { bd.textContent = r.count; bd.hidden = !r.count; bd.className = 'badge ' + r.grade.level; } return; } const el = $app.querySelector(`.cb[data-id="${b.id}"]`); if (!el) return; const r = report(A.page);
   el.innerHTML = bn(b, A.page.blocks.indexOf(b)) + blockHTML(b, A.page); el.classList.toggle('warn', !!r.byBlock[b.id]);
-  const bd = $app.querySelector('#eOut .badge'); if (bd) { bd.textContent = r.count; bd.hidden = !r.count; }
+  const bd = $app.querySelector('#eOut .badge'); if (bd) { bd.textContent = r.count; bd.hidden = !r.count; bd.className = 'badge ' + r.grade.level; }
   if (A.sel === b.id) selBar(); };
 
 /* панель выбранного блока: промты одной строкой + быстрые действия */
@@ -692,8 +779,8 @@ const selBar = () => {
   const p = A.page, b = p.blocks.find(x => x.id === A.sel), dock = $app.querySelector('#eAct'); if (!b || !dock) return;
   document.body.classList.add('has-sel');
   const i = p.blocks.indexOf(b), slots = G.imageSlots(b, p), icons = iconSlots(b), T = A.mode === 'note', hot = G.fixNotes(b, p).length;
-  const acts = [['ai', I.ai, 'Улучшить с ИИ', false, hot ? 'hot' : ''],
-    ...(T ? [['role', I.tag, 'Роль']] : [['cat', I.grid, 'Шаблон'], ...(slots.length ? [['img', I.img, 'Картинки']] : icons.length ? [['img', I.icons, 'Иконки']] : [])]),
+  const acts = [['ai', sd('StarCircle', I.ai), 'Улучшить с ИИ', false, hot ? 'hot' : ''],
+    ...(T ? [['role', I.tag, 'Роль']] : [['cat', sd('CardstackHoriz', I.grid), 'Шаблон'], ...(slots.length ? [['img', I.img, 'Картинки']] : icons.length ? [['img', I.icons, 'Иконки']] : [])]),
     ['up', I.up, 'Выше', !i], ['down', I.down, 'Ниже', i >= p.blocks.length - 1], ['more', I.dots, 'Ещё']];
   dock.innerHTML = `<div class="bacts" role="toolbar" aria-label="Блок ${i + 1}">${acts.map(([k, ic, n, dis, cls]) => `<button data-a="${k}" aria-label="${n}" title="${n}" class="${cls || ''}" ${dis ? 'disabled' : ''}>${ic}</button>`).join('')}</div>`;
   dock.onclick = ev => { const a = ev.target.closest('[data-a]'); if (!a) return; ev.stopPropagation();
@@ -784,11 +871,29 @@ const imageSheet = b => {
     <div class="sh-b"><div class="imgs">${slots.map(o => `<div class="im"><div class="im-pv" style="aspect-ratio:${o.ratio.replace(':', '/')}">${o.data ? `<img src="${o.data}" alt="">` : `<span class="mono">${e(o.ratio)}${o.size ? ' · ' + e(o.size) : ''}</span>`}</div>
       <div class="im-b"><b>${o.n ? 'Элемент ' + o.n : 'Основная'}</b><small>${e(o.alt || '')}</small>
       <div class="chips"><label class="chip">Загрузить<input type="file" accept="image/*" data-up="${e(o.key)}" hidden></label><button class="chip" data-krea="${e(o.key)}">Текст для Krea</button>${o.krea && o.krea.url ? `<a class="chip" href="${e(o.krea.url)}" target="_blank" rel="noopener">Krea</a>` : ''}${o.data ? `<button class="chip" data-rm="${e(o.key)}">Убрать</button>` : ''}</div></div></div>`).join('')}</div></div>`);
-  s.$$('[data-up]').forEach(x => x.onchange = () => { const f = x.files[0]; if (!f) return; if (f.size > 4e6) return toast('Картинка больше 4 МБ — уменьшите её.');
-    const r = new FileReader(); r.onload = () => { b.images = b.images || {}; b.images[x.dataset.up] = {...(b.images[x.dataset.up] || {}), data: r.result}; save(); redrawBlock(b); s.close(true); imageSheet(b); }; r.readAsDataURL(f); });
+  s.$$('[data-up]').forEach(x => x.onchange = async () => { const f = x.files[0]; if (!f) return; if (f.size > 25e6) return toast('Картинка больше 25 МБ — выберите поменьше.');
+    const o = slots.find(y => y.key === x.dataset.up);
+    try { const r = await webImage(f, o.ratio, o.size, o.kind); b.images = b.images || {}; b.images[x.dataset.up] = {...(b.images[x.dataset.up] || {}), data: r.data};
+      save(); redrawBlock(b); s.close(true); imageSheet(b); toast(`Картинка ${r.w}×${r.h}, ${r.type}, ${Math.round(r.bytes / 1024)} КБ${r.cropped ? ' — обрезана под ' + o.ratio : ''}`); }
+    catch (err) { toast('Не удалось открыть картинку: ' + err.message); } });
   s.$$('[data-krea]').forEach(x => x.onclick = async () => { const o = slots.find(y => y.key === x.dataset.krea); await G.copy(o.text || o.alt || ''); toast('Текст для Krea скопирован'); });
   s.$$('[data-rm]').forEach(x => x.onclick = () => { delete (b.images || {})[x.dataset.rm]; save(); redrawBlock(b); s.close(true); imageSheet(b); });
 };
+
+/* картинка под веб: обрезка по центру под соотношение слота, ширина по размеру слота (S/M/L, аватар), webp; браузер без webp — jpeg */
+const WIDTH = {S: 640, M: 1200, L: 1920, photo: 480};
+const webImage = (file, ratio = '16:9', size = '', kind = '') => new Promise((res, rej) => {
+  const url = URL.createObjectURL(file), im = new Image();
+  im.onerror = () => { URL.revokeObjectURL(url); rej(new Error('формат не поддерживается')); };
+  im.onload = () => { URL.revokeObjectURL(url);
+    const [rw, rh] = String(ratio).split(':').map(Number), k = rw && rh ? rw / rh : im.width / im.height;
+    let sw = im.width, sh = im.height, sx = 0, sy = 0;
+    if (sw / sh > k) { sw = Math.round(sh * k); sx = Math.round((im.width - sw) / 2); } else { sh = Math.round(sw / k); sy = Math.round((im.height - sh) / 2); }
+    const w = Math.min(sw, WIDTH[size] || (kind === 'photo' ? WIDTH.photo : 1600)), h = Math.round(w / k);
+    const c = document.createElement('canvas'); c.width = w; c.height = h; const cx = c.getContext('2d'); cx.imageSmoothingQuality = 'high'; cx.drawImage(im, sx, sy, sw, sh, 0, 0, w, h);
+    let data = c.toDataURL('image/webp', 0.82), type = 'webp'; if (!/^data:image\/webp/.test(data)) { data = c.toDataURL('image/jpeg', 0.85); type = 'jpeg'; }
+    res({data, w, h, type, bytes: Math.round((data.length - data.indexOf(',') - 1) * 3 / 4), cropped: sw !== im.width || sh !== im.height}); };
+  im.src = url; });
 
 /* правка текста блока со страницы: тот же редактор строк — правка разметки */
 const textSheet = b => {
@@ -799,57 +904,55 @@ const textSheet = b => {
   setTimeout(() => caretTo(ed.lastElementChild, ed.lastElementChild.textContent.length), 120);
 };
 
-/* 3. Выгрузка — по важности: ошибки и правила Нави (красным) → лимиты одной строкой → поправить под шаблон →
-   нужен дизайн одной плашкой → рекомендации (можно скрыть). Строка с блоком — переход к нему. */
-const CODEFIX = /H1 — только|Первых экранов|Целевых действий/;
+/* 3. Выгрузка — по важности, цветом готовности: красное (ошибки, Нави, лимиты, структура) → оранжевое (данные, дизайн) → рекомендации.
+   Нажатие на строку — открыть этот блок на странице. */
 const exportView = () => {
   const p = A.page; G.autoPick(p); p.dismissed = p.dismissed || [];
   const el = document.createElement('div'); el.className = 'pv ex';
-  const draw = () => { const r = report(p), R = r.rows, num = b => b ? (p.blocks.indexOf(b) + 1) + '. ' + roleName(b) : 'Страница';
-    const pageFix = c => c && c.fix && c.fix.addRole ? 'add' : c && CODEFIX.test(c.text) ? 'code' : '';
-    /* замечания под шаблон: лимиты и дизайн — сводные строки, остальное — по блоку */
-    const LIM = /длиннее/, DES = /^нужен (шаблон в админке|дизайн шаблона)$/;
-    const parts = x => x.text.split(' · ');
-    const lim = R.fit.filter(x => parts(x).some(l => LIM.test(l))), des = R.fit.filter(x => parts(x).some(l => DES.test(l)));
-    const other = R.fit.map(x => ({...x, text: parts(x).filter(l => !LIM.test(l) && !DES.test(l)).join(' · ')})).filter(x => x.text);
-    const red = [...R.stop.map(x => ({...x, kind: 'stop'})), ...R.rule.map(x => ({...x, kind: 'rule'})), ...R.page.filter(x => x.c.level === 'error' || pageFix(x.c)).map(x => ({...x, kind: 'page'}))];
-    const recs = [...R.page.filter(x => !(x.c.level === 'error' || pageFix(x.c))), ...R.hint];
+  const draw = () => { const r = report(p), R = r.rows, g = r.grade, num = b => b ? (p.blocks.indexOf(b) + 1) + '. ' + roleName(b) : 'Страница';
     const nums = list => list.map(x => p.blocks.indexOf(x.b) + 1).join(', ');
-    const row = (x, id, extra = '') => `<div class="xr ${x.b ? 'go' : ''}" ${x.b ? `data-go="${e(x.b.id)}" role="button" tabindex="0"` : ''}><div class="xr-t"><span class="mono">${e(num(x.b))}</span>${e(x.text)}</div>${extra ? `<span class="xr-a">${extra}</span>` : ''}</div>`;
-    const sum = (cls, title, sub, go, btn) => `<div class="xr sum ${cls} ${go ? 'go' : ''}" ${go ? `data-go="${e(go)}" role="button" tabindex="0"` : ''}><div class="xr-t"><b>${e(title)}</b><small>${e(sub)}</small></div>${btn ? `<span class="xr-a">${btn}</span>` : ''}</div>`;
-    const plan = G.fixPlan(p), canAll = plan.code || plan.model.length || R.page.some(x => pageFix(x.c) === 'add');
-    const ok = !R.stop.length;
+    const row = (x, extra = '') => `<div class="xr ${x.b ? 'go' : ''}" ${x.b ? `data-go="${e(x.b.id)}" role="button" tabindex="0"` : ''}><div class="xr-t"><span class="mono">${e(num(x.b))}</span>${e(x.text)}</div>${extra ? `<span class="xr-a">${extra}</span>` : ''}</div>`;
+    const sum = (title, sub, go, btn) => `<div class="xr sum go" data-go="${e(go)}" role="button" tabindex="0"><div class="xr-t"><b>${e(title)}</b><small>${e(sub)}</small></div>${btn ? `<span class="xr-a">${btn}</span>` : ''}</div>`;
+    const plan = G.fixPlan(p), canAll = plan.code || plan.model.length || R.page.some(x => g.pageFix(x.c) === 'add');
+    const st = {red: ['Есть ошибки', 'Лимиты, структура или правила — поправьте, чтобы страница собралась как задумано'],
+      orange: ['Не хватает данных', 'Ссылки, картинки, иконки или шаблоны — добавьте, и страница готова'],
+      recs: ['Остались рекомендации', 'Примените или скройте — тогда страница готова'],
+      green: ['Готово к выгрузке', 'Всё закрыто']}[g.level];
+    const redN = g.red.length + g.lim.length + g.struct.length, orN = g.data.length + g.des.length;
     el.innerHTML = `<header class="hd"><button class="ib round" id="xX" aria-label="Закрыть">${I.x}</button><div class="ttl"><b>Выгрузка</b><small>${e(sc().name)}</small></div></header>
       <main class="ex-b">
-        <div class="xs ${ok ? 'ok' : 'bad'}"><b>${ok ? (red.length || lim.length || other.length ? 'Можно выгружать' : 'Готово к выгрузке') : G.num(R.stop.length, 'блок не выгрузится', 'блока не выгрузятся', 'блоков не выгрузятся')}</b>
-          <small>${ok ? (red.length ? 'Есть нарушения правил — лучше поправить' : lim.length || other.length ? 'Есть что поправить под шаблоны' : 'Замечаний нет') : 'Сначала поправьте их — ниже, нажмите на строку, чтобы перейти к блоку'}</small></div>
-        ${red.length ? `<p class="lbl err">Ошибки и правила Нави · ${red.length}</p><div class="xrs red">${red.map((x, k) => row(x, k, x.kind === 'page' && pageFix(x.c) ? `<button class="pill sm pri" data-pf="${R.page.indexOf(R.page.find(y => y.c === x.c))}">${pageFix(x.c) === 'add' ? 'Добавить' : 'Поправить'}</button>` : '')).join('')}</div>` : ''}
-        ${lim.length ? `<p class="lbl">Лимиты</p><div class="xrs">${sum('lim', 'Текст длиннее лимита', `${G.num(lim.length, 'блок', 'блока', 'блоков')}: ${nums(lim)}`, lim[0].b.id, '<button class="pill sm pri" data-lim>Поправить</button>')}</div>` : ''}
-        ${other.length ? `<p class="lbl">Поправить под шаблон · ${other.length}</p><div class="xrs">${other.map(x => row(x)).join('')}</div>` : ''}
-        ${des.length ? `<p class="lbl">Нужен дизайн</p><div class="xrs">${sum('des', 'Нужен дизайн блоков', `${G.num(des.length, 'блок', 'блока', 'блоков')}: ${nums(des)} — шаблона нет в админке, ТЗ в архиве`, des[0].b.id)}</div>` : ''}
-        ${recs.length ? `<p class="lbl">Рекомендации · ${recs.length}</p><div class="xrs">${recs.map((x, k) => row({b: x.b || null, text: x.text}, k, `<button class="ib sm" data-hide="${k}" aria-label="Скрыть">${I.x}</button>`)).join('')}</div>` : ''}
+        <div class="xs ${g.level}"><b>${st[0]}</b><small>${st[1]}</small></div>
+        ${redN ? `<p class="lbl err">Ошибки · ${redN}</p><div class="xrs red">
+          ${g.red.map(x => row(x, x.kind === 'page' && g.pageFix(x.c) ? `<button class="pill sm pri" data-pf="${R.page.indexOf(R.page.find(y => y.c === x.c))}">${g.pageFix(x.c) === 'add' ? 'Добавить' : 'Поправить'}</button>` : '')).join('')}
+          ${g.lim.length ? sum('Текст длиннее лимита', `${G.num(g.lim.length, 'блок', 'блока', 'блоков')}: ${nums(g.lim)}`, g.lim[0].b.id, '<button class="pill sm pri" data-lim>Поправить</button>') : ''}
+          ${g.struct.map(x => row(x)).join('')}</div>` : ''}
+        ${orN ? `<p class="lbl warn">Не хватает данных · ${orN}</p><div class="xrs orange">${g.data.map(x => row(x)).join('')}
+          ${g.des.length ? sum('Нужен дизайн блоков', `${G.num(g.des.length, 'блок', 'блока', 'блоков')}: ${nums(g.des)} — шаблона нет в админке, ТЗ в архиве`, g.des[0].b.id) : ''}</div>` : ''}
+        ${g.recs.length ? `<p class="lbl">Рекомендации · ${g.recs.length}</p><div class="xrs">${g.recs.map((x, k) => row({b: x.b || null, text: x.text}, `<button class="ib sm" data-hide="${k}" aria-label="Скрыть">${I.x}</button>`)).join('')}</div>` : ''}
         <p class="lbl">Передать</p>
-        <div class="list"><button class="row" id="xShare"><b>Текстом в чат</b><small>Вставка этого текста в Гриди собирает ту же страницу</small></button>
-          <button class="row" id="xZip"><b>Архив для вёрстки</b><small>Текст по полям, схема, ТЗ на картинки с именами слотов</small></button></div>
+        <div class="list"><button class="row" id="xShare"><b>Текстом в чат</b><small>Вставка этого текста в Гриди собирает ту же страницу — с шаблонами и иконками</small></button>
+          <button class="row" id="xZip"><b>Архив для вёрстки</b><small>Текст по полям, схема, картинки, ТЗ на картинки с именами слотов</small></button></div>
       </main>
-      ${canAll ? `<div class="dock"><div class="fixall"><p class="hint">${e([plan.model.length ? 'Модель поправит: ' + plan.model.join(', ') : '', plan.code ? 'Гриди сам поправит: ' + G.num(plan.code, 'ошибку', 'ошибки', 'ошибок') + ' разметки' : '', (() => { const no = [...plan.no.filter(x => x !== 'остальное — вручную'), ...(R.fit.some(x => /без ссылки/.test(x.text)) ? ['ссылки у кнопок'] : []), ...(R.fit.some(x => /нужно от автора/.test(x.text)) ? ['пометки «нужно от автора»'] : []), ...(des.length ? ['дизайн шаблонов'] : [])]; return no.length ? 'Вручную останутся: ' + [...new Set(no)].join(', ') : ''; })()].filter(Boolean).join('. '))}</p><button class="pill grad wide" id="xFix">Поправить всё</button></div></div>` : ''}`;
+      ${canAll ? `<div class="dock"><div class="fixall"><p class="hint">${e([plan.model.length ? 'Модель поправит: ' + plan.model.join(', ') : '', plan.code ? 'Гриди сам поправит: ' + G.num(plan.code, 'ошибку', 'ошибки', 'ошибок') + ' разметки' : '', (() => { const no = [...plan.no.filter(x => x !== 'остальное — вручную'), ...(g.data.some(x => /без ссылки/.test(x.text)) ? ['ссылки у кнопок'] : []), ...(g.data.some(x => /нет (картинки|фото|иконки)/.test(x.text)) ? ['картинки и иконки'] : []), ...(g.data.some(x => /нужно от автора/.test(x.text)) ? ['пометки «нужно от автора»'] : []), ...(g.des.length ? ['дизайн шаблонов'] : [])]; return no.length ? 'Вручную останутся: ' + [...new Set(no)].join(', ') : ''; })()].filter(Boolean).join('. '))}</p><button class="pill grad wide" id="xFix">Поправить всё</button></div></div>` : ''}`;
     el.querySelector('#xX').onclick = close;
-    el.querySelectorAll('[data-hide]').forEach(x => x.onclick = ev => { ev.stopPropagation(); p.dismissed.push(recs[+x.dataset.hide].text); save(); draw(); });
-    const goTo = id => { close(); A.mode = 'page'; A.sel = id; A.jump = id; editor(); };
+    el.querySelectorAll('[data-hide]').forEach(x => x.onclick = ev => { ev.stopPropagation(); p.dismissed.push(g.recs[+x.dataset.hide].text); save(); draw(); });
     el.querySelectorAll('[data-go]').forEach(x => { x.onclick = ev => { if (ev.target.closest('button')) return; goTo(x.dataset.go); }; x.onkeydown = ev => { if (ev.key === 'Enter') goTo(x.dataset.go); }; });
     const lb = el.querySelector('[data-lim]'); if (lb) lb.onclick = async ev => { ev.stopPropagation();
-      try { const ids = lim.map(x => x.b.id).filter(id => G.adaptable(p.blocks.find(b => b.id === id), G.prompt('fix'), p)); const n = await G.runAdapt(p, 'fix', ids); if (n) lim.forEach(x => repick(x.b)); save(); draw(); } catch (err) { if (err.message !== 'cancel') toast(err.message); } };
+      try { const ids = g.lim.map(x => x.b.id).filter(id => G.adaptable(p.blocks.find(b => b.id === id), G.prompt('fix'), p)); const n = await G.runAdapt(p, 'fix', ids); if (n) g.lim.forEach(x => repick(x.b)); save(); draw(); } catch (err) { if (err.message !== 'cancel') toast(err.message); } };
     el.querySelectorAll('[data-pf]').forEach(x => x.onclick = ev => { ev.stopPropagation(); const c = R.page[+x.dataset.pf].c;
-      if (pageFix(c) === 'add') { p.blocks.push(G.newBlock(c.fix.addRole, '')); toast('Блок добавлен в конец — заполните его текстом'); } else G.fixByCode(p); save(); draw(); });
+      if (g.pageFix(c) === 'add') { p.blocks.push(G.newBlock(c.fix.addRole, '')); toast('Блок добавлен в конец — заполните его текстом'); } else G.fixByCode(p); save(); draw(); });
     el.querySelector('#xShare').onclick = async () => { const t = shareText(p); if (navigator.share && /Mobi|Android|iPhone/i.test(navigator.userAgent)) { try { await navigator.share({title: p.name, text: t}); return; } catch (err) { if (err.name === 'AbortError') return; } } await G.copy(t); toast('Текст страницы скопирован — вставьте в чат'); };
     el.querySelector('#xZip').onclick = async () => { try { await G.doExport(p); } catch (err) { toast(err.message); } };
     const fx = el.querySelector('#xFix'); if (fx) fx.onclick = async () => {
-      try { const adds = R.page.filter(x => pageFix(x.c) === 'add'); adds.forEach(x => p.blocks.push(G.newBlock(x.c.fix.addRole, '')));
+      try { const adds = R.page.filter(x => g.pageFix(x.c) === 'add'); adds.forEach(x => p.blocks.push(G.newBlock(x.c.fix.addRole, '')));
         const res = await G.runFix(p); G.autoPick(p); save(); draw();
         toast(`Поправлено: ${res.byCode + res.byModel + adds.length}${(res.notes || []).length ? ' · модель: ' + res.notes[0] : ''}`);
       } catch (err) { if (err.message !== 'cancel') toast(err.message); } };
   };
-  const close = () => { el.remove(); document.body.classList.remove('noscroll'); editor(); };
+  /* закрыть выгрузку — одна перерисовка; переход — сразу к блоку в «Шаблонах», блок выделен и вверху экрана */
+  const shut = () => { el.remove(); document.body.classList.remove('noscroll'); };
+  const close = () => { shut(); editor(); };
+  const goTo = id => { if (!p.blocks.some(b => b.id === id)) return; shut(); A.mode = 'page'; A.sel = id; A.jump = id; A.jumpTop = true; editor(); };
   draw(); document.body.appendChild(el); document.body.classList.add('noscroll'); el.animate([{opacity: 0}, {opacity: 1}], {duration: 140});
 };
 
@@ -870,6 +973,8 @@ const route = () => {
   const S = G.ui;
   if (S.dirty && location.hash !== lastHash && !confirm('Есть несохранённые изменения. Уйти без сохранения?')) { history.replaceState(null, '', lastHash); return; }
   S.dirty = false; lastHash = location.hash;
+  /* смена экрана закрывает открытые шторки (настройки → библиотека) */
+  document.querySelectorAll('.sh-wrap').forEach(x => x.remove()); document.body.classList.remove('noscroll');
   const m = location.hash.match(/^#\/p\/(.+)$/), l = libRoute();
   if (l) { if (A.view === 'edit') save(); A.view = 'lib'; A.page = null; document.body.classList.remove('shell', 'picking'); libView(); return; }
   if (m && (!A.page || A.page.id !== m[1])) go('edit', m[1]); else if (!m && A.view !== 'home') go('home'); };

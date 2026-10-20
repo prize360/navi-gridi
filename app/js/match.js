@@ -369,7 +369,8 @@ G.checks = page => {
   const anc = page.blocks.filter(b => b.role !== 'hero' && b.role !== 'cta' && G.src(b).title && G.src(b).level !== 'h3').length;
   if (anc >= 3) nav('info', `Нави соберёт оглавление из ${anc} заголовков блоков.`);
   const W = {error: 0, warn: 1, info: 2}, seen = new Set();
-  return out.filter(c => c.level !== 'info' || (!seen.has(c.text) && seen.add(c.text))).sort((a, b) => W[a.level] - W[b.level]);
+  /* одинаковые подсказки схлопываются только в пределах блока: «нет фото» у двух блоков — два замечания */
+  return out.filter(c => { if (c.level !== 'info') return true; const k = (c.block ? c.block.id : '') + '|' + c.text; return !seen.has(k) && seen.add(k); }).sort((a, b) => W[a.level] - W[b.level]);
 };
 /* правила гайда — из library/rules.js (собран из rules.yaml), общие с Нави */
 G.rule = id => ((window.GUIDE_RULES || {}).rules || []).find(r => r.id === id) || null;

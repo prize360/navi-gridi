@@ -509,7 +509,6 @@ body.has-sel #eSw .float{box-shadow:0 10px 34px rgba(0,0,0,.14)}
 .xrs.red .xr-t .mono{color:var(--bad)}
 .xr.go{cursor:pointer;flex-direction:row;align-items:center;gap:10px}
 .xr.go .xr-t{flex:1;min-width:0}
-.xr.go::after{content:'';width:8px;height:8px;border-right:1.8px solid var(--mute);border-bottom:1.8px solid var(--mute);transform:rotate(-45deg);flex:none;margin-right:4px}
 .xr.go:hover{filter:brightness(.98)}
 .xr .xr-a{flex:none}
 .xr.sum .xr-t b{font-size:15px}.xr.sum .xr-t small{color:var(--ink2);font-size:13px}
@@ -528,3 +527,17 @@ body.has-sel #eSw .float{box-shadow:0 10px 34px rgba(0,0,0,.14)}
 .cb.sel{overflow:visible}
 .cb.sel .bn{top:-11px;z-index:9;box-shadow:0 2px 8px rgba(0,0,0,.12)}
 .ex:has(.fixall) .ex-b{padding-bottom:260px}
+
+/* 20.10 вечер: иконки SDDS (заливкой), табы, градация выгрузки */
+svg.sd{stroke:none}
+svg.sd path{fill:currentColor}
+.tabs{overflow-y:hidden;overscroll-behavior-x:contain;touch-action:pan-x}
+.badge.red{background:var(--bad)}
+.badge.orange,.badge.recs{background:var(--sel)}
+.xs.red{background:var(--err-bg)}.xs.red b{color:var(--bad)}
+.xs.orange,.xs.recs{background:var(--warn-bg)}
+.xs.green{background:var(--acc-soft)}.xs.green b{color:var(--acc-ink)}
+.lbl.warn{color:#b4561c}
+.xrs.orange .xr{background:var(--warn-bg)}
+.xrs.orange .xr-t .mono{color:#b4561c}
+.xrs.red .xr.sum{background:var(--err-bg)}
