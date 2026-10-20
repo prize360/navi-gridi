@@ -54,7 +54,8 @@ const parseLine = l => {
 const md = (k, t) => { if (!t) return ''; return /^h[1-4]$/.test(k) ? `[${k}] ${t}` : k === 'meta' ? '@ ' + t : k === 'btn' ? '[кнопка] ' + t : k === 'img' ? '[картинка] ' + t : k === 'li' ? '- ' + t : t; };
 const tidy = arr => arr.join('\n').replace(/\n{3,}/g, '\n\n').replace(/^\n+|\n+$/g, '');
 const lines = text => { const t = tidy(String(text || '').split('\n').map(x => x.trim())); return t ? t.split('\n').map(l => l ? parseLine(l) : {k: 'p', t: ''}) : []; };
-const lineHTML = (k, t) => `<div class="ln" data-k="${k}" data-g="${e((KIND[k] || KIND.p).g)}">${t ? e(t) : '<br>'}</div>`;
+const noLink = (k, t) => k === 'btn' && t && !/\s\|\s+\S/.test(t) ? ' data-nolink' : '';
+const lineHTML = (k, t) => `<div class="ln" data-k="${k}" data-g="${e((KIND[k] || KIND.p).g)}"${noLink(k, t)}>${t ? e(t) : '<br>'}</div>`;
 const mkLine = (k, t) => { const d = document.createElement('div'); d.className = 'ln'; d.dataset.k = k; d.dataset.g = (KIND[k] || KIND.p).g; if (t) d.textContent = t; else d.innerHTML = '<br>'; return d; };
 const setKind = (d, k) => { d.dataset.k = k; d.dataset.g = (KIND[k] || KIND.p).g; };
 
@@ -64,6 +65,8 @@ const report = p => {
   const key = p.scenario + '|' + p.blocks.map(b => b.id + ':' + b.tpl + ':' + b.role + ':' + b.text.length + ':' + G.len(b.text.slice(0, 40))).join('|') + '|' + (p.dismissed || []).length;
   if (p._rep && p._rep.key === key) return p._rep;
   const dis = p.dismissed || [], checks = G.checks(p).filter(c => !dis.includes(c.text) && !/^Нави /.test(c.text));
+  p.blocks.forEach(b => { const s0 = G.src(b); s0.cta.forEach((c, k) => { if (!(s0.urls || [])[k]) { const t = `Нет ссылки у кнопки «${c}» — допишите адрес через « | »`; if (!dis.includes(t)) checks.push({level: 'info', text: t, block: b}); } });
+    s0.items.forEach(it => { if (it.cta && !it.url) { const t = `Нет ссылки у кнопки «${it.cta}» — допишите адрес через « | »`; if (!dis.includes(t)) checks.push({level: 'info', text: t, block: b}); } }); });
   const order = {error: 0, warn: 1, info: 2}; checks.sort((a, b) => order[a.level] - order[b.level]);
   const missing = G.missing(p), byBlock = {};
   checks.forEach(c => { if (c.block) (byBlock[c.block.id] = byBlock[c.block.id] || []).push(c); });
@@ -81,7 +84,7 @@ const verdict = b => {
   return {txt: (G.TIERS[tier] || 'Подходит') + (!G.isLive(t) ? ', нужен дизайн' : ''), bad: tier >= 2 || !G.isLive(t)};
 };
 let saveT = null;
-const save = () => { clearTimeout(saveT); saveT = setTimeout(() => A.page && G.store.put(A.page), 300); };
+const save = () => { clearTimeout(saveT); saveT = setTimeout(() => A.page && A.page.blocks.length && G.store.put(A.page), 300); };
 
 /* текст страницы для чата: блоки через границы с ролью; вставка такого текста восстанавливает страницу */
 const shareText = p => [`=== ${p.name} · ${G.scenario(p.scenario).name}`, ...p.blocks.map(b => `--- ${G.roleOf(G.scenario(p.scenario), b.role).name}\n${b.text}`)].join('\n');
@@ -191,7 +194,9 @@ const seed = async () => {
 };
 const home = async () => {
   await seed();
-  const all = (await G.store.list()).sort((a, b) => (b.updated || 0) - (a.updated || 0));
+  const raw = await G.store.list();
+  for (const x of raw) if (!x.blocks.length) await G.store.del(x.id); /* несобранные пустые страницы прошлых версий */
+  const all = raw.filter(x => x.blocks.length).sort((a, b) => (b.updated || 0) - (a.updated || 0));
   const tabs = TABS.filter(([id]) => G.lib.get('scenarios', id));
   A.tab = A.tab || G.ls.get('tab', 'article'); if (!tabs.some(([id]) => id === A.tab)) A.tab = (tabs[0] || ['article'])[0];
   const list = all.filter(p => p.scenario === A.tab), other = all.filter(p => !tabs.some(([id]) => id === p.scenario) && A.tab === tabs[0][0]);
@@ -209,7 +214,9 @@ const home = async () => {
     ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => c.addEventListener(ev, () => clearTimeout(t)));
     c.addEventListener('contextmenu', ev => { ev.preventDefault(); c.dataset.held = 1; pageMenu(all.find(x => x.id === c.dataset.id)); }); });
   const es = $app.querySelector('[data-es=new]'); if (es) es.onclick = () => $app.querySelector('#hNew').click();
-  $app.querySelector('#hNew').onclick = async () => { const p = G.newPage('Без названия', A.tab, ''); await G.store.put(p); go('edit', p.id); };
+  /* новая страница живёт только на экране, пока её не собрали: пустые в список не попадают */
+  $app.querySelector('#hNew').onclick = () => { A.page = G.newPage('Без названия', A.tab, ''); A.view = 'edit'; A.mode = 'note'; A.sel = null;
+    location.hash = '#/p/' + A.page.id; document.body.classList.add('shell'); render(); appear(); };
   $app.querySelector('#hMenu').onclick = settings;
   requestAnimationFrame(() => $app.querySelectorAll('.tl-pv').forEach(x => x.style.setProperty('--k', x.clientWidth / 560)));
 };
@@ -389,6 +396,7 @@ const sync = ed => {
   });
   if (!ed.children.length) ed.appendChild(mkLine('p', ''));
   const b = blockOf(ed); if (!b) return;
+  [...ed.children].forEach(d => d.toggleAttribute('data-nolink', !!noLink(d.dataset.k, d.textContent.trim())));
   b.text = tidy([...ed.children].map(d => md(d.dataset.k, d.textContent.replace(/\u00a0/g, ' ').trim())));
   b.values = null; save();
 };
@@ -430,7 +438,7 @@ const fmtBar = (into) => {
   fmtEl = document.createElement('div'); fmtEl.className = 'fmt'; fmtEl.hidden = true;
   /* роли строки — в шапке на месте названия, рядом ✓: клавиатура их не закрывает */
   fmtEl.innerHTML = `<div class="fmt-in"><div class="fmt-row">${KINDS.map(x => `<button data-k="${x.k}" aria-label="${e(x.label || x.g)}"><i>${e(x.g || 'Аа')}</i>${x.label && x.k !== 'p' ? `<span>${e(x.label)}</span>` : ''}</button>`).join('')}<button data-split><i>${I.cut}</i><span>Разделить</span></button></div><button class="ib round ok" data-done aria-label="Готово">${I.check}</button></div>`;
-  const host = into || document.getElementById('eDock'); (host || document.body).appendChild(fmtEl);
+  const host = into || document.querySelector('#eMain .note'); (host || document.body).appendChild(fmtEl); fmtEl.classList.add('float-fmt');
   fmtEl.addEventListener('pointerdown', ev => ev.preventDefault());
   fmtEl.querySelectorAll('[data-k]').forEach(x => x.onclick = () => { const ln = A.line; if (!ln || !ln.isConnected) return; setKind(ln, ln.dataset.k === x.dataset.k && x.dataset.k !== 'p' ? 'p' : x.dataset.k); sync(ln.closest('.ed')); fmtSync(); });
   fmtEl.querySelector('[data-split]').onclick = splitBlock;
@@ -464,7 +472,13 @@ const fmtSync = () => {
   const cur = (A.line && A.line.isConnected) ? A.line.dataset.k : '';
   fmtEl.querySelectorAll('[data-k]').forEach(x => x.classList.toggle('on', x.dataset.k === cur));
   const sp = fmtEl.querySelector('[data-split]'); sp.hidden = !!document.querySelector('.sh-wrap');
+  placeFmt();
 };
+/* панель ролей — над строкой с курсором (под ней, если строка у самого верха); она часть текста и едет вместе с ним */
+const placeFmt = () => { if (!fmtEl || fmtEl.hidden || !A.line || !A.line.isConnected) return;
+  const host = fmtEl.parentElement, M = document.getElementById('eMain'); if (!host || !M) return;
+  const hr = host.getBoundingClientRect(), lr = A.line.getBoundingClientRect(), top = M.getBoundingClientRect().top + (parseFloat(getComputedStyle(M).paddingTop) || 0), h = fmtEl.offsetHeight || 52;
+  fmtEl.style.top = Math.round(lr.top - top < h + 12 ? lr.bottom - hr.top + 8 : lr.top - hr.top - h - 8) + 'px'; };
 document.addEventListener('selectionchange', () => { const ln = curLine(), live = !!(ln && ln.closest('.ed') && document.activeElement && document.activeElement.contains(ln)); document.querySelectorAll('.ln.cur').forEach(x => (x !== ln || !live) && x.classList.remove('cur')); if (live) { A.line = ln; ln.classList.add('cur'); } fmtSync(); });
 
 /* разделить блок по текущей строке: эта строка и ниже — новый блок */
@@ -484,7 +498,7 @@ const blockMenu = id => {
   const roles = [...(s0.roles || [])]; if (!roles.some(r => r.id === 'hero')) roles.unshift({id: 'hero', name: 'Первый экран'});
   const s = sheet(`<div class="sh-h"><h2>Блок ${i + 1}</h2><button class="ib" data-close aria-label="Закрыть">${I.x}</button></div>
     <div class="sh-b"><p class="lbl">Роль блока</p><div class="chips" id="bmR">${roles.map(r => `<button class="chip ${r.id === b.role ? 'on' : ''}" data-r="${e(r.id)}">${e(r.name.split(':')[0])}</button>`).join('')}</div>
-    <div class="list"><button class="row" id="bmNewU">Новый блок выше</button><button class="row" id="bmNewD">Новый блок ниже</button><button class="row" id="bmTpl">Шаблон блока</button>${i > 0 ? `<button class="row" id="bmMvU">Переместить выше</button>` : ''}${i < p.blocks.length - 1 ? `<button class="row" id="bmMvD">Переместить ниже</button>` : ''}${i > 0 ? '<button class="row" id="bmUp">Объединить с блоком выше</button>' : ''}<button class="row danger" id="bmDel">Удалить блок</button></div></div>`);
+    <div class="list"><button class="row" id="bmNewU">Новый блок выше</button><button class="row" id="bmNewD">Новый блок ниже</button><button class="row" id="bmTpl">Шаблон блока</button>${A.mode === 'note' && i > 0 ? `<button class="row" id="bmMvU">Переместить выше</button>` : ''}${A.mode === 'note' && i < p.blocks.length - 1 ? `<button class="row" id="bmMvD">Переместить ниже</button>` : ''}${i > 0 ? '<button class="row" id="bmUp">Объединить с блоком выше</button>' : ''}<button class="row danger" id="bmDel">Удалить блок</button></div></div>`);
   const mv = d => { p.blocks.splice(i, 1); p.blocks.splice(i + d, 0, b); save(); s.close(); render(); const el = $app.querySelector(`[data-id="${b.id}"]`); el && el.scrollIntoView({block: 'center'}); };
   const ins = d => { const nb = G.newBlock(b.role === 'hero' ? defRole() : b.role, ''); p.blocks.splice(i + d, 0, nb); save(); s.close(true);
     if (A.mode === 'note') { render(); const ed = $app.querySelector(`.ed[data-id="${nb.id}"]`); if (ed) { ed.scrollIntoView({block: 'center'}); caretTo(ed.firstChild, 0); } }
@@ -582,7 +596,10 @@ const selBar = () => {
     if (k === 'img') imageSheet(b);
     if (k === 'tpl') catalog();
     if (k === 'more') blockMenu(b.id);
-    if (k === 'up' || k === 'down') { const j = i + (k === 'up' ? -1 : 1); p.blocks.splice(i, 1); p.blocks.splice(j, 0, b); save(); canvas(); select(b.id); }
+    if (k === 'up' || k === 'down') { const M = document.getElementById('eMain'), el0 = $app.querySelector(`.cb[data-id="${b.id}"]`), y0 = el0 ? el0.getBoundingClientRect().top : 0;
+      const j = i + (k === 'up' ? -1 : 1); p.blocks.splice(i, 1); p.blocks.splice(j, 0, b); save(); canvas();
+      const el1 = $app.querySelector(`.cb[data-id="${b.id}"]`); if (M && el1) M.scrollTop += el1.getBoundingClientRect().top - y0;
+      A.sel = b.id; document.body.classList.add('picking'); $app.querySelectorAll('.cb').forEach(x => x.classList.toggle('sel', x.dataset.id === b.id)); selBar(); }
   };
 };
 /* каталог шаблонов: категории по типу, сначала подходящие, у каждого — почему не подходит */
