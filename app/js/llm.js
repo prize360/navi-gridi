@@ -227,7 +227,7 @@ const spec = t => {
 };
 /* задание на блок: что именно не так с текстом в выбранном шаблоне — из тех же правил, что и группы в меню шаблона */
 G.blockTask = (b, page) => {
-  const t = G.tpl(b.tpl); if (!t) return ''; const r = G.score(b, t, page), s = G.src(b), ti = t.items, out = [];
+  const t0 = G.tpl(b.tpl); if (!t0) return ''; const t = G.tplFor(b, t0), r = G.score(b, t0, page), s = G.src(b), ti = t.items, out = [];
   if (ti && !ti.any && s.items.length < ti.n) out.push(`сделай ровно ${ti.n} пунктов из того, что есть: раздели крупные или переформулируй; новых фактов не выдумывай`);
   if (ti && !ti.any && s.items.length > ti.n) out.push(`сведи к ${ti.n} пунктам: объедини близкие по смыслу так, чтобы содержание всех ${s.items.length} пунктов сохранилось — ничего не выбрасывай`);
   if (r.over) { const of = G.overflow(b, page); out.push(`сократи до лимита каждое поле: ${of.map(x => `${x.label} — на ${x.over}+ зн.`).join(', ') || 'текст длиннее на ' + r.over + ' зн.'}; лимит — жёсткий потолок, целься на 10% короче; переформулируй, а не обрывай`); }
@@ -250,7 +250,7 @@ const srcText = b => {
   return o.join('\n');
 };
 const fieldsJSON = (b, page) => {
-  const t = G.tpl(b.tpl), v = G.values(b, page), lab = f => ({value: '', label: f.label, max: f.max});
+  const t = G.tplFor(b), v = G.values(b, page), lab = f => ({value: '', label: f.label, max: f.max});
   const top = {}; (t.fields || []).forEach(f => { if (f.role !== 'num') top[f.k] = {...lab(f), value: v.top[f.k] || ''}; });
   const items = (v.items || []).map(it => { const o = {}; (t.items.fields || []).forEach(f => { if (f.role !== 'num') o[f.k] = {...lab(f), value: it[f.k] || ''}; }); return o; });
   if (v.head !== undefined) top.head = {value: v.head, label: G.HEAD.label, max: G.HEAD.max};
@@ -260,9 +260,11 @@ G.adaptable = (b, prompt, page) => { const t = G.tpl(b.tpl), r = G.roleOf(G.scen
 G.adaptPrompt = (page, p, part, askVals = {}) => {
   const sc = G.scenario(page.scenario);
   const blocks = part.map(b => p.input === 'source'
-    ? `### id: ${b.id} (${G.roleOf(sc, b.role).name})\n${spec(G.tpl(b.tpl))}${G.blockTask(b, page) ? '\n' + G.blockTask(b, page) : ''}${G.needsHead(b, G.tpl(b.tpl)) ? `\nЗаголовок раздела над блоком — ключ head в top, ≤${G.HEAD.max}` : ''}\nИсходник:\n${srcText(b)}`
+    ? `### id: ${b.id} (${G.roleOf(sc, b.role).name})\n${spec(G.tplFor(b))}${G.blockTask(b, page) ? '\n' + G.blockTask(b, page) : ''}${G.needsHead(b, G.tpl(b.tpl)) ? `\nЗаголовок раздела над блоком — ключ head в top, ≤${G.HEAD.max}` : ''}\nИсходник:\n${srcText(b)}`
     : fieldsJSON(b, page) + (p.id === 'fix' && G.fixNotes(b, page).length ? '\nЗамечания:\n' + G.fixNotes(b, page).map(x => '- ' + x).join('\n') : '')).join('\n\n');
-  return G.fill(p.text, {...askVals, 'тип': sc.name, 'действие': sc.action, 'блоки': blocks});
+  /* контекст страницы: текст остальных блоков — для промтов, которые пишут текст по смыслу страницы */
+  const ids = part.map(b => b.id), ctx = page.blocks.filter(b => !ids.includes(b.id) && b.text.trim()).map(b => `[${G.roleOf(sc, b.role).name.split(':')[0]}]\n${b.text}`).join('\n\n').slice(0, 8000);
+  return G.fill(p.text, {...askVals, 'тип': sc.name, 'действие': sc.action, 'блоки': blocks, 'контекст': ctx || '(пока пусто)', 'роль': part.map(b => G.roleOf(sc, b.role).name).join('; ')});
 };
 /* ---------- исправление по проверке: сначала код, потом модель только по замечаниям ---------- */
 /* замечания, которые правятся текстом блока (остальные — шаблон, дизайн, порядок — модель не трогает) */
@@ -277,6 +279,16 @@ G.fixByCode = page => {
   const ctas = page.blocks.filter(b => G.isCta(b) && (b.role === 'cta' || b.role === 'subscribe')); ctas.slice(1).forEach(b => { b.role = plain; n++; });
   if (n) G.autoPick(page);
   return n;
+};
+/* что «Поправить всё» исправит, а что нет — подсказка до запуска, без выбора */
+G.fixPlan = page => {
+  const sc = G.scenario(page.scenario), name = b => `${page.blocks.indexOf(b) + 1}. ${G.roleOf(sc, b.role).name.split(':')[0]}`;
+  const all = G.checks(page).filter(c => c.level !== 'info');
+  const code = all.filter(c => /H1 — только|Первых экранов|Целевых действий/.test(c.text)).length;
+  const model = page.blocks.filter(b => G.fixNotes(b, page).length && G.adaptable(b, G.prompt('fix'), page));
+  const fixed = new Set(model.flatMap(b => G.fixNotes(b, page)));
+  const no = all.filter(c => !fixed.has(c.text) && !/H1 — только|Первых экранов|Целевых действий/.test(c.text));
+  return {code, model: model.map(name), no: [...new Set(no.map(c => /нет шаблона|нужен дизайн|в админке нет/i.test(c.text) ? 'шаблоны и дизайн' : /Нет блока/.test(c.text) ? 'недостающие блоки' : /Нави|первый экран|островк|Подпис/i.test(c.text) ? 'правила Нави' : 'остальное — вручную'))]};
 };
 G.runFix = async page => {
   const byCode = G.fixByCode(page);

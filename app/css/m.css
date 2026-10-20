@@ -463,11 +463,68 @@ body.has-sel #eSw .float{box-shadow:0 10px 34px rgba(0,0,0,.14)}
 .xr-hint .xr-t{color:var(--ink2)}
 #eAct .sb-acts{grid-template-columns:repeat(var(--n,5),auto);gap:2px}
 #eAct .sb-acts button{padding:6px 8px;min-width:52px}
-/* узкий экран: панель блока над переключателем, переключатель по центру */
-@media (max-width:560px){
-  body.has-sel #eDockMain{flex-direction:column;align-items:stretch;gap:8px}
-  body.has-sel #eAct .selbar{width:100%}
-  body.has-sel #eAct .sb-acts{width:100%;grid-template-columns:repeat(var(--n,5),1fr)}
-  body.has-sel #eSw{align-self:center}
-  body.has-sel #eSw .float{padding:4px}
 }
+
+/* ===== 20.10: одна плашка внизу — действия блока | разделитель | Текст ↔ Шаблоны ===== */
+#eDockMain{display:flex;justify-content:center}
+.bar{display:flex;align-items:center;gap:2px;width:max-content;max-width:100%;margin:0 auto;background:var(--card);border-radius:30px;padding:5px;box-shadow:0 10px 30px rgba(0,0,0,.12)}
+.bar #eAct{min-width:0;flex:0 1 auto;overflow-x:auto;scrollbar-width:none}
+.bar #eAct::-webkit-scrollbar{display:none}
+.bar-div{width:1.5px;height:26px;background:var(--line);margin:0 6px;flex:none}
+#eAct:empty+.bar-div{display:none}
+.sw .seg.slide{display:flex}
+.bacts{display:flex;align-items:center;gap:2px;animation:sbIn .16s var(--ease)}
+.bacts button{width:44px;height:44px;border-radius:22px;display:grid;place-items:center;color:var(--ink2);flex:none}
+.bacts button:hover{background:var(--bg)}
+.bacts button:active{background:var(--soft)}
+.bacts button:disabled{opacity:.28}
+.bacts button svg{width:22px;height:22px}
+.bacts button[data-a=ai]{color:var(--acc-ink)}
+.bacts button[data-a=ai].hot{background:var(--sel);color:#fff}
+@media (max-width:400px){ .bacts button{width:40px} .bar-div{margin:0 3px} .seg.slide button{width:48px} .seg.slide::before{width:48px} .seg.slide.r::before{transform:translateX(48px)} }
+
+/* название блока: номер; у выделенного — роль и замечание рядом */
+.bn{display:inline-flex;align-items:center;gap:6px;width:auto;max-width:calc(100% - 20px);text-align:left}
+.bn>span{flex:none}
+.bn em{display:none;font-style:normal;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bn em i{font-style:normal}
+.bn .bn-n{color:var(--sel);margin-left:6px}
+.bn .bn-n::before{content:'· ';color:var(--mute)}
+.cb.sel .bn{background:var(--ink);color:#fff;padding:0 10px}
+.cb.sel .bn em{display:inline}
+.cb.sel.warn .bn .bn-n{color:#ffc39e}
+.nb-note{display:none;font-style:normal;text-transform:none;letter-spacing:0;color:var(--sel);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:0 1 auto}
+.nb.sel .nb-note{display:inline}
+.nb-line span{flex:none}
+
+/* ИИ и «Ещё»: строки с иконкой */
+.row.ic{flex-direction:row!important;align-items:center!important;gap:12px}
+.row.ic>svg{color:var(--ink2)}
+.row.ic.danger>svg{color:var(--bad)}
+.row.hot b{color:var(--sel)}
+
+/* выгрузка: градация */
+.lbl.err{color:var(--bad)}
+.xrs.red .xr{background:var(--err-bg)}
+.xrs.red .xr-t .mono{color:var(--bad)}
+.xr.go{cursor:pointer;flex-direction:row;align-items:center;gap:10px}
+.xr.go .xr-t{flex:1;min-width:0}
+.xr.go::after{content:'';width:8px;height:8px;border-right:1.8px solid var(--mute);border-bottom:1.8px solid var(--mute);transform:rotate(-45deg);flex:none;margin-right:4px}
+.xr.go:hover{filter:brightness(.98)}
+.xr .xr-a{flex:none}
+.xr.sum .xr-t b{font-size:15px}.xr.sum .xr-t small{color:var(--ink2);font-size:13px}
+.xr.sum.des{background:var(--des-bg)}
+.xr.sum.lim{background:var(--warn-bg)}
+.ib.sm{width:32px;height:32px;border-radius:16px;display:grid;place-items:center;color:var(--mute)}
+.ib.sm svg{width:18px;height:18px}
+.fixall{display:flex;flex-direction:column;gap:8px;pointer-events:auto}
+.fixall .hint{margin:0;padding:10px 14px;border-radius:16px;background:var(--card);font-size:13px;line-height:1.35;color:var(--ink2);box-shadow:0 6px 20px rgba(0,0,0,.08)}
+
+/* чистый лист */
+.draft-hint{max-width:760px;margin:0 auto;padding:12px 20px 0;font-size:14px;line-height:1.45;color:var(--mute)}
+.link{color:var(--acc-ink);font-weight:600;text-decoration:underline;text-underline-offset:3px}
+
+/* название выделенного блока — над блоком, не поверх его заголовка */
+.cb.sel{overflow:visible}
+.cb.sel .bn{top:-11px;z-index:9;box-shadow:0 2px 8px rgba(0,0,0,.12)}
+.ex:has(.fixall) .ex-b{padding-bottom:260px}

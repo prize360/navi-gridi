@@ -9,6 +9,10 @@ const GALLERY = ['gallery', 'gal', 'mosaic', 'carousel', 'figure', 'ctgal'];
 const FORMS = ['naviform', 'naviprog', 'navifcta'];
 /* ряды: в сетке больше 4 пунктов — несколько шаблонов подряд, меньший ряд первым (5=2+3, 7=3+4, 8=4+4) */
 G.GRID_LAYOUTS = ['grid', 'gridct', 'people', 'stats', 'cols'];
+/* группа: больше 4 пунктов в шаблоне-сетке — ряды подряд, но это ОДИН блок.
+   Поля, лимиты и адаптация считаются по всем пунктам: шаблон «растягивается» до числа пунктов, лимиты — на каждый пункт. */
+G.rowsFor = (b, t = G.tpl(b.tpl)) => { if (!t || !t.items || t.items.any || !G.GRID_LAYOUTS.includes(t.layout)) return null; const n = G.src(b).items.length; return n > 4 ? G.rowsOf(n) : null; };
+G.tplFor = (b, t = G.tpl(b.tpl)) => { const plan = G.rowsFor(b, t); return plan ? {...t, items: {...t.items, n: plan.reduce((a, x) => a + x, 0)}, _rows: plan} : t; };
 G.rowsOf = n => { if (n <= 4) return [n]; const r = Math.ceil(n / 4), base = Math.floor(n / r), extra = n % r; return Array.from({length: r}, (_, i) => base + (i >= r - extra ? 1 : 0)); };
 
 /* ---------- что в шаблоне ---------- */
@@ -258,8 +262,8 @@ G.headTpl = b => G.src(b).level === 'h3' ? 'Заголовок-H3-Lt' : 'Заг�
 /* текущие поля блока: адаптированные или собранные из текста */
 G.values = (b, page) => {
   const t = G.tpl(b.tpl); if (!t) return null;
-  /* один источник правды — текст блока: поля всегда собираются из него */
-  return G.autoFill(b, t, page);
+  /* один источник правды — текст блока: поля всегда собираются из него; группа — все пункты, не первый ряд */
+  return G.autoFill(b, G.tplFor(b, t), page);
 };
 /* текст в шаблоне → разметка блока: вкладка «Текст» показывает то же, что шаблон */
 G.valuesToMarkup = (b, t, v) => {
