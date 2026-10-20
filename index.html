@@ -2,23 +2,20 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Гриди</title>
-<meta name="description" content="Гриди собирает страницу из текста автора по сценарию и шаблонам гриды: текст, wireframe, ТЗ на графику и JSON для админки из одного источника.">
+<meta name="description" content="Гриди: текст как заметка — страница из готовых шаблонов.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 22 22'%3E%3Crect width='10' height='10' rx='3' fill='%2317201B'/%3E%3Crect x='12' width='10' height='10' rx='3' fill='%238FE19C'/%3E%3Crect y='12' width='10' height='10' rx='3' fill='%2317201B'/%3E%3Crect x='12' y='12' width='10' height='10' rx='3' fill='%2317201B'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&family=Unbounded:wght@700;800&family=Literata:opsz,wght@7..72,400;7..72,600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="app/css/app.css">
+<link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&family=Unbounded:wght@700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="app/css/m.css">
 </head>
 <body>
-<header class="bar" id="top"></header>
-<div class="view" id="view"></div>
-<div class="cta-wrap" id="ctaWrap" hidden><button class="cta" id="cta" type="button"></button></div>
+<div id="app"></div>
 
 <script src="app/js/core.js"></script>
 <script src="app/js/logo.js"></script>
-<!-- Библиотека: правится без программиста, см. docs/library.md -->
 <script src="library/rules.js"></script>
 <script src="library/settings.js"></script>
 <script src="library/scenarios.js"></script>
@@ -26,21 +23,11 @@
 <script src="library/prompts.js"></script>
 <script src="library/icons.js"></script>
 <script src="library/examples.js"></script>
-
 <script src="app/js/match.js"></script>
 <script src="app/js/llm.js"></script>
 <script src="app/js/wire.js"></script>
 <script src="app/js/export.js"></script>
-<script src="app/js/ui.js"></script>
-<script src="app/js/page.js"></script>
-<script src="app/js/lib.js"></script>
-<script src="app/js/ctor.js"></script>
+<script src="app/js/m.js"></script>
 <script src="app/vendor/jszip.min.js" defer></script>
-<script>
-  (function () {
-    var st = document.createElement('style'); st.textContent = Gridi.WIRE_CSS; document.head.appendChild(st);
-    Gridi.boot();
-  })();
-</script>
 </body>
 </html>

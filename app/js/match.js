@@ -7,6 +7,9 @@ const TEXT_ROLES = ['lead', 'text', 'body', 'table'];
 const META_ROLES = ['badge', 'meta', 'qname', 'qcap'];
 const GALLERY = ['gallery', 'gal', 'mosaic', 'carousel', 'figure', 'ctgal'];
 const FORMS = ['naviform', 'naviprog', 'navifcta'];
+/* ряды: в сетке больше 4 пунктов — несколько шаблонов подряд, меньший ряд первым (5=2+3, 7=3+4, 8=4+4) */
+G.GRID_LAYOUTS = ['grid', 'gridct', 'people', 'stats', 'cols'];
+G.rowsOf = n => { if (n <= 4) return [n]; const r = Math.ceil(n / 4), base = Math.floor(n / r), extra = n % r; return Array.from({length: r}, (_, i) => base + (i >= r - extra ? 1 : 0)); };
 
 /* ---------- что в шаблоне ---------- */
 G.tplInfo = t => {
@@ -122,6 +125,13 @@ G.score = (b, t, page) => {
     if (bi.n) badk('design', 'пунктам нет места');
   } else if (bi.n) {
     if (!t.items) badk('design', 'пунктам нет места');
+    else if (!ti.any && G.GRID_LAYOUTS.includes(t.layout) && bi.n > 4 && !bi.faq) {
+      /* больше 4 пунктов — ряды; шаблон берётся под самый длинный ряд */
+      const plan = G.rowsOf(bi.n), k = Math.max(...plan);
+      if (ti.n === k) why.push(`ряды ${plan.join(' + ')}`);
+      else if (plan.includes(ti.n)) pen('count', 5, `ряды ${plan.join(' + ')}`);
+      else badk('count', `пунктов ${bi.n}: ряды ${plan.join(' + ')}, в шаблоне ${ti.n}`);
+    }
     else if (!ti.any) {
       if (bi.n > ti.n) badk('count', `пунктов ${bi.n}, мест ${ti.n}`);
       else if (bi.n < ti.n) pen('count', 20 * (ti.n - bi.n), `пустых элементов: ${ti.n - bi.n}`);
@@ -152,6 +162,8 @@ G.score = (b, t, page) => {
   if (ti.meta.some(f => f.role === 'qname') && !(bi.meta && bi.lead && !bi.n)) badk('design', 'это не цитата');
   if (t.layout === 'promo' && (bi.n || bi.meta)) badk('design', 'крупный текст без пунктов');
   if (ti.iTitle && ti.iTitle.role === 'num2' && bi.n && s.items.filter(i => /\d/.test(i.title)).length < bi.n / 2) badk('design', 'в пунктах нет чисел');
+  /* вопросы — в аккордеон; карточками и шагами их не раскладываем */
+  if (bi.faq && !t.component && t.items && bi.n > 4) badk('count', 'вопросы — в аккордеон');
   if (t.component && t.roles && t.roles.includes(b.role)) { score += 5; why.unshift('компонент для этой роли'); }
   if ((role.prefer || []).some(n => { const p = G.tplByName(n); return p && p.id === t.id; })) { score += 5; why.unshift('рекомендован сценарием'); }
   score = Math.max(0, Math.min(100, score));
@@ -176,7 +188,25 @@ G.autoPick = (page, force) => {
 };
 
 /* ---------- поля шаблона из текста блока, без модели ---------- */
+/* пункты в шаблоне без пунктов (текст статьи, лид) не должны пропадать: они идут в текстовое поле.
+   Текст статьи (verbatim) — в исходном порядке, как написал автор; остальным — списком в конце текста. */
 G.autoFill = (b, t, page) => {
+  const v = autoFill0(b, t, page); t = t || G.tpl(b.tpl);
+  if (!v || !t || t.items) return v;
+  const s = G.src(b); if (!s.items.length) return v;
+  const f = (t.fields || []).find(x => ['lead', 'text', 'body'].includes(x.role)); if (!f) return v;
+  const li = i => '- ' + [i.title, i.text].filter(Boolean).join(i.title && i.text ? (i.sep || ' — ') : '');
+  if (t.verbatim) {
+    const skipTitle = !!s.title; let titled = false;
+    const out = String(b.text || '').split('\n').map(x => x.trim()).filter(l => {
+      if (skipTitle && !titled && /^\[h[1-4]\]/i.test(l)) { titled = true; return false; }
+      return !/^\[(кнопка|ссылка|button|btn|link|картинка|фото|image|img)\]/i.test(l) && !/^@/.test(l);
+    }).map(l => l.replace(/^\[h[1-4]\]\s*/i, '').replace(/^(?:[-–•*]|\d+[.)])\s+/, '- '));
+    v.top[f.k] = out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  } else v.top[f.k] = [v.top[f.k], s.items.map(li).join('\n')].filter(Boolean).join('\n');
+  return v;
+};
+const autoFill0 = (b, t, page) => {
   t = t || G.tpl(b.tpl); if (!t) return null;
   const s = G.src(b), sc = G.scenario(page.scenario), top = {}, items = [];
   let lead = s.lead, btn = 0, meta = 0, titleUsed = false;
@@ -223,7 +253,7 @@ G.autoFill = (b, t, page) => {
 };
 /* заголовок раздела над блоком: в тексте есть, в шаблоне нет поля — ставится шаблоном «Текст-H2» */
 G.HEAD = {label: 'Заголовок раздела (H2)', max: 50, tpl: 'Заголовок-H2-Lt'};
-G.needsHead = (b, t) => !!t && !!G.src(b).title && !((t.fields || []).some(f => f.role === 'title') && (t.fields || []).every(f => ['title', 'btn', 'badge', 'meta'].includes(f.role))) && G.src(b).level !== 'h1' && b.role !== 'hero' && !t.heading && (G.src(b).level !== 'h3' || !t.fields.some(f => f.role === 'title'));
+G.needsHead = (b, t) => !!t && !!G.src(b).title && !((t.fields || []).some(f => f.role === 'title') && (t.fields || []).every(f => ['title', 'btn', 'badge', 'meta'].includes(f.role))) && G.src(b).level !== 'h1' && b.role !== 'hero' && !t.heading && (G.src(b).level !== 'h3' || !(t.fields || []).some(f => f.role === 'title'));
 G.headTpl = b => G.src(b).level === 'h3' ? 'Заголовок-H3-Lt' : 'Заголовок-H2-Lt';
 /* текущие поля блока: адаптированные или собранные из текста */
 G.values = (b, page) => {
@@ -247,7 +277,7 @@ G.valuesToMarkup = (b, t, v) => {
     if (me) out.push((ti || tx ? '@ ' : '- ') + me);
     if (bt) out.push('[кнопка] ' + bt);
   });
-  top.filter(f => f.role === 'btn' && has(get(f))).forEach((f, i) => { const u = s.urls[i]; out.push(u ? `[ссылка] ${get(f)} | ${u}` : '[кнопка] ' + get(f)); });
+  top.filter(f => f.role === 'btn' && has(get(f))).forEach((f, i) => { const u = s.urls[i]; out.push(u ? `[кнопка] ${get(f)} | ${u}` : '[кнопка] ' + get(f)); });
   return out.join('\n');
 };
 /* правка полей = правка текста: поля переводятся в разметку и записываются в текст блока */

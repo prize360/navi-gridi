@@ -21,9 +21,11 @@ G.copy = async text => {
     let ok = false; try { ok = document.execCommand('copy'); } catch (e2) {} t.remove(); return ok;
   }
 };
+/* пространство хранения: у экспериментальной копии своё, чтобы не смешиваться с пилотом (тот же адрес prize360.github.io) */
+G.NS = 'gridi';
 G.ls = {
-  get(k, d) { try { const v = localStorage.getItem('gridi.' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
-  set(k, v) { try { localStorage.setItem('gridi.' + k, JSON.stringify(v)); return true; } catch (e) { return false; } },
+  get(k, d) { try { const v = localStorage.getItem(G.NS + '.' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem(G.NS + '.' + k, JSON.stringify(v)); return true; } catch (e) { return false; } },
 };
 
 /* ---------- библиотека: встроенные файлы + локальные правки ---------- */
@@ -47,7 +49,8 @@ G.lib = {
     const loc = this.local(kind), out = [];
     for (const o of BUILT[kind]) {
       if (loc.removed.includes(o.id)) continue;
-      const li = loc.items[o.id] && loc.items[o.id]._base === BUILT_SETTINGS.version ? loc.items[o.id] : null;
+      /* правка участника сохраняется и после обновления библиотеки: новая version её не прячет */
+      const li = loc.items[o.id] || null;
       out.push(li ? {...li, _local: 'changed'} : {...o});
     }
     for (const id in loc.items) if (!BUILT[kind].some(o => o.id === id)) out.push({...loc.items[id], _local: 'new'});
@@ -109,17 +112,28 @@ const DB = {db: null, fallback: false};
 DB.open = () => new Promise(res => {
   if (DB.db || DB.fallback) return res();
   try {
-    const r = indexedDB.open('gridi', 1);
+    const r = indexedDB.open(G.NS, 1);
     r.onupgradeneeded = () => r.result.createObjectStore('pages', {keyPath: 'id'});
     r.onsuccess = () => { DB.db = r.result; res(); };
     r.onerror = () => { DB.fallback = true; res(); };
   } catch (e) { DB.fallback = true; res(); }
 });
 const tx = (mode, fn) => new Promise((res, rej) => { const t = DB.db.transaction('pages', mode); const s = t.objectStore('pages'); const r = fn(s); t.oncomplete = () => res(r && r.result); t.onerror = () => rej(t.error); });
+/* формат хранения страницы: номер в самой странице. Поменяется формат — сюда добавляется шаг миграции,
+   старые страницы участников обновятся при открытии, а не сломаются.
+   Не переименовывать: базу G.NS, хранилище 'pages', ключи G.NS + '.*' — иначе у всех «пропадут» страницы. */
+G.SCHEMA = 1;
+G.migrate = p => {
+  if (!p) return p;
+  if (!p.schema) p.schema = 1;
+  /* шаблон блока ищется по id; если id сменился, а название осталось — по названию */
+  (p.blocks || []).forEach(b => { if (b.tpl && !G.tpl(b.tpl) && b.tplName) { const t = G.tplByName(b.tplName); if (t) b.tpl = t.id; } });
+  return p;
+};
 G.store = {
-  async list() { await DB.open(); if (DB.fallback) return Object.values(G.ls.get('pages', {})); return tx('readonly', s => s.getAll()); },
-  async get(id) { await DB.open(); if (DB.fallback) return G.ls.get('pages', {})[id] || null; return tx('readonly', s => s.get(id)); },
-  async put(p) { p.updated = Date.now(); await DB.open(); if (DB.fallback) { const a = G.ls.get('pages', {}); a[p.id] = p; G.ls.set('pages', a); return; } return tx('readwrite', s => s.put(G.clone(p))); },
+  async list() { await DB.open(); const a = DB.fallback ? Object.values(G.ls.get('pages', {})) : await tx('readonly', s => s.getAll()); return (a || []).map(G.migrate); },
+  async get(id) { await DB.open(); return G.migrate(DB.fallback ? G.ls.get('pages', {})[id] || null : await tx('readonly', s => s.get(id))); },
+  async put(p) { p.updated = Date.now(); p.schema = p.schema || G.SCHEMA; (p.blocks || []).forEach(b => { const t = b.tpl && G.tpl(b.tpl); if (t) b.tplName = t.name; }); await DB.open(); if (DB.fallback) { const a = G.ls.get('pages', {}); a[p.id] = p; G.ls.set('pages', a); return; } return tx('readwrite', s => s.put(G.clone(p))); },
   async del(id) { await DB.open(); if (DB.fallback) { const a = G.ls.get('pages', {}); delete a[id]; G.ls.set('pages', a); return; } return tx('readwrite', s => s.delete(id)); },
 };
 
@@ -138,24 +152,40 @@ G.splitItem = s => {
   if (!m) m = s.match(/^([^:]{1,70})(:\s+)(.+)$/);
   return m ? {title: m[1].trim(), text: m[3].trim(), sep: m[2]} : {title: '', text: s};
 };
+/* список без маркеров: после строки с двоеточием идут строки на «;», последняя — на «.» — это пункты */
+G.unmarkedLists = ls => {
+  const out = [...ls], plain = l => l.trim() && !/^(\[|@|[-–•*]\s|\d+[.)]\s)/.test(l.trim());
+  for (let i = 0; i < out.length; i++) {
+    if (!plain(out[i]) || !/:\s*$/.test(out[i].trim())) continue;
+    let j = i + 1; while (j < out.length && plain(out[j]) && /;\s*$/.test(out[j].trim()) && out[j].trim().length <= 300) j++;
+    const lastOk = j < out.length && plain(out[j]) && out[j].trim().length <= 300 && /[.!]\s*$/.test(out[j].trim());
+    const n = j - (i + 1) + (lastOk ? 1 : 0);
+    if (n >= 2) { for (let k = i + 1; k < i + 1 + n; k++) out[k] = '- ' + out[k].trim(); i += n; }
+  }
+  return out;
+};
 G.parse = text => {
   const src = {title: '', level: '', meta: [], paras: [], items: [], cta: [], images: [], urls: []};
   let last = null, item = null;
-  for (const raw of String(text || '').split('\n')) {
+  for (const raw of G.unmarkedLists(String(text || '').split('\n'))) {
     const l = raw.trim(); if (!l) { if (item && item._h) item = null; last = null; continue; }
     let m;
-    if ((m = l.match(RX.h))) {
+    /* пустой заголовок — не заголовок; «заголовок» длиннее 120 знаков — это абзац */
+    if ((m = l.match(RX.h)) && !m[2].trim()) continue;
+    if (m && m[2].trim().length > 120) m = null;
+    if (m) {
       const lv = m[1].toLowerCase();
       if (!src.title && !src.items.length && (lv !== 'h3' || !src.paras.length)) { src.title = m[2].trim(); src.level = lv; last = 'title'; item = null; }
       else { item = {title: m[2].trim(), text: '', meta: '', cta: '', _h: true}; src.items.push(item); last = 'item'; }
     } else if ((m = l.match(RX.meta))) {
       if (last === 'item' && item) item.meta = item.meta ? item.meta + ' · ' + m[1] : m[1]; else src.meta.push(m[1].trim());
     } else if ((m = l.match(RX.btn))) {
-      const [txt, url] = m[1].split(/\s+\|\s+(?=\S+$)/); if (url) src.urls.push(url);
-      /* ссылка «Читайте также: Название | адрес» — название в текст, начало до двоеточия — подпись кнопки */
-      const lk = /^\[(ссылка|link)\]/i.test(l) && txt.match(/^([^:]{2,24}):\s*(.+)$/);
-      if (lk && !(last === 'item' && item)) { src.paras.push(lk[2].trim()); src.cta.push(lk[1].trim()); }
-      else if (last === 'item' && item && !item.cta) item.cta = txt.trim(); else src.cta.push(txt.trim());
+      /* кнопка и ссылка — одно и то же: «Текст кнопки | адрес»; адрес — только если похож на ссылку */
+      const um = m[1].match(/^(.*?)\s+\|\s+((?:https?:\/\/|www\.|\/|#|mailto:|tel:)\S*)$/i);
+      const txt = (um ? um[1] : m[1]).trim(), url = um ? um[2] : '';
+      if (!txt) { /* пустая кнопка — не кнопка */ }
+      else if (last === 'item' && item && !item.cta) { item.cta = txt; item.url = url; }
+      else { src.cta.push(txt); src.urls[src.cta.length - 1] = url; }
     } else if ((m = l.match(RX.img))) { src.images.push(m[1].trim()); last = 'img'; }
     else if ((m = l.match(RX.item))) { item = {...G.splitItem(m[1]), meta: '', cta: ''}; src.items.push(item); last = 'item'; }
     else if (item && item._h) { item.text = item.text ? item.text + '\n' + l : l; last = 'item'; }
@@ -176,16 +206,16 @@ G.serialize = (s, opts = {}) => {
     if (i.h3) { o.push('[h3] ' + i.title); if (i.text) o.push(i.text); }
     else o.push('- ' + (i.title && i.text ? i.title + (i.sep || ' — ') + i.text : i.title || i.text));
     if (i.meta) o.push('@ ' + i.meta);
-    if (i.cta) o.push('[кнопка] ' + i.cta);
+    if (i.cta) o.push('[кнопка] ' + i.cta + (i.url ? ' | ' + i.url : ''));
   });
   (s.images || []).forEach(c => o.push('[картинка] ' + c));
-  (s.cta || []).forEach(c => o.push('[кнопка] ' + c));
+  (s.cta || []).forEach((c, k) => o.push('[кнопка] ' + c + ((s.urls || [])[k] ? ' | ' + s.urls[k] : '')));
   return o.join('\n');
 };
 G.src = b => { if (b._srcFor !== b.text) { b._src = G.parse(b.text); b._srcFor = b.text; } return b._src; };
 
 /* ---------- страница ---------- */
-G.newPage = (name, scenarioId, text) => ({id: G.uid('p'), name: name || 'Без названия', scenario: scenarioId, text: text || '', blocks: [], story: [], created: Date.now(), updated: Date.now()});
+G.newPage = (name, scenarioId, text) => ({schema: G.SCHEMA, id: G.uid('p'), name: name || 'Без названия', scenario: scenarioId, text: text || '', blocks: [], story: [], created: Date.now(), updated: Date.now()});
 G.newBlock = (role, text = '') => ({id: G.uid(), role, text, tpl: null, tplLock: false, values: null, valuesFor: '', valuesBy: '', images: {}, tips: []});
 G.stale = () => false; /* значений отдельно от текста больше нет */
 G.paras = (text, max) => { const out = []; let n = 0; for (const l of String(text || '').split(/\n+/).map(x => x.trim()).filter(Boolean)) { if (max && n + l.length > max) break; out.push(l); n += l.length; } return out; };
@@ -205,3 +235,26 @@ G.iconMatch = (text, n = 12) => {
 G.iconText = (b, key) => { const s = G.src(b); if (key && key[0] === 'i') { const it = s.items[+key.slice(1)] || {}; return [it.title, it.text].join(' '); } return [s.title, s.lead].join(' '); };
 /* выбранная иконка или подобранная автоматически */
 G.iconFor = (b, key) => { const im = (b.images || {})[key] || {}; if (im.icon) { const ic = G.icons().find(x => x.id === im.icon); if (ic) return {ic, auto: false}; } const m = G.iconMatch(G.iconText(b, key), 1)[0]; return m ? {ic: m, auto: true} : null; };
+/* вставка из Google Docs и Word: заголовки, списки, картинки, таблицы → разметка */
+G.htmlToMarkup = html => {
+  const d = new DOMParser().parseFromString(html, 'text/html'), out = [];
+  const walk = n => {
+    if (n.nodeType !== 1) return;
+    const tag = n.tagName.toLowerCase(), t = () => n.textContent.replace(/\s+/g, ' ').trim();
+    if (/^h1$/.test(tag)) return out.push('[h1] ' + t());
+    if (/^h2$/.test(tag)) return out.push('[h2] ' + t());
+    if (/^h[3-6]$/.test(tag)) return out.push('[h3] ' + t());
+    if (tag === 'li') return out.push('- ' + t());
+    if (tag === 'img') return n.alt ? out.push('[картинка] ' + n.alt) : null;
+    if (tag === 'tr') return out.push([...n.children].map(c => c.textContent.replace(/\s+/g, ' ').trim()).join(' | '));
+    if (tag === 'p' || tag === 'div' && !n.querySelector('p,div,li,h1,h2,h3,table,img')) {
+      const x = t(), a = n.querySelector('a[href]');
+      if (x && a && a.textContent.trim().length >= x.length / 2) out.push('[кнопка] ' + x + ' | ' + a.getAttribute('href'));
+      else if (x) out.push(x);
+      n.querySelectorAll('img').forEach(walk); return;
+    }
+    [...n.children].forEach(walk);
+  };
+  [...d.body.children].forEach(walk);
+  return out.join('\n');
+};

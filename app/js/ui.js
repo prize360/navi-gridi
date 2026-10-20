@@ -240,29 +240,6 @@ S.runAdapt = async (p, ids) => {
   catch (err) { if (err.message !== 'cancel') S.toast(err.message); }
 };
 
-/* вставка из Google Docs и Word: заголовки, списки, картинки, таблицы → разметка */
-G.htmlToMarkup = html => {
-  const d = new DOMParser().parseFromString(html, 'text/html'), out = [];
-  const walk = n => {
-    if (n.nodeType !== 1) return;
-    const tag = n.tagName.toLowerCase(), t = () => n.textContent.replace(/\s+/g, ' ').trim();
-    if (/^h1$/.test(tag)) return out.push('[h1] ' + t());
-    if (/^h2$/.test(tag)) return out.push('[h2] ' + t());
-    if (/^h[3-6]$/.test(tag)) return out.push('[h3] ' + t());
-    if (tag === 'li') return out.push('- ' + t());
-    if (tag === 'img') return n.alt ? out.push('[картинка] ' + n.alt) : null;
-    if (tag === 'tr') return out.push([...n.children].map(c => c.textContent.replace(/\s+/g, ' ').trim()).join(' | '));
-    if (tag === 'p' || tag === 'div' && !n.querySelector('p,div,li,h1,h2,h3,table,img')) {
-      const x = t(), a = n.querySelector('a[href]');
-      if (x && a && a.textContent.trim().length >= x.length / 2) out.push('[ссылка] ' + x + ' | ' + a.getAttribute('href'));
-      else if (x) out.push(x);
-      n.querySelectorAll('img').forEach(walk); return;
-    }
-    [...n.children].forEach(walk);
-  };
-  [...d.body.children].forEach(walk);
-  return out.join('\n');
-};
 S.bindPaste = ta => ta.addEventListener('paste', ev => {
   const html = ev.clipboardData && ev.clipboardData.getData('text/html');
   if (!html || !/<(h[1-6]|li|table|img)/i.test(html)) return;
