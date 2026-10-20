@@ -409,7 +409,6 @@ body.picking .nb:not(.sel){opacity:.45}
 .sel-float .sb-acts{width:max-content;max-width:100%}
 .sel-float .sb-chips{width:0;min-width:100%}
 #eDockMain .sb-acts{width:max-content;max-width:100%}#eDockMain .sb-chips{width:0;min-width:100%}
-.sh-f:has(#wOpen){display:flex;gap:8px}
 /* библиотека в новой навигации */
 .tabs a{flex:none;display:inline-flex;align-items:center;height:38px;padding:0 16px;border-radius:19px;font-weight:500;font-size:15px;color:var(--ink2);text-decoration:none}
 .tabs a.on{background:var(--ink);color:#fff}
@@ -422,3 +421,16 @@ body.picking .nb:not(.sel){opacity:.45}
 #lDock{display:flex;justify-content:center}
 #lDock .pill{pointer-events:auto;max-width:420px}
 .libv-layer{position:fixed;inset:0;z-index:200;background:transparent}
+/* разбор: экран загрузки */
+.ld{max-width:520px;margin:0 auto;padding:24px 20px 140px;display:flex;flex-direction:column;gap:16px}
+.ld h2{font-size:22px;margin:0}
+.ld-st{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
+.ld-st li{display:flex;align-items:center;gap:10px;color:var(--mute);font-weight:500}
+.ld-st li::before{content:'';width:14px;height:14px;border-radius:50%;border:2px solid currentColor;flex:none}
+.ld-st li.on{color:var(--ink)}.ld-st li.on::before{border-color:var(--acc);border-right-color:transparent;animation:spin .8s linear infinite}
+.ld-st li.done{color:var(--ink2)}.ld-st li.done::before{background:var(--acc);border-color:var(--acc)}
+.ld-st small{font:500 12px var(--mono);color:var(--mute)}
+.ld-man{display:flex;flex-direction:column;gap:10px;background:var(--card);border-radius:20px;padding:16px}
+.ld-man p{margin:0}
+.ld>#ldCancel{align-self:flex-start}
+@keyframes spin{to{transform:rotate(360deg)}}

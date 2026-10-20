@@ -1,8 +1,7 @@
 /* Тесты разбора: node tests/run.cjs
-   Берут разметку статей (fixtures/*.lines.json) и настоящие ответы моделей (fixtures/<статья>.<модель>.json),
-   прогоняют через G.applySeg и проверяют: ни одна строка не потеряна, число блоков как в эталоне,
-   на месте H2. Плюс «слабый» ответ: сильный ответ, испорченный типичными ошибками GigaChat,
-   должен собраться без потерь. Без браузера и без сети. */
+   Берут разметку статей (fixtures/*.lines.json) и прогоняют разбор: сборка по разметке + ответ модели
+   (группировка строк по номерам). Проверяют: ни одна строка не потеряна и не изменена, кнопки со ссылками
+   на месте, плохой ответ модели не ломает страницу. Без браузера и без сети. */
 const fs = require('fs'), vm = require('vm'), path = require('path');
 const root = path.join(__dirname, '..'), fx = f => path.join(__dirname, 'fixtures', f);
 const store = {}, ctx = {console, localStorage: {getItem: k => store[k] ?? null, setItem: (k, v) => store[k] = v, removeItem() {}}, navigator: {}, location: {hash: ''}, document: {createElement: () => ({style: {}}), head: {appendChild() {}}, querySelector: () => null}, setTimeout, clearTimeout, CSS: {escape: x => x}};
@@ -10,42 +9,40 @@ ctx.window = ctx; vm.createContext(ctx);
 for (const f of ['app/js/core.js', 'library/rules.js', 'library/settings.js', 'library/scenarios.js', 'library/templates.js', 'library/prompts.js', 'library/icons.js', 'library/examples.js', 'app/js/match.js', 'app/js/llm.js']) vm.runInContext(fs.readFileSync(path.join(root, f), 'utf8'), ctx, {filename: f});
 const G = ctx.Gridi, sc = G.lib.all('scenarios').find(x => x.kind === 'article');
 let fail = 0; const ok = (cond, msg) => { console.log((cond ? '  ok   ' : '  FAIL ') + msg); if (!cond) fail++; };
-const run = (lines, answer) => { const page = G.newPage('t', sc.id, lines.join('\n')); const r = G.applySeg(page, answer); return {r, page}; };
-const h2 = lines => lines.filter(l => /^\[h2\]/.test(l) && !/^\[h2\]\s*(Содержание|Что в статье)/.test(l)).length;
-
-/* 1. настоящие ответы моделей */
-const expect = {'tehnotrendy.gigachat-1': 26, 'tehnotrendy.gigachat-2': 26, 'tehnotrendy-bez-vremeni.deepseek': 26, 'kreditnaya-karta.gigachat-1': 14, 'kreditnaya-karta.gigachat-2': 12};
-for (const [name, blocks] of Object.entries(expect)) {
-  const lines = JSON.parse(fs.readFileSync(fx(name.split('.')[0] + '.lines.json'), 'utf8')), {r, page} = run(lines, JSON.parse(fs.readFileSync(fx(name + '.json'), 'utf8')));
-  console.log(name);
-  ok(r.lost === 0, `все ${r.total} строк на месте (потеряно ${r.lost})`);
-  ok(page.blocks.length === blocks, `блоков ${page.blocks.length}, ждём ${blocks}`);
-  const got = page.blocks.filter(b => /^\[h2\]/.test(b.text)).length - (page.blocks[0] && /^\[h2\]/.test(page.blocks[0].text) ? 1 : 0);
-  ok(got >= h2(lines) - 1, `H2 на месте: ${got} из ${h2(lines)}`);
-}
-
-/* 2. слабый ответ: типичные ошибки GigaChat поверх ответа без ошибок */
-const P = l => l.replace(/^\s*(\[(h[1-4]|кнопка|картинка)\]|@|[-•]\s)\s*/i, '').trim();
+const norm = t => String(t || '').replace(/^\s*(\[[^\]]+\]|@|[-•]\s)\s*/gm, '').replace(/\s+/g, ' ').trim();
+const words = blocks => norm(blocks.map(b => b.text).join('\n'));
 for (const f of fs.readdirSync(path.join(__dirname, 'fixtures')).filter(f => f.endsWith('.lines.json'))) {
-  const lines = JSON.parse(fs.readFileSync(fx(f), 'utf8')), n = lines.length;
-  /* «сильный» ответ — блок на каждую группу строк по разметке */
-  const B = [{type: 'head', paras: '1-2'}]; let cur = null;
-  const kind = l => /^\[h[23]\]/.test(l) ? 'h' : /^- /.test(l) ? 'li' : / \| /.test(l) && !/^\[ссылка\]/.test(l) ? 'tr' : 'p';
-  for (let i = 3; i <= n; i++) { const k = kind(lines[i - 1]);
-    if (k === 'h') { cur = null; B.push({type: 'text', h: String(i)}); continue; }
-    const t = k === 'li' ? 'list' : k === 'tr' ? 'table' : 'text';
-    if (cur && cur.type === t) { const key = t === 'list' ? 'items' : 'paras'; cur[key] += ',' + i; } else { cur = t === 'list' ? {type: t, items: String(i)} : {type: t, paras: String(i)}; B.push(cur); } }
-  /* порча: чужие типы, заголовок текстом, items строкой с JSON, склейки, перестановка, повтор строки */
-  const W = B.map((b, k) => { const o = {...b, type: {text: 'content', list: 'vrez', head: 'lead', table: 'vrez'}[b.type] || b.type};
-    if (o.h) { o.title = P(lines[+o.h - 1]); delete o.h; }
-    if (o.items && k % 2) o.items = JSON.stringify(o.items.split(',').map(p => ({title: '', p}))); return o; });
-  for (let k = W.length - 2; k > 2; k -= 4) if (W[k].paras && W[k + 1].paras) { W[k].paras += ',' + W[k + 1].paras; W.splice(k + 1, 1); }
-  if (W.length > 7) [W[5], W[6]] = [W[6], W[5]];
-  if (W[8] && W[8].paras) W[8].paras += ',3';
-  const s = run(lines, {blocks: B}), w = run(lines, {blocks: W});
-  console.log(f.replace('.lines.json', '') + ' — слабый ответ');
-  ok(s.r.lost === 0 && w.r.lost === 0, `строки на месте: сильный ${s.r.lost}, слабый ${w.r.lost} потеряно из ${n}`);
-  ok(Math.abs(s.page.blocks.length - w.page.blocks.length) <= 3, `блоков: сильный ${s.page.blocks.length}, слабый ${w.page.blocks.length}`);
+  const lines = JSON.parse(fs.readFileSync(fx(f), 'utf8')), name = f.replace('.lines.json', '');
+  const mk = () => G.newPage('t', sc.id, lines.join('\n')), btns = lines.filter(l => /^\[кнопка\].*\|/.test(l)).length;
+  const cnt = pg => pg.blocks.reduce((n, b) => n + (b.text.match(/^\[кнопка\].*\|/gm) || []).length, 0);
+  console.log(name);
+  /* промт: строки с номерами и блоки сборки */
+  const pr = G.parsePrompt(mk()); ok(/\[1\] /.test(pr) && /== блок 1: /.test(pr), 'промт: строки с номерами и блоки по разметке');
+  /* 1. модель не ответила — сборка по разметке */
+  const a = mk(), ra = G.applyParse(a, null), R = G.parseLines(a);
+  ok(!ra.byModel && a.blocks.length > 3, `без ответа — по разметке: ${a.blocks.length} блоков`);
+  ok(words(a.blocks) === norm(R.join('\n')), 'по разметке: текст целиком, без изменений');
+  ok(cnt(a) === btns, `кнопки со ссылками на месте: ${cnt(a)} из ${btns}`);
+  /* 2. хороший ответ: блоки как у разметки, роли из сценария, заголовок без разметки отмечен */
+  const base = mk(); G.assemble(base);
+  let k = 0; const groups = base.blocks.map(b => { const n = b.text.split('\n').filter(x => x.trim()).length; const g = {role: b.role, lines: (k + 1) + '-' + (k + n)}; k += n; return g; });
+  const b2 = mk(), r2 = G.applyParse(b2, {blocks: groups.map((g, i) => i === 3 ? {...g, tip: 'Длинный кусок — просится врез'} : g)});
+  ok(r2.byModel && r2.lost === 0, `хороший ответ: модель, потеряно ${r2.lost}`);
+  ok(words(b2.blocks) === norm(R.join('\n')), 'хороший ответ: текст целиком, без изменений');
+  ok(cnt(b2) === btns, `хороший ответ: кнопки на месте ${cnt(b2)} из ${btns}`);
+  ok((b2.blocks[3].tips || [])[0] === 'Длинный кусок — просится врез', 'подсказка модели — у блока');
+  /* 3. модель делает пунктами длинные абзацы — Гриди не даёт */
+  const long = R.map((l, i) => i + 1).filter(i => R[i - 1].length > 300 && !/^\s*(\[|@|- )/.test(R[i - 1]));
+  if (long.length) { const b3 = mk(); G.applyParse(b3, {blocks: [{role: 'content', lines: '1-' + R.length, items: long.join(',')}]}); const t3 = b3.blocks.map(b => b.text).join('\n').split('\n'); ok(long.every(i => !t3.includes('- ' + R[i - 1])), `длинные абзацы не стали пунктами (${long.length})`); }
+  /* 4. модель потеряла строки — они в «Не разобрано» в конце; потеряла много — сборка по разметке */
+  const b4 = mk(), half = Math.floor(R.length * 0.9), r4 = G.applyParse(b4, {blocks: [{role: 'content', lines: '1-' + half}]});
+  ok(r4.lost === R.length - half && b4.blocks.at(-1).role === 'unparsed', `потеряно ${r4.lost} — в «Не разобрано»`);
+  ok(words(b4.blocks) === norm(R.join('\n')), 'с потерями: текст целиком');
+  const b5 = mk(), r5 = G.applyParse(b5, {blocks: [{role: 'content', lines: '1-3'}]});
+  ok(!r5.byModel && b5.blocks.length === a.blocks.length, 'потеряна большая часть — страница по разметке');
+  /* 5. мусор в ответе: чужие роли, номера за пределами, повторы */
+  const b6 = mk(), r6 = G.applyParse(b6, {blocks: [{role: 'нет такой', lines: '1-2,2,9999'}, {role: 'vrez', lines: '3-' + R.length + ',1'}]});
+  ok(r6.byModel && words(b6.blocks) === norm(R.join('\n')) && b6.blocks.every(b => G.roleOf(sc, b.role).id === b.role), 'мусор в ответе: текст целиком, роли из сценария');
 }
 console.log(fail ? `\n${fail} провалов` : '\nвсе тесты прошли');
 process.exit(fail ? 1 : 0);

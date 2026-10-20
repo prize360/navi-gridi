@@ -68,6 +68,7 @@ const report = p => {
   const dis = p.dismissed || [], checks = G.checks(p).filter(c => !dis.includes(c.text) && !/^Нави /.test(c.text));
   p.blocks.forEach(b => { const s0 = G.src(b); s0.cta.forEach((c, k) => { if (!(s0.urls || [])[k]) { const t = `Нет ссылки у кнопки «${c}» — допишите адрес через « | »`; if (!dis.includes(t)) checks.push({level: 'info', text: t, block: b}); } });
     s0.items.forEach(it => { if (it.cta && !it.url) { const t = `Нет ссылки у кнопки «${it.cta}» — допишите адрес через « | »`; if (!dis.includes(t)) checks.push({level: 'info', text: t, block: b}); } }); });
+  p.blocks.forEach(b => (b.tips || []).forEach(t => { if (!dis.includes(t)) checks.push({level: 'info', text: t, block: b}); }));
   p.blocks.filter(b => b.role === 'unparsed').forEach(b => checks.unshift({level: 'error', text: 'Блок «Не разобрано»: разнесите абзацы по блокам (Роль) или удалите блок', block: b}));
   const order = {error: 0, warn: 1, info: 2}; checks.sort((a, b) => order[a.level] - order[b.level]);
   const missing = G.missing(p), byBlock = {};
@@ -362,30 +363,50 @@ const draft = () => {
     if (!html || !/<(h[1-6]|li|table|img|a\s)/i.test(html)) return; const md = G.htmlToMarkup(html); if (!md.trim()) return;
     ev.preventDefault(); const a = ta.selectionStart, z = ta.selectionEnd; ta.value = ta.value.slice(0, a) + md + ta.value.slice(z); ta.selectionStart = ta.selectionEnd = a + md.length;
     p.text = ta.value; save(); ta.dispatchEvent(new Event('input')); toast('Заголовки, списки и ссылки размечены автоматически'); });
-  /* разметка Гриди (вставка из Docs/Word) уходит в промт разбора — модель видит заголовки и списки; без модели — только по разметке */
+  /* одна кнопка: разбор целиком — разметка, модель, шаблоны — одним этапом */
   const dock = $app.querySelector('#eDock');
-  const bar = () => { dock.innerHTML = `<div class="d-acts">${G.fullyMarked(ta.value) ? '<button class="pill ghost" id="dAsm">Без модели</button>' : ''}<button class="pill grad wide" id="dGo">Собрать ${sc().kind === 'article' ? 'статью' : 'страницу'}</button></div>`;
-    dock.querySelector('#dGo').onclick = () => build(ta.value); const asm = dock.querySelector('#dAsm'); if (asm) asm.onclick = () => build(ta.value, true); };
-  bar(); ta.addEventListener('input', () => { if (!!dock.querySelector('#dAsm') !== G.fullyMarked(ta.value)) bar(); });
+  dock.innerHTML = `<button class="pill grad wide" id="dGo">Разобрать</button>`;
+  dock.querySelector('#dGo').onclick = () => build(ta.value);
 };
-/* разбор получился плохим: сначала говорим об этом, страницу открываем, только если человек согласен */
-const weakSeg = r => new Promise(res => { let done = false; const fin = v => { if (done) return; done = true; s.close(true); res(v); };
-  const s = sheet(`<div class="sh-h"><div><h2>Разбор получился плохим</h2><p class="sub">Модель не разложила ${r.lost} из ${G.num(r.total, 'абзаца', 'абзацев', 'абзацев')}.</p></div></div>
-    <div class="sh-b"><p>Попробуйте другую модель или разметьте текст: заголовки — <b>[h2]</b>, пункты — <b>- </b>, и соберите снова.</p><p class="hint">Если открыть как есть, неразобранные абзацы будут в конце, в блоке «Не разобрано».</p></div>
-    <div class="sh-f"><button class="pill ghost" id="wOpen">Открыть как есть</button><button class="pill pri wide" id="wBack">Вернуться к тексту</button></div>`, {onClose: () => fin(false)});
-  s.$('#wBack').onclick = () => fin(false); s.$('#wOpen').onclick = () => fin(true); });
-const build = async (text, plain) => {
+/* 2а'. Разбор — экран загрузки. Модель не подключена — промт и ответ здесь же, вторым шагом.
+   Страница сохраняется только после разбора; отмена — назад к тексту, текст на месте. */
+const build = async text => {
   const p = A.page; text = String(text || '').trim(); if (!text) return toast('Сначала вставьте текст.');
   p.text = text;
-  try {
-    if (isShare(text)) fromShare(p, text);
-    else if (plain && G.fullyMarked(text)) { G.assemble(p); G.autoPick(p, true); }
-    else { const j = await G.ask('Разбор: ' + sc().name, G.segPrompt(p)); const r = G.applySeg(p, j);
-      if (r.lost && r.lost / Math.max(1, r.total) > 0.25 && !await weakSeg(r)) { p.blocks = []; save(); return draft(); }
-      if (r.lost) toast(`Модель пропустила ${G.num(r.lost, 'абзац', 'абзаца', 'абзацев')} — они в конце, в блоке «Не разобрано».`); }
-  } catch (err) { if (err.message !== 'cancel') toast(err.message); return; }
+  if (isShare(text)) { fromShare(p, text); return done(p); }
+  const main = $app.querySelector('#eMain'), dock = $app.querySelector('#eDock'); dock.innerHTML = '';
+  main.innerHTML = `<div class="ld"><h2>Разбираем текст</h2><ol class="ld-st">
+      <li data-s="1" class="on">Собираем по разметке</li><li data-s="2">Модель проверяет блоки и роли <small id="ldT"></small></li><li data-s="3">Подбираем шаблоны</li></ol>
+    <div id="ldX"></div><button class="pill ghost" id="ldCancel">Отменить</button></div>`;
+  const st = (n, cls) => { const li = main.querySelector(`[data-s="${n}"]`); if (li) li.className = cls; };
+  let ctl = new AbortController(), manualRej = null, cancelled = false;
+  main.querySelector('#ldCancel').onclick = () => { cancelled = true; ctl.abort(); if (manualRej) manualRej(new Error('cancel')); };
+  st(1, 'done'); st(2, 'on');
+  const ui = G.ui, keep = {busy: ui.busy, manualAsk: ui.manualAsk};
+  ui.busy = () => { const t0 = Date.now(), tm = setInterval(() => { const el = main.querySelector('#ldT'); if (el) el.textContent = Math.round((Date.now() - t0) / 1000) + ' с'; }, 1000);
+    const h = {signal: ctl.signal, timedOut: false, done: () => clearInterval(tm)}; setTimeout(() => { if (!h.signal.aborted) { h.timedOut = true; ctl.abort(); } }, 240000); return h; };
+  ui.manualAsk = (label, prompt) => new Promise((res, rej) => { manualRej = rej; const x = main.querySelector('#ldX');
+    x.innerHTML = `<div class="ld-man"><p>Модель не подключена: скопируйте промт, отправьте в свою модель и вставьте ответ.</p>
+      <button class="pill pri" id="mCopy">Скопировать промт</button> <span class="hint">${prompt.length.toLocaleString('ru-RU')} зн.</span>
+      <textarea class="ta" id="mAns" rows="5" placeholder="Ответ модели целиком"></textarea><p class="hint err" id="mErr"></p>
+      <button class="pill pri wide" id="mOk">Продолжить</button></div>`;
+    x.querySelector('#mCopy').onclick = async () => { await G.copy(prompt); toast('Промт скопирован'); };
+    x.querySelector('#mOk').onclick = () => { const v = x.querySelector('#mAns').value; if (!G.parseJSON(v)) { x.querySelector('#mErr').textContent = 'В ответе нет JSON. Попросите модель: «верни только JSON».'; return; } x.innerHTML = ''; res(v); }; });
+  let j = null, note = '';
+  try { j = await G.ask('Разбор: ' + sc().name, G.parsePrompt(p)); }
+  catch (err) { if (cancelled || err.message === 'cancel') { Object.assign(ui, keep); p.blocks = []; return draft(); } note = 'Модель не ответила — страница собрана по разметке.'; }
+  finally { Object.assign(ui, keep); }
+  if (cancelled) { p.blocks = []; return draft(); }
+  st(2, 'done'); st(3, 'on');
+  const r = G.applyParse(p, j);
+  if (j && !r.byModel) note = 'Модель разобрала плохо — страница собрана по разметке. Можно разобрать заново другой моделью.';
+  else if (r.lost) note = `Модель не разложила ${G.num(r.lost, 'строку', 'строки', 'строк')} — они в конце, в блоке «Не разобрано».`;
+  done(p, note);
+};
+const done = async (p, note) => {
   if (p.name === 'Без названия') { const h = p.blocks.find(b => b.role === 'hero'); const t = h && G.src(h).title; if (t) p.name = t.slice(0, 80); }
   A.mode = 'page'; await G.store.put(p); editor();
+  const n = report(p).checks.length; toast(note || `Готово: ${G.num(p.blocks.length, 'блок', 'блока', 'блоков')}${n ? ' · ' + G.num(n, 'подсказка', 'подсказки', 'подсказок') + ' в выгрузке' : ''}`);
 };
 
 /* 2б. Заметки: блоки — линии с ролью, строки — разметка */
