@@ -44,5 +44,13 @@ for (const f of fs.readdirSync(path.join(__dirname, 'fixtures')).filter(f => f.e
   const b6 = mk(), r6 = G.applyParse(b6, {blocks: [{role: 'нет такой', lines: '1-2,2,9999'}, {role: 'vrez', lines: '3-' + R.length + ',1'}]});
   ok(r6.byModel && words(b6.blocks) === norm(R.join('\n')) && b6.blocks.every(b => G.roleOf(sc, b.role).id === b.role), 'мусор в ответе: текст целиком, роли из сценария');
 }
+/* эталоны: как статью разложил человек руками (fixtures/<статья>.manual.json) — сборка по разметке должна совпасть почти везде */
+for (const f of fs.readdirSync(path.join(__dirname, 'fixtures')).filter(f => f.endsWith('.manual.json'))) {
+  const name = f.replace('.manual.json', ''), want = JSON.parse(fs.readFileSync(fx(f), 'utf8')), lines = JSON.parse(fs.readFileSync(fx(name + '.lines.json'), 'utf8'));
+  const pg = G.newPage('t', sc.id, lines.join('\n')); G.assemble(pg);
+  const key = t => t.split('\n')[0].replace(/^\[[^\]]+\]\s*|^[-@]\s*/, '').slice(0, 14), got = pg.blocks.map(b => b.role + '|' + key(b.text)), have = new Set(got);
+  const hit = want.filter(([r, k]) => have.has(r + '|' + k.slice(0, 14))).length;
+  console.log(name + ' — эталон редактора'); ok(hit >= want.length - 3, `совпало блоков: ${hit} из ${want.length} (по разметке ${pg.blocks.length})`);
+}
 console.log(fail ? `\n${fail} провалов` : '\nвсе тесты прошли');
 process.exit(fail ? 1 : 0);

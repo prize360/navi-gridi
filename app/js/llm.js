@@ -127,11 +127,14 @@ G.applyParse = (page, json) => {
         if (I.has(i) && l.length <= 300) return '- ' + l;
         if (M.has(i) && l.length <= 120) return '@ ' + l;
         return l; }).join('\n');
-      const b = G.newBlock(role, text); const tip = String(x.tip || '').trim(); if (tip) b.tips = [tip.slice(0, 240)];
+      let tx = text; const hs = (tx.match(/^\[h3\]/gim) || []).length; if (role !== 'hero' && hs === 1 && /^\[h3\]/i.test(tx)) tx = tx.replace(/^\[h3\]/i, '[h2]');
+      const b = G.newBlock(role, tx); const tip = String(x.tip || '').trim(); if (tip) b.tips = [tip.slice(0, 240)];
       return b;
     });
     /* строки, которые модель не разложила, — в конец, в «Не разобрано» */
     if (lost.length) { const b = G.newBlock('unparsed', lost.map(i => R[i - 1]).join('\n')); b.tips = [`Модель не разложила ${G.num(lost.length, 'строку', 'строки', 'строк')} — перенесите их в нужные блоки или удалите блок.`]; blocks.push(b); }
+    /* первый экран один: соседние блоки с этой ролью — один блок, строки без разметки под заголовком — подписи */
+    for (let i = blocks.length - 1; i > 0; i--) if (blocks[i].role === 'hero' && blocks[i - 1].role === 'hero') { blocks[i - 1].text += '\n' + blocks[i].text.split('\n').map(l => MARK.test(l) || l.length > 80 ? l : '@ ' + l).join('\n'); blocks[i - 1].tips = [...(blocks[i - 1].tips || []), ...(blocks[i].tips || [])]; blocks.splice(i, 1); }
     page.blocks = blocks; page.story = (json.story || []).filter(Boolean).map(String); page.parsedBy = 'model';
   }
   /* текст длиннее лимита разбора — хвост по разметке */
@@ -145,31 +148,39 @@ G.applyParse = (page, json) => {
 G.assemble = page => {
   const sc = G.scenario(page.scenario), lines = String(page.text || '').split('\n'), blocks = [];
   if (sc.kind === 'article') {
-    let cur = null, mode = '';
+    let cur = null, mode = ''; const h3s = new Set();
     const flush = () => { if (cur && cur.lines.join('').trim()) blocks.push(G.newBlock(cur.role, cur.lines.join('\n').trim())); cur = null; mode = ''; };
     const start = (role, l) => { flush(); cur = {role, lines: l ? [l] : []}; };
     for (const raw of lines) {
       const l = raw.trim(); if (!l) continue;
       if (/^-{3,}$/.test(l)) { flush(); continue; } /* --- — новый блок */
-      const isH1 = /^\[h1\]/i.test(l), isH2 = /^\[h2\]/i.test(l), isList = /^(?:[-–•*]|\d+[.)])\s+/.test(l) || /^\[h3\]/i.test(l), isImg = /^\[(картинка|фото)\]/i.test(l), isBtn = /^\[кнопка\]/i.test(l), isMeta = /^@/.test(l), isTable = l.includes(' | ');
+      const isH1 = /^\[h1\]/i.test(l), isH2 = /^\[h[23]\]/i.test(l), isList = /^(?:[-–•*]|\d+[.)])\s+/.test(l), isImg = /^\[(картинка|фото)\]/i.test(l), isBtn = /^\[кнопка\]/i.test(l), isMeta = /^@/.test(l), isTable = l.includes(' | ');
       if (isH1) { start('hero', l); mode = 'hero'; continue; }
       if (mode === 'hero' && (isMeta)) { cur.lines.push(l); continue; }
-      if (isH2) { start('content', l); mode = 'text'; continue; }
+      /* короткие строки сразу под заголовком (автор, дата, рубрика) — подписи первого экрана */
+      if (mode === 'hero' && cur.lines.length < 4 && !/^\[|^(?:[-–•*]|\d+[.)])\s/.test(l) && l.length <= 80 && !/[.!?…]$/.test(l)) { cur.lines.push('@ ' + l); continue; }
+      /* раздел: заголовок, открывающий блок, — H2 (H3 исходника тоже: в гриде это самостоятельный блок) */
+      if (isH2) { start('content', l.replace(/^\[h3\]/i, '[h2]')); if (/^\[h3\]/i.test(l)) h3s.add(blocks.length); mode = 'text'; continue; }
       if (isImg) { if (mode !== 'img') { start('vrez'); mode = 'img'; } cur.lines.push(l); continue; }
       if (isTable) { if (mode !== 'table') { start('vrez'); mode = 'table'; } cur.lines.push(l); continue; }
-      if (isList) { if (mode !== 'list') { const keepTitle = cur && cur.role === 'content' && cur.lines.length === 1 && /^\[h2\]/i.test(cur.lines[0]) ? cur.lines.pop() : null; if (keepTitle !== null && !cur.lines.length) cur = null; start('vrez', keepTitle); mode = 'list'; } cur.lines.push(l); continue; }
+      if (isList) { if (mode !== 'list') { const last = cur && cur.role === 'content' ? cur.lines[cur.lines.length - 1] || '' : '';
+        /* заголовок списка: раздел из одного заголовка или короткая строка без точки прямо перед пунктами */
+        const keepTitle = cur && cur.role === 'content' && cur.lines.length === 1 && /^\[h2\]/i.test(cur.lines[0]) ? cur.lines.pop() : last && !/^\[|^@/.test(last) && last.length <= 80 && !/[.!?…:;,]$/.test(last) ? '[h2] ' + cur.lines.pop() : null; if (keepTitle !== null && !cur.lines.length) cur = null; start('vrez', keepTitle); mode = 'list'; } cur.lines.push(l); continue; }
       if (isBtn) {
         if (cur && cur.role === 'content') { const prev = cur.lines[cur.lines.length - 1] || ''; const take = prev && !/^\[/.test(prev) && prev.length <= 240 ? cur.lines.pop() : null; start('vrez', take); cur.lines.push(l); mode = 'cta'; }
         else if (cur && mode !== 'quote') cur.lines.push(l); else { start('vrez', l); mode = 'cta'; }
         continue;
       }
       if (isMeta && cur && cur.role === 'content') { const prev = cur.lines[cur.lines.length - 1] || ''; if (/^[«"„“]/.test(prev)) { cur.lines.pop(); start('vrez', prev); cur.lines.push(l); mode = 'quote'; continue; } }
-      if (mode === 'list' && cur && /^\[h3\]/i.test(cur.lines[cur.lines.length - 1] || '')) { cur.lines.push(l); continue; }
       if (mode === 'hero' && !blocks.some(b => b.role === 'lead')) { start('lead', l); mode = 'lead'; continue; }
       if (mode !== 'text') { start('content'); mode = 'text'; }
       cur.lines.push(l);
     }
     flush();
+    /* подряд несколько коротких подразделов H3 (заголовок + один короткий абзац) — это перечисление: один врез с пунктами-H3 */
+    const shortSub = (b, i) => h3s.has(i) && b.role === 'content' && b.text.split('\n').length === 2 && b.text.split('\n')[1].length <= 300 && !/^\[/.test(b.text.split('\n')[1]);
+    for (let i = 0; i < blocks.length; i++) { let j = i; while (j < blocks.length && shortSub(blocks[j], j)) j++;
+      if (j - i >= 2) { const v = G.newBlock('vrez', blocks.slice(i, j).map(b => b.text.replace(/^\[h2\]/i, '[h3]')).join('\n')); blocks.splice(i, j - i, v); for (const k of [...h3s]) { h3s.delete(k); if (k >= j) h3s.add(k - (j - i) + 1); } } }
     blocks.forEach(b => { if (b.role === 'vrez' && G.src(b).table) { b.tpl = 'table'; b.tplLock = true; } });
   } else {
     const order = sc.roles.map(r => r.id).filter(r => r !== 'hero');

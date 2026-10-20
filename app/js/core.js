@@ -186,6 +186,9 @@ G.parse = text => {
     else { src.paras.push(l); last = 'para'; item = null; }
   }
   src.items.forEach(i => delete i._h);
+  /* все пункты списка вида «Короткая фраза. Остальное» — заголовок и текст пункта (форма одинаковая у всех — значит, задумано) */
+  const PH = /^([^.!?:—–]{2,60}?)\.\s+(\S.*)$/;
+  if (src.items.length >= 2 && src.items.every(i => i.title || PH.test(i.text || ''))) src.items.forEach(i => { if (i.title) return; const m = i.text.match(PH); i.title = m[1].trim(); i.text = m[2].trim(); i.sep = '. '; });
   src.lead = src.paras.join('\n\n');
   src.table = src.paras.filter(p => p.includes(' | ')).length >= 2;
   return src;

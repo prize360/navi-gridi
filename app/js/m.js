@@ -12,6 +12,8 @@ const I = {
   back: '<svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>',
   menu: '<svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg>',
   tune: '<svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>',
+  merge: '<svg viewBox="0 0 24 24"><path d="M7 4v5a3 3 0 003 3h4a3 3 0 013 3v5M7 20v-4"/><path d="M4 7l3-3 3 3"/></svg>',
+  star: '<svg viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="2"/><circle cx="16.5" cy="7.5" r="3.5"/><path d="M4 20l3.5-6 3.5 6zM14 14h6v6h-6z"/></svg>',
   tag: '<svg viewBox="0 0 24 24"><path d="M4 12V5a1 1 0 011-1h7l8 8-8 8-8-8z"/><circle cx="8.5" cy="8.5" r="1.3"/></svg>',
   note: '<svg viewBox="0 0 24 24"><path d="M5 6h14M5 11h14M5 16h9"/></svg>',
   page: '<svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="7" rx="1.5"/><rect x="4" y="14" width="7" height="6" rx="1.5"/><rect x="13" y="14" width="7" height="6" rx="1.5"/></svg>',
@@ -60,6 +62,34 @@ const lineHTML = (k, t) => `<div class="ln" data-k="${k}" data-g="${e((KIND[k] |
 const mkLine = (k, t) => { const d = document.createElement('div'); d.className = 'ln'; d.dataset.k = k; d.dataset.g = (KIND[k] || KIND.p).g; if (t) d.textContent = t; else d.innerHTML = '<br>'; return d; };
 const setKind = (d, k) => { d.dataset.k = k; d.dataset.g = (KIND[k] || KIND.p).g; };
 
+/* ---------- замечания: одна причина — одна строка ----------
+   stop — блок не выгрузится; fit — поправить под шаблон (всё по блоку одной строкой); page — про страницу целиком; hint — подсказки */
+const HINT = /^Полотно текста|^Мало врезов|^Все врезы одного вида|^Порядок блоков|встречается .* раза|без подзаголовков/;
+const kindOf = c => c.tip || HINT.test(c.text) ? 'hint' : c.level === 'error' || /нет шаблона\.|^Пустой блок|«Не разобрано»/.test(c.text) ? 'stop' : c.block ? 'fit' : 'page';
+const labelOf = c => { const t = c.text;
+  if (/правили после адаптации/.test(t)) return '';
+  let m;
+  if ((m = t.match(/^«[^»]*»: (.+?) — адаптируйте текст/))) return m[1].replace(/ лимита$/, '');
+  if (/» в шаблоне «/.test(t)) return 'tier';
+  if ((m = t.match(/^Нет ссылки у кнопки «(.+?)»/))) return `кнопка «${m[1].slice(0, 24)}» без ссылки`;
+  if ((m = t.match(/^Кнопка «(.+?)» не говорит/))) return `кнопка «${m[1].slice(0, 24)}» без глагола`;
+  if (/в админке нет подходящего шаблона/.test(t)) return 'нужен шаблон в админке';
+  if ((m = t.match(/нужен дизайн шаблона «(.+?)»/))) return 'нужен дизайн шаблона';
+  if ((m = t.match(/^«[^»]*»: (.+?)\.?$/))) return m[1];
+  return t.replace(/\.$/, ''); };
+const rowsOf = (p, checks, byBlock) => {
+  const out = {stop: [], fit: [], page: [], hint: []};
+  for (const b of p.blocks) { const own = checks.filter(c => c.block === b);
+    const stop = own.filter(c => c.kind === 'stop'); if (stop.length) out.stop.push({b, text: [...new Set(stop.map(c => c.label || c.text))].join(' · ')});
+    let fit = own.filter(c => c.kind === 'fit' && c.label).map(c => c.label); const extra = (byBlock[b.id] || []).filter(c => c.level === 'design').map(c => c.label);
+    fit = [...fit, ...extra]; const hasLen = fit.some(l => /длиннее/.test(l));
+    fit = fit.map(l => l === 'tier' ? (hasLen ? '' : 'текст не ложится в поля шаблона') : l).filter(Boolean);
+    if (fit.some(l => l === 'нужен шаблон в админке')) fit = fit.filter(l => l !== 'нужен дизайн шаблона');
+    fit = [...new Set(fit)]; if (fit.length) out.fit.push({b, text: fit.join(' · ')});
+    own.filter(c => c.kind === 'hint').forEach(c => out.hint.push({b, text: c.text})); }
+  checks.filter(c => !c.block && c.kind === 'page').forEach(c => out.page.push({c, text: c.text}));
+  checks.filter(c => !c.block && c.kind === 'hint').forEach(c => out.hint.push({b: null, text: c.text}));
+  return out; };
 /* ---------- страница ---------- */
 /* замечания считаются один раз на состояние страницы: бейдж, точки и экран выгрузки берут одно и то же */
 const report = p => {
@@ -68,13 +98,16 @@ const report = p => {
   const dis = p.dismissed || [], checks = G.checks(p).filter(c => !dis.includes(c.text) && !/^Нави /.test(c.text));
   p.blocks.forEach(b => { const s0 = G.src(b); s0.cta.forEach((c, k) => { if (!(s0.urls || [])[k]) { const t = `Нет ссылки у кнопки «${c}» — допишите адрес через « | »`; if (!dis.includes(t)) checks.push({level: 'info', text: t, block: b}); } });
     s0.items.forEach(it => { if (it.cta && !it.url) { const t = `Нет ссылки у кнопки «${it.cta}» — допишите адрес через « | »`; if (!dis.includes(t)) checks.push({level: 'info', text: t, block: b}); } }); });
-  p.blocks.forEach(b => (b.tips || []).forEach(t => { if (!dis.includes(t)) checks.push({level: 'info', text: t, block: b}); }));
+  p.blocks.forEach(b => (b.tips || []).forEach(t => { if (!dis.includes(t)) checks.push({level: 'info', text: t, block: b, tip: true}); }));
   p.blocks.filter(b => b.role === 'unparsed').forEach(b => checks.unshift({level: 'error', text: 'Блок «Не разобрано»: разнесите абзацы по блокам (Роль) или удалите блок', block: b}));
   const order = {error: 0, warn: 1, info: 2}; checks.sort((a, b) => order[a.level] - order[b.level]);
   const missing = G.missing(p), byBlock = {};
-  checks.forEach(c => { if (c.block) (byBlock[c.block.id] = byBlock[c.block.id] || []).push(c); });
-  missing.forEach(m => { (byBlock[m.b.id] = byBlock[m.b.id] || []).push({level: 'design', text: 'нужен дизайн'}); });
-  Object.defineProperty(p, '_rep', {value: {key, checks, missing, byBlock, count: checks.length + missing.length}, configurable: true, writable: true, enumerable: false});
+  checks.forEach(c => { c.kind = kindOf(c); if (c.label === undefined) c.label = labelOf(c); });
+  /* у блока точка — только то, что мешает выгрузке или требует правки под шаблон; подсказки — отдельно */
+  checks.forEach(c => { if (c.block && (c.kind === 'stop' || c.kind === 'fit') && c.label) (byBlock[c.block.id] = byBlock[c.block.id] || []).push(c); });
+  missing.forEach(m => { (byBlock[m.b.id] = byBlock[m.b.id] || []).push({level: 'design', kind: 'fit', label: 'нужен шаблон в админке', text: 'Нужен шаблон в админке'}); });
+  const rows = rowsOf(p, checks, byBlock);
+  Object.defineProperty(p, '_rep', {value: {key, checks, missing, byBlock, rows, count: rows.stop.length + rows.fit.length + rows.page.length}, configurable: true, writable: true, enumerable: false});
   return p._rep;
 };
 const sc = () => G.scenario(A.page.scenario);
@@ -266,7 +299,7 @@ const editor = () => {
     <button class="ib round" id="eBack" aria-label="Назад">${I.back}</button><button class="ttl" id="eTtl">${title}</button>
       ${p.blocks.length ? `<button class="ib round" id="ePrev" aria-label="Превью">${I.eye}</button>
       <button class="ib round dark" id="eOut" aria-label="Выгрузка">${I.out}${miss ? `<span class="badge">${miss}</span>` : ''}</button>` : `<button class="ib round" id="eTune" aria-label="Настройки страницы">${I.tune}</button>`}</header>
-    <main id="eMain"></main><div class="dock" id="eDock"><div id="eDockMain"></div></div>`;
+    <main id="eMain"></main><div class="dock" id="eDock"><div id="eDockMain"><div id="eAct"></div><div id="eSw"></div></div></div>`;
   $app.querySelector('#eBack').onclick = () => { if (A.sel) { unselect(); return; } save(); go('home'); };
   $app.querySelector('#eTtl').onclick = () => { if (!A.sel) pageSettings(); };
   $app.querySelector('#eOk').onclick = () => { const a = document.activeElement; if (a && a.blur) a.blur(); getSelection().removeAllRanges(); fmtSync(); };
@@ -282,14 +315,21 @@ const editor = () => {
   if (A.jump) { const el = $app.querySelector(`[data-id="${A.jump}"]`); if (el && M) M.scrollTop += el.getBoundingClientRect().top - M.getBoundingClientRect().top - (A.jumpTop ? 8 : M.clientHeight / 3); A.jump = null; A.jumpTop = false; } else if (M) M.scrollTop = y0;
 };
 /* нижний островок: только Текст ↔ Шаблоны; на экране остаётся тот же блок */
+/* нижняя панель как в Фигме: слева — действия выделенного блока, справа — всегда переключатель «Текст | Шаблоны».
+   Выделение при переключении сохраняется. */
 const island = () => {
-  const p = A.page, dock = $app.querySelector('#eDockMain'); if (!dock) return; dock.onclick = null;
-  dock.innerHTML = `<div class="float"><div class="seg slide ${A.mode === 'page' ? 'r' : ''}" role="tablist"><button data-m="note" aria-label="Текст">${I.note}</button><button data-m="page" aria-label="Шаблоны">${I.page}</button></div></div>`;
-  dock.querySelectorAll('[data-m]').forEach(x => x.onclick = () => { if (A.mode === x.dataset.m) return;
-    dock.querySelector('.seg').classList.toggle('r', x.dataset.m === 'page');
-    const top = [...$app.querySelectorAll('#eMain [data-id]')].find(el => el.getBoundingClientRect().bottom > 120);
-    unselect(true); A.mode = x.dataset.m; if (A.mode === 'page') G.autoPick(p); save();
-    A.jump = top && top.dataset.id; A.jumpTop = true; editor(); appear(); });
+  const p = A.page, dock = $app.querySelector('#eDockMain'); if (!dock) return;
+  if (!dock.querySelector('#eSw')) dock.innerHTML = '<div id="eAct"></div><div id="eSw"></div>';
+  const sw = dock.querySelector('#eSw');
+  sw.innerHTML = `<div class="float"><div class="seg slide ${A.mode === 'page' ? 'r' : ''}" role="tablist"><button data-m="note" aria-label="Текст" title="Текст: смысл и структура">${I.note}</button><button data-m="page" aria-label="Шаблоны" title="Шаблоны: дизайн">${I.page}</button></div></div>`;
+  sw.querySelectorAll('[data-m]').forEach(x => x.onclick = ev => { ev.stopPropagation(); if (A.mode === x.dataset.m) return;
+    sw.querySelector('.seg').classList.toggle('r', x.dataset.m === 'page');
+    const keep = A.sel, top = [...$app.querySelectorAll('#eMain [data-id]')].find(el => el.getBoundingClientRect().bottom > 120);
+    A.mode = x.dataset.m; if (A.mode === 'page') G.autoPick(p); save();
+    if (keep) { A.sel = keep; A.jump = keep; } else { A.jump = top && top.dataset.id; A.jumpTop = true; }
+    editor(); appear(); });
+  if (!A.sel) dock.querySelector('#eAct').innerHTML = '';
+  document.body.classList.toggle('has-sel', !!A.sel);
 };
 /* к тексту блока: режим Текст, курсор в конце этого блока */
 const toText = b => { unselect(); A.mode = 'note'; A.jump = b.id; save(); editor();
@@ -312,10 +352,10 @@ const naviPayload = p => { const s0 = G.scenario(p.scenario), goal = GOAL[s0.id]
       hero: {title: hs.title || '', lead: hs.lead || '', badge: (hs.meta || [])[0] || '', btn: (hs.cta || [])[0] || ''},
       cta: {title: cs.title || '', text: cs.lead || '', btn: (cs.cta || [])[0] || ''}},
     css: G.WIRE_CSS + '.wf-miss,.wf-item-miss{display:none!important}'}; };
-const DEV = [['mob', 375, 'Телефон', '<svg viewBox="0 0 24 24"><rect x="7" y="3" width="10" height="18" rx="2"/></svg>'], ['tab', 768, 'Планшет', '<svg viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="2"/></svg>'], ['desk', 1440, 'Компьютер', '<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="11" rx="1.5"/><path d="M9 20h6"/></svg>']];
+const DEV = [['mob', 375, 'Телефон', '<svg viewBox="0 0 24 24"><rect x="7" y="3" width="10" height="18" rx="2"/></svg>'], ['desk', 1440, 'Компьютер', '<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="11" rx="1.5"/><path d="M9 20h6"/></svg>']];
 const preview = () => {
   const p = A.page; G.autoPick(p);
-  let dev = G.ls.get('dev', innerWidth >= 900 ? 'desk' : 'mob');
+  let dev = G.ls.get('dev', innerWidth >= 900 ? 'desk' : 'mob'); if (!DEV.some(x => x[0] === dev)) dev = 'mob';
   const el = document.createElement('div'); el.className = 'pv pvn';
   el.innerHTML = `<header class="hd"><button class="ib round" id="pvX" aria-label="Закрыть">${I.x}</button><div class="ttl"><b>Превью</b><small>${e(p.name)}</small></div>
     <div class="seg" role="tablist">${DEV.map(([k, , n, ic]) => `<button data-d="${k}" aria-label="${n}" title="${n}">${ic}</button>`).join('')}</div></header>
@@ -406,7 +446,7 @@ const build = async text => {
 const done = async (p, note) => {
   if (p.name === 'Без названия') { const h = p.blocks.find(b => b.role === 'hero'); const t = h && G.src(h).title; if (t) p.name = t.slice(0, 80); }
   A.mode = 'page'; await G.store.put(p); editor();
-  const n = report(p).checks.length; toast(note || `Готово: ${G.num(p.blocks.length, 'блок', 'блока', 'блоков')}${n ? ' · ' + G.num(n, 'подсказка', 'подсказки', 'подсказок') + ' в выгрузке' : ''}`);
+  const R = report(p).rows, fixN = R.stop.length + R.fit.length; toast(note || `Готово: ${G.num(p.blocks.length, 'блок', 'блока', 'блоков')}${fixN ? ' · ' + G.num(fixN, 'блок', 'блока', 'блоков') + ' поправить' : ''}${R.hint.length ? ' · ' + G.num(R.hint.length, 'подсказка', 'подсказки', 'подсказок') : ''}`);
 };
 
 /* 2б. Заметки: блоки — линии с ролью, строки — разметка */
@@ -534,22 +574,15 @@ const splitBlock = () => {
 
 /* линия блока: роль, объединить, удалить */
 const blockMenu = id => {
-  const p = A.page, b = p.blocks.find(x => x.id === id), i = p.blocks.indexOf(b), s0 = sc();
-  const roles = [...(s0.roles || [])]; if (!roles.some(r => r.id === 'hero')) roles.unshift({id: 'hero', name: 'Первый экран'});
+  const p = A.page, b = p.blocks.find(x => x.id === id), i = p.blocks.indexOf(b), T = A.mode === 'note';
   const s = sheet(`<div class="sh-h"><h2>Блок ${i + 1}</h2><button class="ib" data-close aria-label="Закрыть">${I.x}</button></div>
-    <div class="sh-b"><p class="lbl">Роль блока</p><div class="chips" id="bmR">${roles.map(r => `<button class="chip ${r.id === b.role ? 'on' : ''}" data-r="${e(r.id)}">${e(r.name.split(':')[0])}</button>`).join('')}</div>
-    <div class="list"><button class="row" id="bmNewU">Новый блок выше</button><button class="row" id="bmNewD">Новый блок ниже</button><button class="row" id="bmTpl">Шаблон блока</button>${A.mode === 'note' && i > 0 ? `<button class="row" id="bmMvU">Переместить выше</button>` : ''}${A.mode === 'note' && i < p.blocks.length - 1 ? `<button class="row" id="bmMvD">Переместить ниже</button>` : ''}${i > 0 ? '<button class="row" id="bmUp">Объединить с блоком выше</button>' : ''}<button class="row danger" id="bmDel">Удалить блок</button></div></div>`);
-  const mv = d => { p.blocks.splice(i, 1); p.blocks.splice(i + d, 0, b); save(); s.close(); render(); const el = $app.querySelector(`[data-id="${b.id}"]`); el && el.scrollIntoView({block: 'center'}); };
-  const ins = d => { const nb = G.newBlock(b.role === 'hero' ? defRole() : b.role, ''); p.blocks.splice(i + d, 0, nb); save(); s.close(true);
-    if (A.mode === 'note') { render(); const ed = $app.querySelector(`.ed[data-id="${nb.id}"]`); if (ed) { ed.scrollIntoView({block: 'center'}); caretTo(ed.firstChild, 0); } }
-    else toText(nb); };
-  s.$('#bmNewU').onclick = () => ins(0); s.$('#bmNewD').onclick = () => ins(1);
-  const mu = s.$('#bmMvU'); if (mu) mu.onclick = () => mv(-1);
-  const md2 = s.$('#bmMvD'); if (md2) md2.onclick = () => mv(1);
-  s.$('#bmTpl').onclick = () => { s.close(true); A.mode = 'page'; G.autoPick(p); A.sel = b.id; A.jump = b.id; A.openCat = true; editor(); };
-  s.$$('#bmR .chip').forEach(c => c.onclick = () => { b.role = c.dataset.r; b.tplLock = false; repick(b); save(); s.close(); render(); });
-  const up = s.$('#bmUp'); if (up) up.onclick = () => { const pr = p.blocks[i - 1]; pr.text = [pr.text, b.text].filter(Boolean).join('\n'); pr.tplLock = false; p.blocks.splice(i, 1); repick(pr); save(); s.close(); render(); };
-  s.$('#bmDel').onclick = () => sure(s.$('#bmDel'), 'Удалить вместе с текстом', () => { p.blocks.splice(i, 1); save(); s.close(); A.sel = null; render(); });
+    <div class="sh-b"><div class="list">${T ? `<button class="row" id="bmNewU">Новый блок выше</button><button class="row" id="bmNewD">Новый блок ниже</button><button class="row danger" id="bmDel">Удалить блок</button>`
+      : `<button class="row" id="bmAuto"><b>Подобрать шаблон заново</b><small>Гриди выберет лучший под текст блока</small></button>`}</div></div>`);
+  const ins = d => { const nb = G.newBlock(b.role === 'hero' ? defRole() : b.role, ''); p.blocks.splice(i + d, 0, nb); save(); s.close(true); unselect(); render();
+    const ed = $app.querySelector(`.ed[data-id="${nb.id}"]`); if (ed) { ed.scrollIntoView({block: 'center'}); caretTo(ed.firstChild, 0); } };
+  if (T) { s.$('#bmNewU').onclick = () => ins(0); s.$('#bmNewD').onclick = () => ins(1);
+    s.$('#bmDel').onclick = () => sure(s.$('#bmDel'), 'Удалить вместе с текстом', () => { p.blocks.splice(i, 1); save(); s.close(); A.sel = null; render(); }); }
+  else s.$('#bmAuto').onclick = () => { b.tplLock = false; b.tpl = null; b.values = null; repick(b); save(); s.close(); redrawBlock(b); toast('Шаблон подобран заново'); };
 };
 
 /* ---------- ряды: больше 4 пунктов — несколько шаблонов подряд, меньший ряд первым ----------
@@ -599,7 +632,7 @@ const placeSel = () => { if (!selEl || !selEl.isConnected || !A.sel) return; con
   let y = r.bottom + g + h <= v.bottom ? r.bottom + g : r.top - g - h >= v.top ? r.top - g - h : Math.min(Math.max(v.bottom - h, r.top + g), r.bottom - h - g);
   y = Math.max(v.top, Math.min(y, v.bottom - h));
   selEl.style.top = Math.round(y - host.top) + 'px'; };
-const unselect = () => { A.sel = null; if (selEl) { selEl.remove(); selEl = null; } document.body.classList.remove('picking'); $app.querySelectorAll('.cb.sel,.nb.sel').forEach(x => x.classList.remove('sel')); if (cat) { const h = cat; cat = null; h.close(true); } if (A.view === 'edit' && A.page && A.page.blocks.length) island(); };
+const unselect = () => { A.sel = null; if (selEl) { selEl.remove(); selEl = null; } document.body.classList.remove('picking'); const ea = $app.querySelector('#eAct'); if (ea) ea.innerHTML = ''; $app.querySelectorAll('.cb.sel,.nb.sel').forEach(x => x.classList.remove('sel')); if (cat) { const h = cat; cat = null; h.close(true); } if (A.view === 'edit' && A.page && A.page.blocks.length) island(); };
 const redrawBlock = b => { if (A.mode === 'note') { const id = A.sel; notes(); if (id) select(id); const bd = $app.querySelector('#eOut .badge'), r = report(A.page); if (bd) { bd.textContent = r.count; bd.hidden = !r.count; } return; } const el = $app.querySelector(`.cb[data-id="${b.id}"]`); if (!el) return; const r = report(A.page);
   el.innerHTML = `<b class="bn">${A.page.blocks.indexOf(b) + 1}</b>` + blockHTML(b, A.page); el.classList.toggle('warn', !!r.byBlock[b.id]);
   const bd = $app.querySelector('#eOut .badge'); if (bd) { bd.textContent = r.count; bd.hidden = !r.count; }
@@ -628,28 +661,28 @@ const runPrompt = async (b, id) => { const p = A.page, P = G.prompt(id); let val
     if (n) { repick(b); save(); redrawBlock(b); toast(`«${P.name}»: текст блока обновлён — и в заметке тоже`); }
   } catch (err) { if (err.message !== 'cancel') toast(err.message); }
   finally { G.adaptable = adp; if (G._tplIndex) delete G._tplIndex.__free; if (b.tpl === '__free') { b.tpl = keep.tpl; b.tplLock = keep.lock; } } };
+/* панель выделенного блока. Текст — смысл и структура, Шаблоны — дизайн; каждое действие в одном месте, «Ещё» — что не влезло */
+const blockNote = (b, p, T) => { const R = report(p).rows, pick = l => (l.find(x => x.b === b) || {}).text || '';
+  return T ? pick(R.stop) || pick(R.hint) : pick(R.stop) || pick(R.fit); };
 const selBar = () => {
-  const p = A.page, b = p.blocks.find(x => x.id === A.sel), dock = $app.querySelector('#eDockMain'); if (!b || !dock) return;
-  const i = p.blocks.indexOf(b), slots = G.imageSlots(b, p), fixN = G.fixNotes(b, p).length;
-  const adapt = G.lib.all('prompts').filter(x => x.stage === 'adapt' && !x.system && !['fit', 'fix'].includes(x.id));
-  dock.innerHTML = `<div class="selbar${A.mode === 'note' ? ' sb-s' : ''}" role="toolbar" aria-label="Блок ${i + 1}">
-    <div class="sb-chips">${fixN ? `<button class="chip hot" data-p="fix">Поправить ошибки <i>${fixN}</i></button>` : ''}${G.adaptable(b, G.prompt('fit'), p) ? '<button class="chip" data-p="fit">Уложить в шаблон</button>' : ''}${adapt.map(x => `<button class="chip" data-p="${e(x.id)}">${e(x.name)}</button>`).join('')}</div>
-    <div class="sb-acts" style="--n:${A.mode === 'note' ? 5 : 6}">
-      ${A.mode === 'note' ? `<button data-a="tpl" aria-label="В шаблоны">${I.page}<span>Шаблоны</span></button><button data-a="role" aria-label="Роль">${I.tag}<span>Роль</span></button>` : `<button data-a="text" aria-label="В текст">${I.note}<span>Текст</span></button>
-      <button data-a="img" aria-label="Картинки" class="${slots.length ? '' : 'soft'}">${I.img}<span>Картинки</span></button>`}
-      <button data-a="up" ${i ? '' : 'disabled'} aria-label="Выше">${I.up}<span>Выше</span></button>
-      <button data-a="down" ${i < p.blocks.length - 1 ? '' : 'disabled'} aria-label="Ниже">${I.down}<span>Ниже</span></button>
-      ${A.mode === 'note' ? '' : `<button data-a="cat" aria-label="Каталог шаблонов">${I.grid}<span>Каталог</span></button>`}
-      <button data-a="more" aria-label="Ещё">${I.dots}<span>Ещё</span></button></div></div>`;
+  const p = A.page, b = p.blocks.find(x => x.id === A.sel), dock = $app.querySelector('#eAct'); if (!b || !dock) return;
+  document.body.classList.add('has-sel');
+  const i = p.blocks.indexOf(b), slots = G.imageSlots(b, p), icons = iconSlots(b), fixN = G.fixNotes(b, p).length, T = A.mode === 'note', note = blockNote(b, p, T);
+  const chips = T ? G.lib.all('prompts').filter(x => x.stage === 'adapt' && !x.system && !['fit', 'fix'].includes(x.id)).map(x => `<button class="chip" data-p="${e(x.id)}">${e(x.name)}</button>`).join('')
+    : `${fixN ? `<button class="chip hot" data-p="fix">Поправить ошибки <i>${fixN}</i></button>` : ''}${G.adaptable(b, G.prompt('fit'), p) ? '<button class="chip" data-p="fit">Уложить в шаблон</button>' : ''}`;
+  const acts = T ? [['role', I.tag, 'Роль'], ['up', I.up, 'Выше', !i], ['down', I.down, 'Ниже', i >= p.blocks.length - 1], ['merge', I.merge, 'Объединить', !i], ['more', I.dots, 'Ещё']]
+    : [['cat', I.grid, 'Каталог'], ['img', icons.length && !slots.length ? I.star : I.img, icons.length && !slots.length ? 'Иконки' : 'Картинки', false, !slots.length && !icons.length], ['more', I.dots, 'Ещё']];
+  dock.innerHTML = `<div class="selbar" role="toolbar" aria-label="Блок ${i + 1}">
+    ${note ? `<p class="sb-note">${e(note)}</p>` : ''}${chips ? `<div class="sb-chips">${chips}</div>` : ''}
+    <div class="sb-acts" style="--n:${acts.length}">${acts.map(([k, ic, n, dis, soft]) => `<button data-a="${k}" aria-label="${n}" ${dis ? 'disabled' : ''} class="${soft ? 'soft' : ''}">${ic}<span>${n}</span></button>`).join('')}</div></div>`;
   dock.onclick = ev => { const a = ev.target.closest('[data-a]'), pr = ev.target.closest('[data-p]'); if (!a && !pr) return; ev.stopPropagation();
     if (pr) return runPrompt(b, pr.dataset.p);
     const k = a.dataset.a;
-    if (k === 'text') { A.mode = 'note'; save(); A.sel = b.id; A.jump = b.id; editor(); }
     if (k === 'img') imageSheet(b);
     if (k === 'role') roleSheet(b);
-    if (k === 'tpl') { A.mode = 'page'; G.autoPick(p); save(); A.sel = b.id; A.jump = b.id; editor(); }
     if (k === 'cat') catalog();
     if (k === 'more') blockMenu(b.id);
+    if (k === 'merge') { const pr0 = p.blocks[i - 1]; pr0.text = [pr0.text, b.text].filter(Boolean).join('\n'); pr0.tips = [...(pr0.tips || []), ...(b.tips || [])]; pr0.tplLock = false; pr0.values = null; p.blocks.splice(i, 1); repick(pr0); save(); A.sel = pr0.id; render(); toast('Блоки объединены'); }
     if (k === 'up' || k === 'down') { const M = document.getElementById('eMain'), el0 = $app.querySelector(`${BK()}[data-id="${b.id}"]`), y0 = el0 ? el0.getBoundingClientRect().top : 0;
       const j = i + (k === 'up' ? -1 : 1); p.blocks.splice(i, 1); p.blocks.splice(j, 0, b); save(); A.mode === 'note' ? notes() : canvas();
       const el1 = $app.querySelector(`${BK()}[data-id="${b.id}"]`); if (M && el1) M.scrollTop += el1.getBoundingClientRect().top - y0;
@@ -682,7 +715,7 @@ const catalog = () => {
   draw();
   cat.root.addEventListener('click', ev => {
     const tb = ev.target.closest('[data-tab]'), tp = ev.target.closest('[data-t]'), es = ev.target.closest('[data-es]');
-    if (es) { const k = es.dataset.es; cat.close(); if (k === 'text') toText(b); if (k === 'role') blockMenu(b.id); return; }
+    if (es) { const k = es.dataset.es; cat.close(); if (k === 'text') toText(b); if (k === 'role') roleSheet(b); return; }
     if (tb) { tab = tb.dataset.tab; draw(); cat.$('.sh-b').scrollTop = 0; }
     if (tp) { b.tpl = tp.dataset.t; b.tplLock = true; b.values = null; save(); redrawBlock(b);
       cat.$$('.tc').forEach(x => { x.classList.toggle('on', x === tp); const o = x.querySelector('.tc-ok'); if (o) o.remove(); });
@@ -691,8 +724,27 @@ const catalog = () => {
 };
 const blockSheet = selBar;
 /* картинки блока: своя или ТЗ для Krea */
+/* иконки шаблона: у каждого пункта (или у блока) — своя, Гриди подбирает по словам, редактор может сменить */
+const iconSlots = b => { const t = G.tpl(b.tpl); if (!t || !t.media || t.media.kind !== 'icon') return [];
+  const s0 = G.src(b); return t.media.per && t.items ? s0.items.map((it, k) => ({key: 'i' + k, n: k + 1, title: it.title || it.text || ''})) : [{key: 'main', n: 0, title: s0.title || ''}]; };
+const iconSheet = b => {
+  const slots = iconSlots(b);
+  const row = o => { const f = G.iconFor(b, o.key); return `<button class="row ic-row" data-ic="${e(o.key)}"><span class="ic-pv">${f ? f.ic.svg : ''}</span><span><b>${o.n ? 'Пункт ' + o.n : 'Иконка блока'}</b><small>${e(o.title.slice(0, 60))}${f && f.auto ? ' · подобрана' : f ? ' · выбрана' : ' · нет'}</small></span></button>`; };
+  const s = sheet(`<div class="sh-h"><h2>Иконки</h2><button class="ib round ok" data-close aria-label="Готово">${I.check}</button></div><div class="sh-b"><div class="list">${slots.map(row).join('')}</div></div>`);
+  s.$$('[data-ic]').forEach(x => x.onclick = () => pickIcon(b, x.dataset.ic, () => { s.close(true); iconSheet(b); }));
+};
+const pickIcon = (b, key, done) => {
+  const all = G.icons(), sug = G.iconMatch(G.iconText(b, key), 12);
+  const grid = list => list.map(ic => `<button class="ic-cell" data-pick="${e(ic.id)}" title="${e(ic.name)}">${ic.svg}</button>`).join('');
+  const s = sheet(`<div class="sh-h"><h2>Иконка</h2><button class="ib" data-close aria-label="Закрыть">${I.x}</button></div>
+    <div class="sh-b"><input class="in" id="icQ" placeholder="Найти иконку" autocomplete="off">${sug.length ? `<p class="lbl">Подходят по словам</p><div class="ic-grid">${grid(sug)}</div>` : ''}<p class="lbl" id="icL">Все · ${all.length}</p><div class="ic-grid" id="icAll">${grid(all.slice(0, 120))}</div></div>`, {cls: 'tall'});
+  const bind = () => s.$$('[data-pick]').forEach(x => x.onclick = () => { b.images = b.images || {}; b.images[key] = {...(b.images[key] || {}), icon: x.dataset.pick}; save(); redrawBlock(b); s.close(true); done && done(); });
+  s.$('#icQ').oninput = () => { const q = s.$('#icQ').value.trim().toLowerCase(); const f = q ? all.filter(ic => (ic.name + ' ' + (ic.tags || '')).toLowerCase().includes(q)) : all; s.$('#icL').textContent = `${q ? 'Найдено' : 'Все'} · ${f.length}`; s.$('#icAll').innerHTML = grid(f.slice(0, 120)); bind(); };
+  bind();
+};
 const imageSheet = b => {
   const p = A.page, slots = G.imageSlots(b, p);
+  if (!slots.length && iconSlots(b).length) return iconSheet(b);
   if (!slots.length) { const s0 = sheet(`<div class="sh-h"><h2>Картинки</h2><button class="ib round" data-close aria-label="Закрыть">${I.x}</button></div><div class="sh-b">${empty('В этом шаблоне нет картинок', 'Выберите шаблон с картинкой — она появится здесь.', [['tpl', 'Шаблоны', true]])}</div>`); s0.$('[data-es]').onclick = () => { s0.close(true); catalog(); }; return; }
   const s = sheet(`<div class="sh-h"><h2>Картинки</h2><button class="ib round" data-close aria-label="Закрыть">${I.x}</button></div>
     <div class="sh-b"><div class="imgs">${slots.map(o => `<div class="im"><div class="im-pv" style="aspect-ratio:${o.ratio.replace(':', '/')}">${o.data ? `<img src="${o.data}" alt="">` : `<span class="mono">${e(o.ratio)}${o.size ? ' · ' + e(o.size) : ''}</span>`}</div>
@@ -715,37 +767,40 @@ const textSheet = b => {
 
 /* 3. Выгрузка: всё, что считает проверка; ошибки не скрываются; «Поправить» — где это можно сделать */
 const CODEFIX = /H1 — только|Первых экранов|Целевых действий/;
-const fixable = (c, p) => c.fix && c.fix.addRole ? 'add' : CODEFIX.test(c.text) ? 'code' : c.block && G.fixNotes(c.block, p).includes(c.text) && G.adaptable(c.block, G.prompt('fix'), p) ? 'model' : '';
 const exportView = () => {
   const p = A.page; G.autoPick(p); p.dismissed = p.dismissed || [];
   const el = document.createElement('div'); el.className = 'pv ex';
-  const lvl = {error: 'Ошибка', warn: 'Предупреждение', info: 'Подсказка'};
-  const draw = () => { const r = report(p), list = r.checks, any = list.some(c => fixable(c, p));
-    const num = b => b ? (p.blocks.indexOf(b) + 1) + '. ' : '';
-    el.innerHTML = `<header class="hd"><button class="ib round" id="xX" aria-label="Закрыть">${I.x}</button><div class="ttl"><b>Выгрузка</b><small>${e(sc().name)} · ${r.count ? G.num(r.count, 'замечание', 'замечания', 'замечаний') : 'замечаний нет'}</small></div></header>
+  const draw = () => { const r = report(p), R = r.rows, num = b => b ? (p.blocks.indexOf(b) + 1) + '. ' + roleName(b) : '';
+    const canFix = b => G.fixNotes(b, p).length && G.adaptable(b, G.prompt('fix'), p);
+    const pageFix = c => c.fix && c.fix.addRole ? 'add' : CODEFIX.test(c.text) ? 'code' : '';
+    const any = R.fit.some(x => canFix(x.b)) || R.page.some(x => pageFix(x.c));
+    const row = (x, k, kind) => `<div class="xr xr-${kind}"><div class="xr-t"><span class="mono">${e(x.b ? num(x.b) : 'Страница')}</span>${e(x.text)}</div><span class="xr-a">${
+      kind === 'fit' && canFix(x.b) ? `<button class="pill sm pri" data-fix="${k}">Поправить</button>` : ''}${kind === 'page' && pageFix(x.c) ? `<button class="pill sm pri" data-pf="${k}">${pageFix(x.c) === 'add' ? 'Добавить' : 'Поправить'}</button>` : ''}${
+      x.b ? `<button class="pill sm" data-go="${kind}:${k}">К блоку</button>` : ''}${kind === 'hint' ? `<button class="pill sm ghost" data-hide="${k}">Скрыть</button>` : ''}</span></div>`;
+    const sec = (kind, title, list) => list.length ? `<p class="lbl">${title} · ${list.length}</p><div class="xrs">${list.map((x, k) => row(x, k, kind)).join('')}</div>` : '';
+    const ok = !R.stop.length;
+    el.innerHTML = `<header class="hd"><button class="ib round" id="xX" aria-label="Закрыть">${I.x}</button><div class="ttl"><b>Выгрузка</b><small>${e(sc().name)}</small></div></header>
       <main class="ex-b">
-        ${list.length ? `<div class="checks">${list.map((c, k) => { const f = fixable(c, p);
-          return `<div class="ck ck-${c.level}"><div class="ck-t"><span class="mono">${num(c.block)}${lvl[c.level]}</span>${e(c.text)}${f ? `<span class="ck-act"><button class="pill sm pri" data-fix="${k}">Поправить</button>${c.block ? `<button class="pill sm" data-go="${k}">К блоку</button>` : ''}</span>` : c.block ? `<span class="ck-act"><button class="pill sm" data-go="${k}">К блоку</button></span>` : ''}</div>${c.level === 'info' ? `<button class="ck-x" data-x="${k}" aria-label="Скрыть">${I.x}</button>` : ''}</div>`; }).join('')}</div>` : `<div class="es ok"><b>${I.check}Замечаний нет</b><p>Страницу можно передавать: текстом в чат или архивом для вёрстки.</p></div>`}
-        ${r.missing.length ? `<p class="lbl">Нужен дизайн · ${r.missing.length}</p><div class="checks">${r.missing.map(m => `<div class="ck ck-design"><div class="ck-t"><span class="mono">${num(m.b)}${e(m.role.split(':')[0])}</span>${e(m.need || '')}</div></div>`).join('')}</div>` : ''}
+        <div class="xs ${ok ? 'ok' : 'bad'}"><b>${ok ? (R.fit.length || R.page.length ? 'Можно выгружать' : 'Готово к выгрузке') : G.num(R.stop.length, 'блок не выгрузится', 'блока не выгрузятся', 'блоков не выгрузятся')}</b>
+          <small>${ok ? (R.fit.length ? G.num(R.fit.length, 'блок', 'блока', 'блоков') + ' стоит поправить под шаблон' : 'Замечаний нет') : 'Сначала поправьте их — ниже, с переходом к блоку'}</small></div>
+        ${sec('stop', 'Мешает выгрузке', R.stop)}${sec('fit', 'Поправить под шаблон', R.fit)}${sec('page', 'Страница', R.page)}
+        ${R.hint.length ? `<details class="xh"><summary class="lbl">Подсказки · ${R.hint.length}</summary><div class="xrs">${R.hint.map((x, k) => row(x, k, 'hint')).join('')}</div></details>` : ''}
         <p class="lbl">Передать</p>
         <div class="list"><button class="row" id="xShare"><b>Текстом в чат</b><small>Вставка этого текста в Гриди собирает ту же страницу</small></button>
           <button class="row" id="xZip"><b>Архив для вёрстки</b><small>Текст по полям, схема, ТЗ на картинки с именами слотов</small></button></div>
       </main>
       ${any ? '<div class="dock"><button class="pill grad wide" id="xFix">Поправить всё</button></div>' : ''}`;
     el.querySelector('#xX').onclick = close;
-    el.querySelectorAll('[data-x]').forEach(x => x.onclick = () => { p.dismissed.push(list[+x.dataset.x].text); save(); draw(); });
-    el.querySelectorAll('[data-go]').forEach(x => x.onclick = () => { const c = list[+x.dataset.go]; close(); A.mode = 'page'; A.sel = c.block.id; A.jump = c.block.id; editor(); });
-    el.querySelectorAll('[data-fix]').forEach(x => x.onclick = async () => { const c = list[+x.dataset.fix], f = fixable(c, p);
-      try {
-        if (f === 'add') { p.blocks.push(G.newBlock(c.fix.addRole, '')); toast('Блок добавлен в конец — заполните его текстом'); }
-        if (f === 'code') G.fixByCode(p);
-        if (f === 'model') { const n = await G.runAdapt(p, 'fix', [c.block.id]); if (n) repick(c.block); }
-        save(); draw();
-      } catch (err) { if (err.message !== 'cancel') toast(err.message); } });
+    el.querySelectorAll('[data-hide]').forEach(x => x.onclick = () => { p.dismissed.push(R.hint[+x.dataset.hide].text); save(); draw(); });
+    el.querySelectorAll('[data-go]').forEach(x => x.onclick = () => { const [kind, k] = x.dataset.go.split(':'), b = R[kind][+k].b; close(); A.mode = kind === 'hint' ? A.mode : 'page'; A.sel = b.id; A.jump = b.id; editor(); });
+    el.querySelectorAll('[data-fix]').forEach(x => x.onclick = async () => { const b = R.fit[+x.dataset.fix].b;
+      try { const n = await G.runAdapt(p, 'fix', [b.id]); if (n) repick(b); save(); draw(); } catch (err) { if (err.message !== 'cancel') toast(err.message); } });
+    el.querySelectorAll('[data-pf]').forEach(x => x.onclick = () => { const c = R.page[+x.dataset.pf].c;
+      if (pageFix(c) === 'add') { p.blocks.push(G.newBlock(c.fix.addRole, '')); toast('Блок добавлен в конец — заполните его текстом'); } else G.fixByCode(p); save(); draw(); });
     el.querySelector('#xShare').onclick = async () => { const t = shareText(p); if (navigator.share && /Mobi|Android|iPhone/i.test(navigator.userAgent)) { try { await navigator.share({title: p.name, text: t}); return; } catch (err) { if (err.name === 'AbortError') return; } } await G.copy(t); toast('Текст страницы скопирован — вставьте в чат'); };
     el.querySelector('#xZip').onclick = async () => { try { await G.doExport(p); } catch (err) { toast(err.message); } };
     const fx = el.querySelector('#xFix'); if (fx) fx.onclick = async () => {
-      try { const adds = report(p).checks.filter(c => c.fix && c.fix.addRole); adds.forEach(c => p.blocks.push(G.newBlock(c.fix.addRole, '')));
+      try { const adds = R.page.filter(x => pageFix(x.c) === 'add'); adds.forEach(x => p.blocks.push(G.newBlock(x.c.fix.addRole, '')));
         const res = await G.runFix(p); G.autoPick(p); save(); draw();
         toast(`Поправлено: ${res.byCode + res.byModel + adds.length}${(res.notes || []).length ? ' · модель: ' + res.notes[0] : ''}`);
       } catch (err) { if (err.message !== 'cancel') toast(err.message); } };

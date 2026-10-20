@@ -434,3 +434,40 @@ body.picking .nb:not(.sel){opacity:.45}
 .ld-man p{margin:0}
 .ld>#ldCancel{align-self:flex-start}
 @keyframes spin{to{transform:rotate(360deg)}}
+/* нижняя панель: действия блока слева, переключатель режимов справа */
+#eDockMain{display:flex;align-items:flex-end;justify-content:center;gap:8px}
+#eAct{min-width:0;flex:0 1 auto}
+#eAct:empty{display:none}
+#eSw{flex:none}
+body.has-sel #eSw .float{box-shadow:0 10px 34px rgba(0,0,0,.14)}
+.sb-note{margin:2px 6px 0;font-size:13px;line-height:1.35;color:var(--ink2);max-width:360px}
+/* иконки */
+.ic-row{flex-direction:row!important;align-items:center!important;gap:12px}
+.ic-pv{width:40px;height:40px;border-radius:12px;background:var(--bg);display:grid;place-items:center;flex:none}
+.ic-pv svg,.ic-cell svg{width:24px;height:24px}
+.ic-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(52px,1fr));gap:6px}
+.ic-cell{aspect-ratio:1;border-radius:14px;background:var(--card);display:grid;place-items:center}
+.ic-cell:active{transform:scale(.95)}
+/* выгрузка: статус, строки по блокам, подсказки отдельно */
+.xs{border-radius:20px;padding:14px 16px;display:flex;flex-direction:column;gap:2px;margin:4px 0 8px}
+.xs.ok{background:var(--acc-soft,#e2f7e5)}.xs.bad{background:#ffe7d6}
+.xs b{font-size:17px}.xs small{color:var(--ink2);font-size:14px}
+.xrs{display:flex;flex-direction:column;gap:2px;border-radius:20px;overflow:hidden}
+.xr{background:var(--card);padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+.xr-t{display:flex;flex-direction:column;gap:2px;font-size:15px;line-height:1.35}
+.xr-t .mono{font-size:11px;color:var(--mute);text-transform:uppercase;letter-spacing:.03em}
+.xr-stop .xr-t .mono{color:var(--sel)}
+.xr-a{display:flex;gap:6px;flex-wrap:wrap}.xr-a:empty{display:none}
+.xh summary{cursor:pointer;list-style:none}.xh summary::-webkit-details-marker{display:none}
+.xh summary::after{content:' ▾';color:var(--mute)}.xh[open] summary::after{content:' ▴'}
+.xr-hint .xr-t{color:var(--ink2)}
+#eAct .sb-acts{grid-template-columns:repeat(var(--n,5),auto);gap:2px}
+#eAct .sb-acts button{padding:6px 8px;min-width:52px}
+/* узкий экран: панель блока над переключателем, переключатель по центру */
+@media (max-width:560px){
+  body.has-sel #eDockMain{flex-direction:column;align-items:stretch;gap:8px}
+  body.has-sel #eAct .selbar{width:100%}
+  body.has-sel #eAct .sb-acts{width:100%;grid-template-columns:repeat(var(--n,5),1fr)}
+  body.has-sel #eSw{align-self:center}
+  body.has-sel #eSw .float{padding:4px}
+}
