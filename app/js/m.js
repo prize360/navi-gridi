@@ -947,7 +947,7 @@ const exportView = () => {
       if (g.pageFix(c) === 'add') { p.blocks.push(G.newBlock(c.fix.addRole, '')); toast('Блок добавлен в конец — заполните его текстом'); } else G.fixByCode(p); save(); draw(); });
     el.querySelector('#xLink').onclick = async () => { try { const u = await G.pageLink(p);
         if (u.length <= G.LINK_MAX) { await G.copy(u); toast(`Ссылка скопирована · ${(u.length / 1000).toFixed(1)} тыс. знаков`); }
-        else { G.linkFile(u, p.name); toast(`Страница длинная — ссылка ${(u.length / 1000).toFixed(1)} тыс. знаков, Телеграм пропускает до 4. Скачан файл-ссылка: отправьте его, у получателя он откроет превью`); } } catch (err) { toast(err.message); } };
+        else toast(`Страница длинная: ссылка ${(u.length / 1000).toFixed(1)} тыс. знаков, в сообщение влезает до 4. Передайте архив`); } catch (err) { toast(err.message); } };
     el.querySelector('#xShare').onclick = async () => { const t = shareText(p); if (navigator.share && /Mobi|Android|iPhone/i.test(navigator.userAgent)) { try { await navigator.share({title: p.name, text: t}); return; } catch (err) { if (err.name === 'AbortError') return; } } await G.copy(t); toast('Текст страницы скопирован — вставьте в чат'); };
     el.querySelector('#xZip').onclick = async () => { try { await G.doExport(p); } catch (err) { toast(err.message); } };
     const fx = el.querySelector('#xFix'); if (fx) fx.onclick = async () => {

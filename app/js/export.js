@@ -206,11 +206,6 @@ G.readLink = async hash => {
   let j = m[1] === 'z' ? JSON.parse(uncyr(bytes)) : JSON.parse(new TextDecoder().decode(bytes)); if (Array.isArray(j)) j = fromArr(j);
   if (!j.page || !j.page.blocks) throw new Error('В ссылке нет страницы Гриди.'); return j;
 };
-/* длинная страница: файл-ссылка — открывается в браузере и сразу ведёт в превью; адрес в браузере длины не ограничен */
-G.linkFile = (url, name) => { const h = s => String(s).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
-  const html = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${h(name)} — Гриди</title><body style="font:16px sans-serif;padding:24px"><p>Страница Гриди «${h(name)}».</p><p><a href="${h(url)}">Открыть превью</a></p><script>location.replace(${JSON.stringify(url)})</script>`;
-  G.download(`${name.replace(/[\\/:*?"<>|]+/g, ' ').trim().slice(0, 60) || 'страница'} — Гриди.html`, new Blob([html], {type: 'text/html'})); };
-
 G.importProject = async file => {
   let raw;
   /* архив целиком — как его пришлют: page.json достаётся изнутри */
