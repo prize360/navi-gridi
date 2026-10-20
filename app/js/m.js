@@ -380,7 +380,9 @@ const notes = () => {
       <div class="ed" contenteditable="true" spellcheck="true" data-id="${e(b.id)}">${(lines(b.text).length ? lines(b.text) : [{k: 'p', t: ''}]).map(l => lineHTML(l.k, l.t)).join('')}</div></section>`).join('')}
     ${addChips()}</div>`;
   main.querySelectorAll('.ed').forEach(bindEd); bindAdd(main);
-  main.querySelectorAll('[data-role]').forEach(x => x.onclick = () => blockMenu(x.dataset.role));
+  main.querySelectorAll('[data-role]').forEach(x => x.onclick = ev => { ev.stopPropagation(); if (A.sel === x.dataset.role) { unselect(); return; } const a = document.activeElement; if (a && a.blur) a.blur(); select(x.dataset.role); });
+  main.addEventListener('focusin', ev => { if (A.sel && ev.target.closest('.ed')) unselect(); });
+  main.onclick = ev => { if (A.sel && !ev.target.closest('.nb-line,.add')) unselect(); };
   fmtBar();
 };
 
@@ -541,14 +543,15 @@ const canvas = () => {
   bindAdd(main);
 };
 let cat = null;
+const BK = () => A.mode === 'note' ? '.nb' : '.cb';
 const select = id => { A.sel = id; document.body.classList.add('picking');
-  $app.querySelectorAll('.cb').forEach(x => x.classList.toggle('sel', x.dataset.id === id));
+  $app.querySelectorAll(BK()).forEach(x => x.classList.toggle('sel', x.dataset.id === id));
   selBar();
-  requestAnimationFrame(() => { const el = $app.querySelector(`.cb[data-id="${id}"]`), bar = $app.querySelector('.selbar'), M = document.getElementById('eMain'); if (!el || !bar || !M) return;
+  requestAnimationFrame(() => { const el = $app.querySelector(`${BK()}[data-id="${id}"]`), bar = $app.querySelector('.selbar'), M = document.getElementById('eMain'); if (!el || !bar || !M) return;
     const r = el.getBoundingClientRect(), lim = bar.getBoundingClientRect().top - 12, top = M.getBoundingClientRect().top + 8;
     if (r.top < top) M.scrollBy({top: r.top - top, behavior: 'smooth'}); else if (r.top > lim - 120) M.scrollBy({top: r.top - top, behavior: 'smooth'}); }); };
-const unselect = () => { A.sel = null; document.body.classList.remove('picking'); $app.querySelectorAll('.cb.sel').forEach(x => x.classList.remove('sel')); if (cat) { const h = cat; cat = null; h.close(true); } if (A.view === 'edit' && A.page && A.page.blocks.length) island(); };
-const redrawBlock = b => { const el = $app.querySelector(`.cb[data-id="${b.id}"]`); if (!el) return; const r = report(A.page);
+const unselect = () => { A.sel = null; document.body.classList.remove('picking'); $app.querySelectorAll('.cb.sel,.nb.sel').forEach(x => x.classList.remove('sel')); if (cat) { const h = cat; cat = null; h.close(true); } if (A.view === 'edit' && A.page && A.page.blocks.length) island(); };
+const redrawBlock = b => { if (A.mode === 'note') { const id = A.sel; notes(); if (id) select(id); const bd = $app.querySelector('#eOut .badge'), r = report(A.page); if (bd) { bd.textContent = r.count; bd.hidden = !r.count; } return; } const el = $app.querySelector(`.cb[data-id="${b.id}"]`); if (!el) return; const r = report(A.page);
   el.innerHTML = `<b class="bn">${A.page.blocks.indexOf(b) + 1}</b>` + blockHTML(b, A.page); el.classList.toggle('warn', !!r.byBlock[b.id]);
   const bd = $app.querySelector('#eOut .badge'); if (bd) { bd.textContent = r.count; bd.hidden = !r.count; }
   if (A.sel === b.id) selBar(); };
@@ -583,8 +586,8 @@ const selBar = () => {
   dock.innerHTML = `<div class="selbar" role="toolbar" aria-label="Блок ${i + 1}">
     <div class="sb-chips">${fixN ? `<button class="chip hot" data-p="fix">Поправить ошибки <i>${fixN}</i></button>` : ''}${G.adaptable(b, G.prompt('fit'), p) ? '<button class="chip" data-p="fit">Уложить в шаблон</button>' : ''}${adapt.map(x => `<button class="chip" data-p="${e(x.id)}">${e(x.name)}</button>`).join('')}</div>
     <div class="sb-acts">
-      <button data-a="text" aria-label="Текст">${I.pen}<span>Текст</span></button>
-      <button data-a="img" aria-label="Картинки" class="${slots.length ? '' : 'soft'}">${I.img}<span>Картинки</span></button>
+      ${A.mode === 'note' ? `<button data-a="role" aria-label="Роль">${I.pen}<span>Роль</span></button>` : `<button data-a="text" aria-label="Текст">${I.pen}<span>Текст</span></button>
+      <button data-a="img" aria-label="Картинки" class="${slots.length ? '' : 'soft'}">${I.img}<span>Картинки</span></button>`}
       <button data-a="up" ${i ? '' : 'disabled'} aria-label="Выше">${I.up}<span>Выше</span></button>
       <button data-a="down" ${i < p.blocks.length - 1 ? '' : 'disabled'} aria-label="Ниже">${I.down}<span>Ниже</span></button>
       <button data-a="tpl" aria-label="Шаблоны">${I.grid}<span>Шаблоны</span></button>
@@ -594,14 +597,20 @@ const selBar = () => {
     const k = a.dataset.a;
     if (k === 'text') toText(b);
     if (k === 'img') imageSheet(b);
-    if (k === 'tpl') catalog();
+    if (k === 'role') roleSheet(b);
+    if (k === 'tpl') { if (A.mode === 'note') { A.mode = 'page'; G.autoPick(p); A.sel = b.id; A.jump = b.id; A.openCat = true; editor(); } else catalog(); }
     if (k === 'more') blockMenu(b.id);
-    if (k === 'up' || k === 'down') { const M = document.getElementById('eMain'), el0 = $app.querySelector(`.cb[data-id="${b.id}"]`), y0 = el0 ? el0.getBoundingClientRect().top : 0;
-      const j = i + (k === 'up' ? -1 : 1); p.blocks.splice(i, 1); p.blocks.splice(j, 0, b); save(); canvas();
-      const el1 = $app.querySelector(`.cb[data-id="${b.id}"]`); if (M && el1) M.scrollTop += el1.getBoundingClientRect().top - y0;
-      A.sel = b.id; document.body.classList.add('picking'); $app.querySelectorAll('.cb').forEach(x => x.classList.toggle('sel', x.dataset.id === b.id)); selBar(); }
+    if (k === 'up' || k === 'down') { const M = document.getElementById('eMain'), el0 = $app.querySelector(`${BK()}[data-id="${b.id}"]`), y0 = el0 ? el0.getBoundingClientRect().top : 0;
+      const j = i + (k === 'up' ? -1 : 1); p.blocks.splice(i, 1); p.blocks.splice(j, 0, b); save(); A.mode === 'note' ? notes() : canvas();
+      const el1 = $app.querySelector(`${BK()}[data-id="${b.id}"]`); if (M && el1) M.scrollTop += el1.getBoundingClientRect().top - y0;
+      A.sel = b.id; document.body.classList.add('picking'); $app.querySelectorAll(BK()).forEach(x => x.classList.toggle('sel', x.dataset.id === b.id)); selBar(); }
   };
 };
+/* роль блока в режиме текста: что это за часть страницы — от неё зависят подходящие шаблоны */
+const roleSheet = b => { const p = A.page, roles = (sc().roles || []);
+  const s = sheet(`<div class="sh-h"><div><h2>Роль блока</h2><p class="sub">От роли зависят подходящие шаблоны</p></div><button class="ib round ok" data-close aria-label="Готово">${I.check}</button></div>
+    <div class="list">${roles.map(r => `<button class="row ${r.id === b.role ? 'on' : ''}" data-r="${e(r.id)}">${e(r.name.split(':')[0])}${r.id === b.role ? ` ${I.check}` : ''}</button>`).join('')}</div>`);
+  s.$$('[data-r]').forEach(x => x.onclick = () => { if (b.role !== x.dataset.r) { b.role = x.dataset.r; b.tpl = null; b.tplLock = false; b.values = null; save(); } s.close(); notes(); select(b.id); }); };
 /* каталог шаблонов: категории по типу, сначала подходящие, у каждого — почему не подходит */
 const catalog = () => {
   const p = A.page, b = p.blocks.find(x => x.id === A.sel); if (!b) return;
