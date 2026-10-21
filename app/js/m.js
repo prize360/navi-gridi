@@ -210,7 +210,7 @@ const busy = (label, {limit = 180} = {}) => {
   const ctl = new AbortController(), t0 = Date.now(), el = document.createElement('div');
   el.className = 'busy'; el.setAttribute('role', 'status');
   el.innerHTML = `<span class="spin"></span><span class="bt"><b>${e(label)}</b><small>Модель думает · <span class="sec">0 с</span></small></span><button class="pill sm ghost">Отменить</button>`;
-  document.body.appendChild(el);
+  document.body.appendChild(el); G._askEl = el;
   const h = {signal: ctl.signal, timedOut: false, done: () => { clearInterval(tick); el.remove(); }};
   el.querySelector('button').onclick = () => ctl.abort();
   const tick = setInterval(() => { const s = Math.round((Date.now() - t0) / 1000); el.querySelector('.sec').textContent = s < 60 ? s + ' с' : Math.floor(s / 60) + ' мин ' + (s % 60) + ' с'; if (s >= limit) { h.timedOut = true; ctl.abort(); } }, 1000);
@@ -223,6 +223,7 @@ const manualAsk = (label, prompt) => new Promise((res, rej) => {
     <li>Вставьте в ChatGPT, DeepSeek или другую модель.</li>
     <li><textarea class="ta" id="mAns" rows="6" placeholder="Ответ модели целиком"></textarea><p class="hint err" id="mErr"></p></li></ol></div>
     <div class="sh-f"><button class="pill pri wide" id="mOk">Продолжить</button></div>`, {onClose: () => rej(new Error('cancel')), cls: 'tall'});
+  G._askEl = s.root;
   s.$('#mCopy').onclick = async () => { await G.copy(prompt); toast('Промт скопирован'); };
   s.$('#mOk').onclick = () => { const v = s.$('#mAns').value; if (!G.parseJSON(v)) { s.$('#mErr').textContent = 'В ответе нет JSON. Попросите модель: «верни только JSON».'; return; } s.close(true); res(v); };
 });
@@ -521,9 +522,9 @@ const build = async text => {
   main.querySelector('#ldCancel').onclick = () => { cancelled = true; ctl.abort(); if (manualRej) manualRej(new Error('cancel')); };
   st(1, 'done'); st(2, 'on');
   const ui = G.ui, keep = {busy: ui.busy, manualAsk: ui.manualAsk};
-  ui.busy = () => { const t0 = Date.now(), tm = setInterval(() => { const el = main.querySelector('#ldT'); if (el) el.textContent = Math.round((Date.now() - t0) / 1000) + ' с'; }, 1000);
+  ui.busy = () => { G._askEl = main.querySelector('.ld'); const t0 = Date.now(), tm = setInterval(() => { const el = main.querySelector('#ldT'); if (el) el.textContent = Math.round((Date.now() - t0) / 1000) + ' с'; }, 1000);
     const h = {signal: ctl.signal, timedOut: false, done: () => clearInterval(tm)}; setTimeout(() => { if (!h.signal.aborted) { h.timedOut = true; ctl.abort(); } }, 240000); return h; };
-  ui.manualAsk = (label, prompt) => new Promise((res, rej) => { manualRej = rej; const x = main.querySelector('#ldX');
+  ui.manualAsk = (label, prompt) => new Promise((res, rej) => { manualRej = rej; const x = main.querySelector('#ldX'); G._askEl = main.querySelector('.ld');
     x.innerHTML = `<div class="ld-man"><p>Модель не подключена: скопируйте промт, отправьте в свою модель и вставьте ответ.</p>
       <button class="pill pri" id="mCopy">Скопировать промт</button> <span class="hint">${prompt.length.toLocaleString('ru-RU')} зн.</span>
       <textarea class="ta" id="mAns" rows="5" placeholder="Ответ модели целиком"></textarea><p class="hint err" id="mErr"></p>

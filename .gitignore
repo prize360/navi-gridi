@@ -1,2 +1,8 @@
 dist/
 .DS_Store
+
+# документы и тесты разработки — вне репозитория
+docs/
+tests/
+README.md
+*.png

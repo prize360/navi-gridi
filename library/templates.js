@@ -3,7 +3,7 @@
    ctor — тип, параметры и лимиты, из них собраны название, поля и схема превью.
    status.prod: true — шаблон есть в админке; false — нужен дизайн.
    Компоненты сайта (component: true) — формы, аккордеон, таблица, текст статьи.
-   Поля и роли — docs/library.md.
+   Поля и роли — в документе разработки.
    ===================================================================== */
 Gridi.library.add('templates', [
  {id: "a-0", name: "Первый экран-Lt-L1x1-Кн", status: {prod: true}, layout: "split", media: {kind: "img", size: "L", ratio: "1:1"}, fields: [{k: "h1", label: "H1", max: 40, role: "title"}, {k: "sub", label: "Подзаголовок", max: 70, role: "lead"}, {k: "b1", label: "Кнопка 1", max: 20, role: "btn"}, {k: "b2", label: "Кнопка 2", max: 20, role: "btn"}], ctor: {type: "Первый экран", p: {pos: "Lt", media: "L", ratio: "1:1", badge: "нет", sub: "да", btn: "2"}, limits: {h1: 40, sub: 70}}, type: "Первый экран"},

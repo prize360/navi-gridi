@@ -37,6 +37,9 @@ G.modelReady = async () => {
   finally { busy.done(); }
 };
 G.ask = async (label, prompt) => {
+  /* прошлый запрос считается идущим, только пока на экране его окно: шторка с промтом, экран разбора или полоска «модель думает».
+     Окно закрыли переходом или перерисовкой — запрос брошен, новый не блокируется */
+  if (G._asking && !(G._askEl && G._askEl.isConnected)) G._asking = false;
   if (G._asking) throw new Error('Модель ещё отвечает на прошлый запрос — дождитесь или отмените его.');
   const s = G.llmSettings(), rec = {label, prompt, at: new Date(), raw: '', ok: false};
   G.log.unshift(rec); G.log = G.log.slice(0, 30);

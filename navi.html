@@ -360,8 +360,8 @@ textarea.inp:not(:is(.site, .gr, .nvr) *) { height: auto; min-height: 168px; pad
   --h-chip: 32px;
   --pad-x: 16px;
 
-  --font-text: "SB Sans Text", "SBSansText", "Inter", system-ui, -apple-system, sans-serif;
-  --font-display: "SB Sans Display", "SBSansDisplay", "Inter", system-ui, sans-serif;
+  --font-text: "Inter", system-ui, -apple-system, sans-serif;
+  --font-display: "Inter", system-ui, sans-serif;
   --ls: -0.02em;
 
   --ease: cubic-bezier(.2,.8,.2,1);
@@ -797,7 +797,7 @@ textarea.inp:not(:is(.site, .gr, .nvr) *) { height: auto; min-height: 168px; pad
 .site .known span, .site .known small { color: var(--c-text-secondary); }
 .site .known small { font-size: 12px; }
 .site .idp { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 12px; box-shadow: inset 0 0 0 1px var(--c-surface-solid-tertiary); text-align: left; }
-.site .idp > .ic { width: 32px; height: 32px; padding: 6px; border-radius: 50%; background: #21A038; color: #fff; }
+.site .idp > .ic { width: 32px; height: 32px; padding: 6px; border-radius: 50%; background: #1E9E5A; color: #fff; }
 .site .idp b { display: block; font-size: 15px; }
 .site .idp small { font-size: 12px; color: var(--c-text-secondary); }
 .site .idp:hover { background: var(--c-surface-transparent-hover); }
@@ -831,7 +831,7 @@ textarea.inp:not(:is(.site, .gr, .nvr) *) { height: auto; min-height: 168px; pad
   --c-ai-accent: #157A2C;
   --c-ai-border: rgba(33,160,56,.35);
   --c-ai-shadow: rgba(33,160,56,.2);
-  --c-focus: #21A038;
+  --c-focus: #1E9E5A;
   --c-chip-hover: #E2E2DC;
   --c-text-inverse-secondary: rgba(255,255,255,.72);
   --c-skeleton: #ECECE6; --c-skeleton-hi: #E2E2DC;
@@ -1113,8 +1113,8 @@ textarea.inp:not(:is(.site, .gr, .nvr) *) { height: auto; min-height: 168px; pad
 .nvr .gd__st b:not(.site *) { display:inline-block;margin-right:8px;font-size:11px;line-height:18px;letter-spacing:.06em;text-transform:uppercase;padding:0 8px;border-radius:999px }
 .nvr .gd__st--prop:not(.site *) { background:color-mix(in srgb,#F59E0B 14%,transparent) }
 .nvr .gd__st--prop b:not(.site *) { background:#F59E0B;color:#1A1A1A }
-.nvr .gd__st--prod:not(.site *) { background:color-mix(in srgb,#21A038 10%,transparent) }
-.nvr .gd__st--prod b:not(.site *) { background:#21A038;color:#fff }</style>
+.nvr .gd__st--prod:not(.site *) { background:color-mix(in srgb,#1E9E5A 10%,transparent) }
+.nvr .gd__st--prod b:not(.site *) { background:#1E9E5A;color:#fff }</style>
 
 <div class="hub is-home" id="hub">
   <header class="bar" id="bar"><div class="bar__l" id="barL"></div><div class="bar__m" id="barM"></div><div class="bar__r" id="barR"></div></header>
@@ -1511,7 +1511,7 @@ const THEMES = {
   'idp-light': { name: 'Медиа', shell: 'site', logo: null, product: PRODUCT_BASE, secs: SEC_BASE,
     defaults: { tabbar: true, ai: true, cta: true }, swatch: ['#080808', '#FFFFFF', '#F31B31', '#ECF8E4'] },
   gridi: { name: 'Стиль Гриди', shell: 'site', logo: `<span class="wm"><img src="${GRIDI_IMG}" alt="">Гриди</span>`, product: PRODUCT_BASE, secs: SEC_BASE,
-    defaults: { tabbar: true, ai: true, cta: true }, swatch: ['#121212', '#F5F5F2', '#21A038', '#E6F4E8'] },
+    defaults: { tabbar: true, ai: true, cta: true }, swatch: ['#121212', '#F5F5F2', '#1E9E5A', '#E6F4E8'] },
   admin: { name: 'Админка', shell: 'site', logo: `<span class="wm">Админка</span>`,
     product: {
       globalNav: [{ id: 'media', label: 'Материалы' }, { id: 'academy', label: 'Курсы' }, { id: 'services', label: 'Медиатека' }, { id: 'events', label: 'Мероприятия' }, { id: 'community', label: 'Модерация' }, { id: 'support', label: 'Настройки' }],
@@ -2648,7 +2648,7 @@ function renderComponents_() {
       <button data-theme-set="${id}" data-go="1">Открыть в прототипе</button></div>`; };
     const rows = [
       ['Токены', 'исходные 56', 'переопределено 43', 'переопределено 52'],
-      ['Шрифт', 'SB Sans / Inter', 'Onest, заголовки Unbounded', 'Inter, кегли заголовков меньше'],
+      ['Шрифт', 'Inter', 'Onest, заголовки Unbounded', 'Inter, кегли заголовков меньше'],
       ['Оболочка', 'сайт', 'сайт', 'сайт — боковых панелей нет'],
       ['Конфиг', 'Медиа, Академия, Сервисы…', 'тот же', 'Материалы, Курсы, Медиатека, Модерация…'],
       ['По умолчанию', 'таббар, ассистент, CTA', 'таббар, ассистент, CTA', 'без таббара, ассистента и CTA'],

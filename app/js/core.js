@@ -77,7 +77,7 @@ G.lib = {
   bump() { G._tplIndex = null; this._cache = {}; },
   /* файл библиотеки целиком — заменить в репозитории */
   fileText(kind) {
-    const head = `/* ${KINDS[kind]} Гриди. Описание полей — docs/library.md.\n   Скачано из Гриди ${new Date().toLocaleString('ru-RU')}. Замените этим файлом library/${kind}.js и поменяйте version в library/settings.js. */\n`;
+    const head = `/* ${KINDS[kind]} Гриди. Описание полей — в документе разработки.\n   Скачано из Гриди ${new Date().toLocaleString('ru-RU')}. Замените этим файлом library/${kind}.js и поменяйте version в library/settings.js. */\n`;
     const items = this.all(kind).map(o => { const c = {...o}; delete c._local; delete c._base; return c; });
     const ser = o => ' ' + JSON.stringify(o).replace(/"([a-zA-Z_][a-zA-Z0-9_]*)":/g, '$1: ').replace(/,(?=[a-zA-Z_"{\[])/g, ', ');
     return head + `Gridi.library.add('${kind}', [\n` + items.map(ser).join(',\n') + '\n]);\n';
@@ -95,7 +95,7 @@ G.tpl = id => { if (!id) return null; if (!G._tplIndex) { G._tplIndex = {...G.im
 G.tplByName = name => G.tpls().find(t => t.id === name || t.name === name || (t.status && t.status.rename === name)) || null;
 G.scenario = id => G.lib.get('scenarios', id) || G.lib.all('scenarios')[0];
 G.prompt = id => G.lib.get('prompts', id);
-/* правила сценария — в терминах ответа своего промта: правило в чужом формате модель выполняет вместо основного (19.10, GigaChat) */
+/* правила сценария — в терминах ответа своего промта: правило в чужом формате модель выполняет вместо основного */
 /* правила сценария уходят в промт разбора: пишите их в терминах ролей сценария и формы текста, без слов конкретной редакции */
 G.rulesLint = (kind, rules) => 'Правила уточняют разбор, формат ответа они не меняют. Пишите в терминах ролей сценария (их названия — в списке блоков) и формы текста: заголовок, пункты, кнопка, подпись.';
 const SYS_ROLES = {hero: {id: 'hero', name: 'Первый экран', meaning: 'Заголовок, главное сообщение и действие'}, cta: {id: 'cta', name: 'Целевое действие', meaning: 'Кнопка или форма — главное действие страницы'}, unparsed: {id: 'unparsed', name: 'Не разобрано', meaning: 'Абзацы, которые модель не разложила по блокам', verbatim: true, system: true}};
@@ -132,7 +132,7 @@ G.store = {
 };
 
 /* ---------- разметка ----------
-   Все правила — docs/razbor.md. Номера в комментариях (Р1, В2…) — оттуда.
+   Все правила — в документе разработки «Как Гриди разбирает текст». Номера в комментариях (Р1, В2…) — оттуда.
    Строки: [h1] [h2] [h3] заголовки · абзац · «- пункт» · «@ подпись» · «[кнопка] текст | ссылка» · «[картинка] подпись» · «a | b | c» строка таблицы.
    Связи строк — только по их положению, смысл текста не угадывается. Пустые строки смысла не имеют. */
 const RX = {
