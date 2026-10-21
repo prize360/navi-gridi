@@ -65,14 +65,37 @@ G.blockSummary = b => {
   return o.join(', ');
 };
 
+/* ---------- шаблон по ссылке сценария: id, название (старые сценарии) или {type, …параметры конструктора} ---------- */
+G.refTpls = ref => { const out = [];
+  for (const r of (Array.isArray(ref) ? ref : ref ? [ref] : [])) {
+    if (r && typeof r === 'object') { G.tpls().forEach(t => { if (t.type === r.type && Object.entries(r).every(([k, v]) => k === 'type' || (t.ctor && t.ctor.p && String(t.ctor.p[k]) === String(v)))) out.push(t); }); }
+    else { const t = G.tpl(r) || G.tplByName(r); if (t) out.push(t); }
+  }
+  return [...new Set(out)]; };
+G.cut = (x, n) => { x = String(x || '').replace(/\s+/g, ' ').trim(); return x.length > n ? x.slice(0, n - 1) + '…' : x; };
+/* Р7: куски текста блока, которых нет ни в одном поле шаблона */
+G.leftovers = (b, t, v) => {
+  if (!t || t.verbatim || t.component) return [];
+  const s = G.src(b), all = [v.head || '', ...Object.values(v.top || {}), ...(v.items || []).flatMap(o => Object.values(o))].join('\n');
+  const has = x => !x || all.includes(String(x).trim());
+  const out = [];
+  if (s.title && !has(s.title)) out.push(s.title);
+  s.meta.forEach(m => { if (!has(m) && !m.split(/\s*[,—–]\s*/).every(has)) out.push(m); });
+  s.paras.forEach(p => { if (!has(p)) out.push(p); });
+  s.items.forEach(i => [i.title, i.text, i.meta, i.cta].forEach(x => { if (x && !has(x) && !String(x).split('\n').every(has)) out.push(x); }));
+  s.cta.forEach(c => { if (!has(c)) out.push(c); });
+  return out;
+};
+
 /* ---------- кого вообще можно ставить в блок ---------- */
-const isHeroRole = (b, page) => b.role === 'hero' || page.blocks[0] === b;
+/* первый экран — по роли, а не по месту: блок не по порядку остаётся собой, Гриди предложит переставить */
+const isHeroRole = b => b.role === 'hero';
 const isCtaRole = r => r === 'cta' || r === 'subscribe';
 G.pool = (b, page) => {
   const sc = G.scenario(page.scenario), role = G.roleOf(sc, b.role), all = G.tpls();
-  const fixed = role.templates || role.tpl; const allowed = (Array.isArray(fixed) ? fixed : fixed ? [fixed] : []).map(G.tplByName).filter(Boolean);
+  const allowed = G.refTpls(role.templates || role.tpl);
   if (allowed.length) return allowed;
-  const hero = isHeroRole(b, page), bi = G.blockInfo(b), prefer = (role.prefer || []).map(G.tplByName).filter(Boolean);
+  const hero = isHeroRole(b), bi = G.blockInfo(b), prefer = G.refTpls(role.prefer);
   return all.filter(t => {
     const ti = G.tplInfo(t);
     if (t.heading) return false;
@@ -93,7 +116,7 @@ G.score = (b, t, page) => {
   const sc = G.scenario(page.scenario), role = G.roleOf(sc, b.role), cta = isCtaRole(b.role);
   if (t.component && t.verbatim) {
     if (t.id === 'article-text') return b.role === 'content' ? {score: 100, why: ['текстовый редактор'], bad: [], over: 0, tier: 0} : {score: 0, why: [], bad: ['только для текста статьи'], over: 0, tier: 4};
-    const ok = (t.id === 'table' && bi.table) || (t.id === 'accordion' && bi.n > 0);
+    const ok = (t.id === 'table' && bi.table && !bi.n) || (t.id === 'accordion' && bi.n > 0);
     return {score: ok ? 100 : 0, why: [ok ? 'компонент сайта' : ''], bad: ok ? [] : ['структура не совпадает'], over: 0, tier: ok ? 0 : 4};
   }
   let score = 100, over = 0, tier = 0;
@@ -119,7 +142,8 @@ G.score = (b, t, page) => {
   /* кнопки блока */
   const btnF = ti.btn, btnB = s.cta.length || (cta && (ti.btn || ti.form) ? 1 : 0);
   if (btnB > btnF && !ti.form) badk('design', btnF ? 'кнопок больше, чем полей' : 'в тексте кнопка, в шаблоне её нет');
-  if (btnF > btnB) pen('design', 20 * (btnF - btnB), btnB ? 'лишняя кнопка' : 'пустая кнопка');
+  /* кнопки в шаблоне — «до N»: меньше кнопок — нормально; нет ни одной — заполнить поле */
+  if (btnF && !btnB) pen('fields', 10, 'пустая кнопка');
   /* элементы */
   if (ti.gallery) {
     const want = ti.n || 1;
@@ -146,7 +170,6 @@ G.score = (b, t, page) => {
       const hasR = rr => rf.some(f => rr.includes(f.role));
       if (need.btn && !hasR(['btn'])) badk('design', 'у пунктов кнопки, в шаблоне нет');
       if (!need.btn && hasR(['btn'])) pen('design', 15, 'пустые кнопки у элементов');
-      if (need.meta && !hasR(['meta'])) pen('fields', 5, 'должности некуда');
       if (!need.meta && hasR(['meta'])) pen('fields', 15, 'пустые должности');
       if (!need.text && hasR(['text']) && hasR(['title', 'num2'])) pen('fields', 15, 'пустой текст у элементов');
       if (need.title && hasR(['title'])) { const k = s.items.filter(i => !i.title).length; if (k) pen('fields', 10 * k, `пустых заголовков у элементов: ${k}`); }
@@ -154,11 +177,16 @@ G.score = (b, t, page) => {
     }
   } else if (t.items && !ti.form) badk('design', `ждёт ${ti.n} элементов`);
   if (bi.img && !ti.media) why.push('картинке нет места');
+  /* Р6: таблица — только в таблицу */
+  if (bi.table && t.id !== 'table') badk('fields', 'таблица станет текстом');
   /* знаки: длиннее — обрежется */
   const v = G.autoFill(b, t, page);
   const chk = (f, val) => { const l = G.len(val); if (f.max && l > f.max) over += l - f.max; };
   if (v) { fieldsTop.forEach(f => chk(f, v.top[f.k])); (v.items || []).forEach(it => (t.items.fields || []).forEach(f => chk(f, it[f.k]))); if (v.head) chk(G.HEAD, v.head); }
   if (over) pen('len', Math.min(30, Math.ceil(over / 10)), `длиннее на ${over} зн.`);
+  /* Р7: что не встало ни в одно поле — шаблон не подходит, текст не теряется молча */
+  const lost = v ? G.leftovers(b, t, v) : [];
+  if (lost.length) badk('design', 'не встало в шаблон: ' + lost.map(x => `«${G.cut(x, 40)}»`).join(', '));
   /* смысловые проверки */
   if (bi.n && s.items.every(i => /^\d{1,2}[:.]\d{2}/.test(i.title)) && t.layout !== 'program') badk('design', 'времени некуда');
   if (t.layout === 'people' && !(bi.iMeta || s.items.every(i => /^[А-ЯЁA-Z][а-яёa-z]+ [А-ЯЁA-Z][а-яёa-z]+/.test(i.title)))) badk('design', 'в пунктах нет людей');
@@ -169,14 +197,16 @@ G.score = (b, t, page) => {
   /* вопросы — в аккордеон; карточками и шагами их не раскладываем */
   if (bi.faq && !t.component && t.items && bi.n > 4) badk('count', 'вопросы — в аккордеон');
   if (t.component && t.roles && t.roles.includes(b.role)) { score += 5; why.unshift('компонент для этой роли'); }
-  if ((role.prefer || []).some(n => { const p = G.tplByName(n); return p && p.id === t.id; })) { score += 5; why.unshift('рекомендован сценарием'); }
+  if (G.refTpls(role.prefer).includes(t)) { score += 5; why.unshift('рекомендован сценарием'); }
   score = Math.max(0, Math.min(100, score));
   if (bad.length) score = Math.min(score, 30);
   if (!why.length) why.push('всё на месте');
-  return {score, why, bad, over, tier};
+  /* пункты, слитые в текст шаблона без пунктов, — структура потеряна: хуже, чем отдельная кнопка или абзац не на месте */
+  const flat = bi.n > 0 && !t.items && !t.verbatim ? 1 : 0;
+  return {score, why, bad, over, tier, flat, lostN: lost.reduce((a, x) => a + G.len(x), 0)};
 };
 const tieW = (x, b) => (x.t.component && x.t.roles && x.t.roles.includes(b.role) ? 2 : 0) + (x.why[0] === 'рекомендован сценарием' ? 1 : 0) + (x.t.status.prod ? 1 : 0);
-G.rank = (b, page) => G.pool(b, page).map(t => ({t, ...G.score(b, t, page)})).sort((a, c) => (a.tier || 0) - (c.tier || 0) || c.score - a.score || tieW(c, b) - tieW(a, b) || a.over - c.over);
+G.rank = (b, page) => G.pool(b, page).map(t => ({t, ...G.score(b, t, page)})).sort((a, c) => (a.tier || 0) - (c.tier || 0) || (a.flat || 0) - (c.flat || 0) || (a.lostN || 0) - (c.lostN || 0) || c.score - a.score || tieW(c, b) - tieW(a, b) || a.over - c.over);
 G.TIERS = ['Подходит', 'Сократить текст', 'Переписать в поля', 'Изменить число пунктов', 'Изменить текст под дизайн'];
 G.isLive = t => !!(t && (t.status.prod || t.component));
 G.MISS = 80;
@@ -232,6 +262,8 @@ const autoFill0 = (b, t, page) => {
     else if (f.role === 'cap') { v = s.images[0] || s.title || lead; if (v === lead) lead = ''; }
     top[f.k] = v || '';
   }
+  /* подпись блока без своего поля — в текстовое поле блока первой строкой (в пределах блока) */
+  if (metas.length && !(t.fields || []).some(f => ['badge', 'meta', 'qname', 'qcap'].includes(f.role))) { const tf = (t.fields || []).find(f => TEXT_ROLES.includes(f.role)); if (tf) top[tf.k] = [metas.join(' · '), top[tf.k]].filter(Boolean).join('\n'); }
   if (t.items) {
     const ti = G.tplInfo(t);
     const n = t.items.any ? Math.max(s.items.length, 1) : t.items.n;
@@ -246,6 +278,8 @@ const autoFill0 = (b, t, page) => {
         else if (f.role === 'btn') o[f.k] = it.cta || '';
         else o[f.k] = it.text || (it.title && !ti.iTitle ? it.title : '');
       }
+      /* подпись пункта без своего поля — в текст пункта новой строкой (в пределах элемента, не между элементами) */
+      if (it.meta && !t.items.fields.some(f => f.role === 'meta')) { const tf = t.items.fields.find(f => ['text', 'itemFull'].includes(f.role)); if (tf) o[tf.k] = [o[tf.k], it.meta].filter(Boolean).join('\n'); }
       /* что из пункта не встало ни в одно поле — в пустые поля по порядку: текст не теряется */
       const used = new Set(Object.values(o).filter(Boolean)), left = [it.title, it.text, it.meta].filter(x => x && ![...used].some(u => u.includes(x)));
       for (const f of t.items.fields) if (!o[f.k] && left.length && !['num', 'btn'].includes(f.role)) o[f.k] = left.shift();
@@ -325,9 +359,12 @@ G.checks = page => {
     if (!b.text.trim()) add('warn', `Пустой блок «${name}».`, b);
     if (!t) add('warn', `У блока «${name}» нет шаблона.`, b);
     else {
-      if (t.status.need) { add('info', `«${name}»: в админке нет подходящего шаблона. ${t.name.replace('Нужен: ', 'Нужен ')} — ТЗ в отчёте «Недостающие шаблоны».`, b); return; }
       if (!t.status.prod && !t.component) add('info', `«${name}»: нужен дизайн шаблона «${t.name}».`, b);
       const best = G.score(b, t, page);
+      /* Р7: текст, которому нет места в шаблоне, — ошибка, а не тишина */
+      const lostX = G.leftovers(b, G.tplFor(b, t), G.values(b, page) || {top: {}, items: []});
+      if (lostX.length) { const s0 = G.src(b), split = (s0.paras.length && s0.items.length && !G.tplInfo(t).text.length) || (s0.cta.length && !G.tplInfo(t).btn && lostX.some(x => s0.cta.includes(x)));
+        add('error', `«${name}»: не встало в шаблон «${t.name}» — ${lostX.slice(0, 2).map(x => `«${G.cut(x, 40)}»`).join(', ')}${lostX.length > 2 ? ` и ещё ${lostX.length - 2}` : ''}.${split ? ' «Поправить» вынесет это в отдельный блок.' : ' Выберите другой шаблон или перенесите текст.'}`, b, split ? {splitLead: true} : null); }
       if (best.tier >= 2) { const what = [...best.bad, ...best.why.filter(w => !/^(всё на месте|компонент|рекомендован)/.test(w))].slice(0, 2).join(', ');
         add(best.tier >= 3 ? 'warn' : 'info', `«${name}» в шаблоне «${t.name}»: ${G.TIERS[best.tier].toLowerCase()}${what ? ' — ' + what : ''}.`, b); }
       const ov = G.overflow(b, page);
@@ -383,47 +420,9 @@ G.missing = page => page.blocks.map(b => {
 }).filter(Boolean);
 })();
 
-/* ---------- динамический шаблон: в админке подходящего нет ----------
-   Гриди рисует блок по его структуре и выдаёт ТЗ дизайнеру. */
+/* ---------- выбор шаблона для блока ---------- */
 (() => {
 const G = window.Gridi;
-const reg = {};
-const r10 = n => Math.max(10, Math.ceil(n * 1.1 / 10) * 10);
-const baseTpl = G.tpl;
-G.tpl = id => (id && String(id).startsWith('need:')) ? (reg[id.slice(5)] ? G.dynTpl(reg[id.slice(5)]) : null) : baseTpl(id);
-G.dynTpl = b => {
-  reg[b.id] = b;
-  const s = G.src(b), it = s.items, n = it.length, btn = s.cta.length, maxL = a => r10(Math.max(0, ...a.map(G.len)));
-  let type, layout, fields = [], items = null, media = null;
-  if (s.images.length && !n && G.len(s.lead) < 200) {
-    type = 'Галерея'; layout = s.images.length > 1 ? 'gal' : 'figure';
-    media = {kind: 'img', ratio: '16:9', per: s.images.length > 1};
-    if (s.images.length > 1) items = {n: s.images.length, fields: s.images.some(Boolean) ? [{k: 'cap', label: 'Подпись', max: maxL(s.images), role: 'itemFull'}] : []};
-    else fields.push({k: 'cap', label: 'Подпись', max: maxL(s.images), role: 'cap'});
-  } else if (n) {
-    const nums = it.filter(i => /\d/.test(i.title) && G.len(i.title) <= 14).length >= n / 2;
-    const people = it.filter(i => i.meta).length >= n / 2;
-    const iBtn = it.some(i => i.cta);
-    if (nums) { type = 'Цифры'; layout = 'stats'; items = {n, fields: [{k: 'n', label: 'Число', max: maxL(it.map(i => i.title)), role: 'num2'}, {k: 't', label: 'Подпись', max: maxL(it.map(i => i.text)), role: 'text'}]}; }
-    else if (people) { type = 'Люди'; layout = 'people'; media = {kind: 'photo', per: true}; items = {n, fields: [{k: 'name', label: 'Имя', max: maxL(it.map(i => i.title)), role: 'title'}, {k: 'h', label: 'Должность', max: maxL(it.map(i => i.meta)), role: 'meta'}, {k: 't', label: 'Описание', max: maxL(it.map(i => i.text)), role: 'text'}]}; }
-    else if (it.every(i => i.title && i.text)) { type = 'Карточки'; layout = 'grid'; items = {n, fields: [{k: 'h', label: 'H3', max: maxL(it.map(i => i.title)), role: 'title'}, {k: 't', label: 'Текст', max: maxL(it.map(i => i.text)), role: 'text'}]}; }
-    else { type = 'Список'; layout = 'olist'; items = {n, fields: [{k: 't', label: 'Пункт', max: maxL(it.map(i => (i.title && i.text) ? i.title + ' — ' + i.text : i.title || i.text)), role: 'itemFull'}]}; }
-    if (iBtn) items.fields.push({k: 'b', label: 'Кнопка', max: maxL(it.map(i => i.cta)), role: 'btn'});
-    if (s.lead) fields.push({k: 'sub', label: 'Текст', max: r10(G.len(s.lead)), role: 'lead'});
-  } else if (/^[«"„“]/.test(s.lead) && s.meta.length) {
-    type = 'Цитата'; layout = 'pull';
-    fields = [{k: 'q', label: 'Цитата', max: r10(G.len(s.lead)), role: 'lead'}, {k: 'name', label: 'Имя', max: 30, role: 'qname'}, {k: 'cap', label: 'Подпись', max: 60, role: 'qcap'}];
-  } else {
-    type = btn ? 'Баннер' : 'Текст'; layout = btn ? 'bannerct' : 'stack';
-    if (s.lead) fields.push({k: 't', label: 'Текст', max: r10(G.len(s.lead)), role: 'text'});
-  }
-  if (s.title && s.level === 'h3') fields.unshift({k: 'h3', label: 'H3', max: r10(G.len(s.title)), role: 'title'});
-  if (s.title && (s.level === 'h1' || b.role === 'hero')) { type = 'Первый экран'; layout = 'stack'; fields.unshift({k: 'h1', label: 'H1', max: r10(G.len(s.title)), role: 'title'}); }
-  if (s.meta.length && type !== 'Цитата' && type !== 'Люди') fields.unshift({k: 'badge', label: 'Бейдж', max: maxL(s.meta), role: 'badge'});
-  for (let i = 0; i < btn; i++) fields.push({k: 'b' + (i + 1), label: 'Кнопка ' + (i + 1), max: maxL(s.cta), role: 'btn'});
-  const name = [type, n ? 'X' + n : '', btn ? 'Кн' : ''].filter(Boolean).join('-');
-  return {id: 'need:' + b.id, name: 'Нужен: ' + name, cat: type, status: {prod: false, need: true}, layout, media, fields, items, cols: Math.min(4, n || 3)};
-};
 /* выбор: лучший из админки, если подходит; иначе лучший «нужен дизайн» */
 G.autoPick = (page, force) => {
   for (const b of page.blocks) {
@@ -435,8 +434,6 @@ G.autoPick = (page, force) => {
     if (nt !== b.tpl) { b.tpl = nt; b.values = null; }
   }
 };
-const baseScore = G.score;
-G.score = (b, t, page) => t && t.status && t.status.need === true ? {score: 0, why: ['шаблона нет в админке'], bad: [], over: 0, need: true, tier: 4} : baseScore(b, t, page);
 G.missing = page => page.blocks.filter(b => { const t = G.tpl(b.tpl); if (!t) return true; if (!G.isLive(t)) return true; return (G.score(b, t, page).tier || 0) >= 3; }).map(b => ({b, t: G.tpl(b.tpl), role: G.roleOf(G.scenario(page.scenario), b.role).name, need: G.blockSummary(b), best: G.rank(b, page)[0]}));
 })();
 

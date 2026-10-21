@@ -88,7 +88,7 @@ const importPack = async file => {
 };
 
 /* шаблоны блока сценария: пусто — Гриди подбирает из всей библиотеки; выбраны — только из них */
-const roleTpls = r => { const f = r.templates || r.tpl; return (Array.isArray(f) ? f : f ? [f] : []).map(G.tplByName).filter(Boolean); };
+const roleTpls = r => G.refTpls(r.templates || r.tpl);
 const tplsLabel = r => { const n = roleTpls(r).length; return n ? `Шаблоны: ${n}` : 'Шаблоны: все'; };
 const pickTpls = (r, done) => {
   const all = G.tpls().filter(t => !t.heading), sel = new Set(roleTpls(r).map(t => t.id));
@@ -132,6 +132,10 @@ EDIT.scenarios = (box, o) => {
             <input class="in items" data-f="items" type="number" min="0" value="${r.items || ''}" placeholder="макс." title="Пунктов максимум" aria-label="Пунктов максимум">
             <label class="check"><input type="checkbox" data-f="req" ${r.req ? 'checked' : ''}>нужен</label>
             <button class="btn sm ghost" data-tpls title="Какие шаблоны можно ставить в этот блок">${tplsLabel(r)}</button>
+            <details class="rolex"><summary class="hint">Смысл, пример и слова для узнавания</summary>
+              <label class="lbl">Что в блоке — уходит в промт</label><input class="in" data-f="meaning" value="${e(r.meaning || '')}" placeholder="кто выступает: имя, должность, о чём">
+              <label class="lbl">Пример блока в разметке — из него Гриди собирает пример для модели</label><textarea class="ta" data-f="example" rows="3" placeholder="[h2] Спикеры&#10;- Имя Фамилия — должность&#10;@ тема выступления">${e(r.example || '')}</textarea>
+              <label class="lbl">Слова в заголовке, по которым блок узнаётся без модели — через запятую</label><input class="in" data-f="keys" value="${e((r.keys || []).join(', '))}" placeholder="спикер, эксперт"></details>
             ${canMove(o, r) ? `<button class="ib sm" data-mv="-1" aria-label="Выше" ${i > 1 ? '' : 'disabled'}>${G.icon.up}</button><button class="ib sm" data-mv="1" aria-label="Ниже" ${i < o.roles.length - 1 ? '' : 'disabled'}>${G.icon.down}</button>` : ''}${canRemove(o, r) ? `<button class="ib sm" data-rm aria-label="Удалить блок">${G.icon.x}</button>` : ''}</div>`; }).join('')}</div>
       <details class="card"><summary class="lbl" style="cursor:pointer;margin:0">Особые правила разбора — если нужны</summary><textarea class="ta" id="sRules" rows="3" style="margin-top:10px" placeholder="По одному в строке. Например: программа — только пункты со временем">${e((o.rules || []).join('\n'))}</textarea><p class="hint" id="sRulesHint" style="margin-top:6px">${e(G.rulesLint(o.kind, o.rules || []))}</p></details>
     </div>`;
@@ -159,6 +163,9 @@ EDIT.scenarios = (box, o) => {
       const r = o.roles[+rc.dataset.i], f = k => rc.querySelector(`[data-f="${k}"]`);
       if (!lockedName(o, r)) r.name = f('name').value.trim() || 'Блок'; r.req = f('req').checked || r.id === 'hero' ? 1 : 0;
       const n = +f('items').value; if (n > 0) r.items = n; else delete r.items;
+      const tx = (k, v) => { if (v) r[k] = v; else delete r[k]; };
+      tx('meaning', f('meaning').value.trim()); tx('example', f('example').value.trim());
+      const ks = f('keys').value.split(',').map(x => x.trim().toLowerCase()).filter(Boolean); if (ks.length) r.keys = ks; else delete r.keys;
     });
     /* первый экран — всегда первый, целевое действие — всегда последний; если их нет — возвращаем */
     if (o.kind !== 'article') { const sys = kindRoles('landing'), hero = o.roles.find(r => r.id === 'hero') || sys[0];

@@ -131,24 +131,81 @@ G.store = {
   async del(id) { await DB.open(); if (DB.fallback) { const a = G.ls.get('pages', {}); delete a[id]; G.ls.set('pages', a); return; } return tx('readwrite', s => s.delete(id)); },
 };
 
-/* ---------- разметка блока ----------
-   Блок редактора — обычный текст с лёгкой разметкой:
-   [h1] / [h2] / [h3] заголовок   @ метаданные   - пункт — пояснение
-   [кнопка] текст                 [картинка] подпись
-   Остальные строки — абзацы. */
+/* ---------- разметка ----------
+   Все правила — docs/razbor.md. Номера в комментариях (Р1, В2…) — оттуда.
+   Строки: [h1] [h2] [h3] заголовки · абзац · «- пункт» · «@ подпись» · «[кнопка] текст | ссылка» · «[картинка] подпись» · «a | b | c» строка таблицы.
+   Связи строк — только по их положению, смысл текста не угадывается. Пустые строки смысла не имеют. */
 const RX = {
   h: /^\[(h[1-4])\]\s*(.*)$/i, meta: /^@\s*(.*)$/, item: /^(?:[-–•*]|\d+[.)])\s+(.*)$/,
   btn: /^\[(?:кнопка|ссылка|button|btn|link)\]\s*(.*)$/i, img: /^\[(?:картинка|фото|image|img)\]\s*(.*)$/i,
 };
-G.splitItem = s => {
-  s = String(s || '').trim();
-  let m = s.match(/^(.{1,90}?)(\s+[—–]\s+)(.+)$/);
-  if (!m) m = s.match(/^([^:]{1,70})(:\s+)(.+)$/);
-  return m ? {title: m[1].trim(), text: m[3].trim(), sep: m[2]} : {title: '', text: s};
+G.RX = RX;
+/* одна строка → вид. Единая грамматика для разбора, редактора «Текст» и промтов */
+G.lineKind = l => {
+  let m; l = String(l || '').trim();
+  if ((m = l.match(RX.h))) return {k: m[1].toLowerCase(), t: m[2].trim()};
+  if ((m = l.match(RX.meta))) return {k: 'meta', t: m[1].trim()};
+  if ((m = l.match(RX.btn))) return {k: 'btn', t: m[1].trim()};
+  if ((m = l.match(RX.img))) return {k: 'img', t: m[1].trim()};
+  if ((m = l.match(RX.item))) return {k: 'li', t: m[1].trim()};
+  return {k: 'p', t: l};
 };
-/* список без маркеров: после строки с двоеточием идут строки на «;», последняя — на «.» — это пункты */
+G.MARKED = l => G.lineKind(l).k !== 'p';
+/* кнопка: «Текст | адрес» — адрес только если похож на ссылку */
+G.splitBtn = t => { const um = String(t).match(/^(.*?)\s+\|\s+((?:https?:\/\/|www\.|\/|#|mailto:|tel:)\S*)$/i); return {txt: (um ? um[1] : t).trim(), url: um ? um[2] : ''}; };
+/* Р2: деление пункта на заголовок и текст — по одному разделителю, общему для всех пунктов блока */
+const TIME = /^((?:\d{1,2}[:.]\d{2}(?:\s*[–-]\s*\d{1,2}[:.]\d{2})?)|(?:\d{1,2}\s+(?:январ|феврал|март|апрел|ма[яй]|июн|июл|август|сентябр|октябр|ноябр|декабр)[а-яё]*))\s+(?:[—–-]\s+)?(\S.*)$/i;
+const SPLIT = [
+  {sep: ' — ', min: 1, rx: /^(.{1,90}?)\s+[—–]\s+(.+)$/},
+  {sep: ': ', min: 2, rx: /^([^:]{1,70}):\s+(.+)$/},
+  {sep: '. ', min: 2, rx: /^([^.!?:—–]{2,60}?)\.\s+(\S.*)$/},
+  {sep: ' ', min: 1, rx: TIME},
+];
+G.splitItems = raws => {
+  for (const S of SPLIT) if (raws.length >= S.min && raws.every(x => S.rx.test(x))) return raws.map(x => { const m = x.match(S.rx); return {title: m[1].trim(), text: m[2].trim(), sep: S.sep === ' — ' ? ' — ' : S.sep}; });
+  return raws.map(x => ({title: '', text: x}));
+};
+/* Р6: таблица — две строки и больше с одинаковым числом « | » */
+const cols = l => String(l).split(' | ').length;
+G.isTable = rows => rows.length >= 2 && rows.every(r => r.includes(' | ') && !G.MARKED(r) && cols(r) === cols(rows[0]));
+G.parse = text => {
+  const src = {title: '', level: '', meta: [], paras: [], items: [], cta: [], images: [], urls: []};
+  const L = String(text || '').split('\n').map(x => x.trim()).filter(Boolean).map(G.lineKind)
+    /* пустой заголовок — не заголовок; «заголовок» длиннее 120 знаков — абзац */
+    .filter(x => !(/^h/.test(x.k) && !x.t)).map(x => /^h/.test(x.k) && x.t.length > 120 ? {k: 'p', t: x.t} : x)
+    .map(x => x.k === 'h4' ? {...x, k: 'h3'} : x);
+  /* Р4: заголовок блока — первый [h1]/[h2]; [h3] — заголовок блока, только если он один в блоке и стоит до пунктов */
+  const h3n = L.filter(x => x.k === 'h3').length, hasH12 = L.some(x => x.k === 'h1' || x.k === 'h2');
+  let last = null, item = null; const raws = [];
+  for (const x of L) {
+    const isTitle = !src.title && !src.items.length && (x.k === 'h1' || x.k === 'h2' || (x.k === 'h3' && !hasH12 && h3n === 1));
+    if (isTitle) { src.title = x.t; src.level = x.k; last = 'title'; item = null; }
+    else if (/^h/.test(x.k)) { item = {title: x.t, text: '', meta: '', cta: '', h3: true}; src.items.push(item); last = 'card'; } /* Р3 */
+    else if (x.k === 'meta') { if ((last === 'item' || last === 'card') && item) item.meta = item.meta ? item.meta + ' · ' + x.t : x.t; else src.meta.push(x.t); } /* Р1 */
+    else if (x.k === 'btn') { const {txt, url} = G.splitBtn(x.t); if (!txt) continue;
+      if ((last === 'item' || last === 'card') && item && !item.cta) { item.cta = txt; item.url = url; } else { src.cta.push(txt); src.urls[src.cta.length - 1] = url; } }
+    else if (x.k === 'img') { src.images.push(x.t); }
+    else if (x.k === 'li') { item = {raw: x.t, title: '', text: x.t, meta: '', cta: ''}; raws.push(item); src.items.push(item); last = 'item'; }
+    else if (last === 'card' && item) { item.text = item.text ? item.text + '\n' + x.t : x.t; } /* Р3: абзацы под [h3] — текст карточки */
+    else { src.paras.push(x.t); last = 'para'; item = null; }
+  }
+  /* Р2 */
+  G.splitItems(raws.map(i => i.raw)).forEach((sp, k) => { Object.assign(raws[k], sp); delete raws[k].raw; });
+  /* Р5: кнопки пунктов — только если кнопка есть у каждого пункта; иначе это кнопки блока, по порядку */
+  if (src.items.some(i => i.cta) && !src.items.every(i => i.cta)) {
+    const moved = src.items.filter(i => i.cta).map(i => ({txt: i.cta, url: i.url || ''}));
+    src.items.forEach(i => { i.cta = ''; delete i.url; });
+    const rest = src.cta.map((c, k) => ({txt: c, url: src.urls[k] || ''})), all = [...moved, ...rest];
+    src.cta = all.map(x => x.txt); src.urls = all.map(x => x.url);
+  }
+  src.lead = src.paras.join('\n\n');
+  src.table = G.isTable(src.paras.filter(p => p.includes(' | ')));
+  return src;
+};
+/* ---------- разметка при вставке (В-правила): один раз, результат виден в «Тексте» и его можно поправить ---------- */
+/* В2: список без маркеров — после строки с двоеточием идут строки на «;», последняя на «.» */
 G.unmarkedLists = ls => {
-  const out = [...ls], plain = l => l.trim() && !/^(\[|@|[-–•*]\s|\d+[.)]\s)/.test(l.trim());
+  const out = [...ls], plain = l => l.trim() && !G.MARKED(l);
   for (let i = 0; i < out.length; i++) {
     if (!plain(out[i]) || !/:\s*$/.test(out[i].trim())) continue;
     let j = i + 1; while (j < out.length && plain(out[j]) && /;\s*$/.test(out[j].trim()) && out[j].trim().length <= 300) j++;
@@ -158,40 +215,12 @@ G.unmarkedLists = ls => {
   }
   return out;
 };
-G.parse = text => {
-  const src = {title: '', level: '', meta: [], paras: [], items: [], cta: [], images: [], urls: []};
-  let last = null, item = null;
-  for (const raw of G.unmarkedLists(String(text || '').split('\n'))) {
-    const l = raw.trim(); if (!l) { if (item && item._h) item = null; last = null; continue; }
-    let m;
-    /* пустой заголовок — не заголовок; «заголовок» длиннее 120 знаков — это абзац */
-    if ((m = l.match(RX.h)) && !m[2].trim()) continue;
-    if (m && m[2].trim().length > 120) m = null;
-    if (m) {
-      const lv = m[1].toLowerCase();
-      if (!src.title && !src.items.length && (lv !== 'h3' || !src.paras.length)) { src.title = m[2].trim(); src.level = lv; last = 'title'; item = null; }
-      else { item = {title: m[2].trim(), text: '', meta: '', cta: '', _h: true}; src.items.push(item); last = 'item'; }
-    } else if ((m = l.match(RX.meta))) {
-      if (last === 'item' && item) item.meta = item.meta ? item.meta + ' · ' + m[1] : m[1]; else src.meta.push(m[1].trim());
-    } else if ((m = l.match(RX.btn))) {
-      /* кнопка и ссылка — одно и то же: «Текст кнопки | адрес»; адрес — только если похож на ссылку */
-      const um = m[1].match(/^(.*?)\s+\|\s+((?:https?:\/\/|www\.|\/|#|mailto:|tel:)\S*)$/i);
-      const txt = (um ? um[1] : m[1]).trim(), url = um ? um[2] : '';
-      if (!txt) { /* пустая кнопка — не кнопка */ }
-      else if (last === 'item' && item && !item.cta) { item.cta = txt; item.url = url; }
-      else { src.cta.push(txt); src.urls[src.cta.length - 1] = url; }
-    } else if ((m = l.match(RX.img))) { src.images.push(m[1].trim()); last = 'img'; }
-    else if ((m = l.match(RX.item))) { item = {...G.splitItem(m[1]), meta: '', cta: ''}; src.items.push(item); last = 'item'; }
-    else if (item && item._h) { item.text = item.text ? item.text + '\n' + l : l; last = 'item'; }
-    else { src.paras.push(l); last = 'para'; item = null; }
-  }
-  src.items.forEach(i => delete i._h);
-  /* все пункты списка вида «Короткая фраза. Остальное» — заголовок и текст пункта (форма одинаковая у всех — значит, задумано) */
-  const PH = /^([^.!?:—–]{2,60}?)\.\s+(\S.*)$/;
-  if (src.items.length >= 2 && src.items.every(i => i.title || PH.test(i.text || ''))) src.items.forEach(i => { if (i.title) return; const m = i.text.match(PH); i.title = m[1].trim(); i.text = m[2].trim(); i.sep = '. '; });
-  src.lead = src.paras.join('\n\n');
-  src.table = src.paras.filter(p => p.includes(' | ')).length >= 2;
-  return src;
+G.premark = text => {
+  const used = new Set(); let ls = String(text || '').split('\n');
+  const l2 = G.unmarkedLists(ls); if (l2.some((l, i) => l !== ls[i])) used.add('В2'); ls = l2;
+  /* В3: строка «Текст | https://…» без разметки — кнопка */
+  ls = ls.map(l => { const t = l.trim(); if (!G.MARKED(t) && t.split(' | ').length === 2 && /^.{1,60}\s\|\s(?:https?:\/\/|www\.)\S+$/.test(t)) { used.add('В3'); return '[кнопка] ' + t; } return l; });
+  return {text: ls.join('\n'), used: [...used]};
 };
 G.serialize = (s, opts = {}) => {
   const o = [];
@@ -200,7 +229,7 @@ G.serialize = (s, opts = {}) => {
   if (s.lead) o.push(...String(s.lead).split(/\n+/).filter(Boolean));
   if (!s.title) meta();
   (s.items || []).forEach(i => {
-    if (i.h3) { o.push('[h3] ' + i.title); if (i.text) o.push(i.text); }
+    if (i.h3) { o.push('[h3] ' + i.title); if (i.text) o.push(...String(i.text).split('\n')); }
     else o.push('- ' + (i.title && i.text ? i.title + (i.sep || ' — ') + i.text : i.title || i.text));
     if (i.meta) o.push('@ ' + i.meta);
     if (i.cta) o.push('[кнопка] ' + i.cta + (i.url ? ' | ' + i.url : ''));

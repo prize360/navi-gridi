@@ -375,3 +375,4 @@
 .libv .head .roles,.libv .head .stats{margin-top:14px}
 .libv{min-height:auto;background:transparent}
 .libv .edit-h{flex-direction:column;align-items:stretch}.libv .edit-h .row{flex-wrap:wrap}.libv input,.libv textarea,.libv select{max-width:100%;box-sizing:border-box}
+.libv .rolecard{flex-wrap:wrap}.libv .rolex{order:9;flex-basis:100%;padding-left:30px}.libv .rolex summary{cursor:pointer;margin:0}.libv .rolex .in,.libv .rolex .ta{width:100%;box-sizing:border-box;margin-bottom:8px}.libv .rolex .lbl{display:block;margin-top:8px}

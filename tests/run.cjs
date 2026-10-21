@@ -52,5 +52,36 @@ for (const f of fs.readdirSync(path.join(__dirname, 'fixtures')).filter(f => f.e
   const hit = want.filter(([r, k]) => have.has(r + '|' + k.slice(0, 14))).length;
   console.log(name + ' — эталон редактора'); ok(hit >= want.length - 3, `совпало блоков: ${hit} из ${want.length} (по разметке ${pg.blocks.length})`);
 }
+/* лендинг: эталонная страница мероприятия (fixtures/event-hand.md — ручная разметка) и тот же текст без разметки (event-plain.md).
+   Ответы трёх моделей (event-*.{deepseek,gpt,gigachat}.json) — как они разобрали эти тексты 21.10.
+   Проверка: текст целиком, ничего не «не встало в шаблон» после «Поправить», кнопки и таблица на месте */
+{
+  const ev = G.lib.get('scenarios', 'event'), rd = f => fs.readFileSync(fx(f), 'utf8'), cnt = pg => pg.blocks.reduce((n, b) => n + (b.text.match(/^\[кнопка\].*\|/gm) || []).length, 0);
+  const lostErr = pg => G.checks(pg).filter(c => c.level === 'error' && /не встало/.test(c.text));
+  const run = (src, ans) => { const pm = G.premark(rd(src)), pg = G.newPage('t', ev.id, pm.text); G.applyParse(pg, ans); G.fixByCode(pg); G.autoPick(pg); return {pg, R: G.parseLines(pg)}; };
+  for (const src of ['event-hand.md', 'event-plain.md']) {
+    console.log(src);
+    for (const who of [null, 'deepseek', 'gpt', 'gigachat']) {
+      const ans = who ? JSON.parse(rd(src.replace('.md', '.' + who + '.json'))) : null, {pg, R} = run(src, ans), tag = who || 'без модели';
+      ok(words(pg.blocks) === norm(R.join('\n')), `${tag}: текст целиком`);
+      ok(cnt(pg) === 3, `${tag}: кнопки со ссылками ${cnt(pg)} из 3`);
+      ok(pg.blocks.some(b => b.tpl === 'table' && /Тариф \| Что входит/.test(b.text)), `${tag}: таблица — в таблице`);
+      if (src === 'event-hand.md' || who) ok(!lostErr(pg).length, `${tag}: всё встало в шаблоны${lostErr(pg).length ? ' — ' + lostErr(pg).map(c => c.text).join(' | ') : ''}`);
+      ok(pg.blocks[0].role === 'hero', `${tag}: первый экран первым`);
+    }
+  }
+  /* правила разметки — на коротких примерах */
+  console.log('правила разметки');
+  const P = t => G.parse(t);
+  ok(P('- Приходите заранее — регистрация с 9:00\n- Возьмите паспорт').items.every(i => !i.title), 'Р2: тире не во всех пунктах — пункты не делятся');
+  ok(P('- Доклады — 12 спикеров — о продажах\n- Разборы — вживую').items[0].text === '12 спикеров — о продажах', 'Р2: делит по первому тире, остальное — текст');
+  ok(P('- Важно: возьмите паспорт').items[0].title === '', 'Р2: двоеточие в одном пункте — не заголовок');
+  ok(P('- 10:00 Регистрация\n- 11:00 — Открытие').items.map(i => i.title).join() === '10:00,11:00', 'Р2: время в начале — заголовок пункта');
+  ok(P('[h2] Как добраться\nАбзац.\n[h3] На метро\nСтанция.\n[h3] На машине\nПарковка.').items.length === 2 && P('[h3] На метро\nСтанция.\n[h3] На машине\nПарковка.').items.length === 2, 'Р3/Р4: два [h3] — две карточки, не заголовок блока');
+  ok(P('- А — 1\n- Б — 2\n[кнопка] Скачать | https://x.ru').cta.length === 1, 'Р5: кнопка не у каждого пункта — кнопка блока');
+  ok(P('- А — 1\n[кнопка] Раз\n- Б — 2\n[кнопка] Два').items.every(i => i.cta), 'Р5: кнопка у каждого пункта — кнопки карточек');
+  ok(!P('Москва | Онлайн\nА | Б | В').table && P('А | Б\nВ | Г').table, 'Р6: таблица — одинаковое число колонок');
+  ok(G.premark('Зарегистрироваться | https://x.ru').text === '[кнопка] Зарегистрироваться | https://x.ru', 'В3: строка со ссылкой — кнопка');
+}
 console.log(fail ? `\n${fail} провалов` : '\nвсе тесты прошли');
 process.exit(fail ? 1 : 0);

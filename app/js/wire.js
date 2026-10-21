@@ -30,6 +30,8 @@ const field0 = (f, v, opts = {}) => {
   /* грида статична: длиннее лимита — обрезается */
   if (f.max && f.role !== 'table' && f.role !== 'body' && x.length > f.max) x = x.slice(0, Math.max(1, f.max - 1)).trimEnd() + '…';
   if (f.role === 'num') return `<span class="wf-num">${e(x)}</span>`;
+  /* кнопки шаблона — «до N»: пустая вторая кнопка не ошибка и не показывается */
+  if (!x.trim() && f.role === 'btn' && /^b[2-9]$/.test(f.k)) return '';
   if (!x.trim()) return opts.skipEmpty ? '' : empty(f);
   switch (f.role) {
     case 'title': return `<${hTag(f)} class="wf-${hTag(f)}">${e(x)}</${hTag(f)}>`;

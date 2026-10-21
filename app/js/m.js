@@ -52,16 +52,8 @@ const KINDS = [
 ];
 const KIND = Object.fromEntries(KINDS.map(x => [x.k, x]));
 KIND.h4 = {k: 'h4', label: 'H4', g: 'H4'};
-const parseLine = l => {
-  let m;
-  if ((m = l.match(/^\[(h[1-4])\]\s*(.*)$/i))) return {k: m[1].toLowerCase(), t: m[2]};
-  if ((m = l.match(/^@\s*(.*)$/))) return {k: 'meta', t: m[1]};
-  if ((m = l.match(/^\[(?:кнопка|ссылка|button|btn|link)\]\s*(.*)$/i))) return {k: 'btn', t: m[1]};
-  if ((m = l.match(/^\[(?:картинка|фото|image|img)\]\s*(.*)$/i))) return {k: 'img', t: m[1]};
-  if ((m = l.match(/^[-–•*]\s+(.*)$/))) return {k: 'li', t: m[1]};
-  if ((m = l.match(/^\d+[.)]\s+(.*)$/))) return {k: 'li', t: m[1]};
-  return {k: 'p', t: l};
-};
+/* грамматика строк — одна на всю Гриди: G.lineKind (core.js) */
+const parseLine = l => G.lineKind(l);
 const md = (k, t) => { if (!t) return ''; return /^h[1-4]$/.test(k) ? `[${k}] ${t}` : k === 'meta' ? '@ ' + t : k === 'btn' ? '[кнопка] ' + t : k === 'img' ? '[картинка] ' + t : k === 'li' ? '- ' + t : t; };
 const tidy = arr => arr.join('\n').replace(/\n{3,}/g, '\n\n').replace(/^\n+|\n+$/g, '');
 const lines = text => { const t = tidy(String(text || '').split('\n').map(x => x.trim())); return t ? t.split('\n').map(l => l ? parseLine(l) : {k: 'p', t: ''}) : []; };
@@ -103,7 +95,7 @@ const rowsOf = (p, checks, byBlock) => {
   return out; };
 /* градация выгрузки: красное — ошибки, правила Нави, лимиты, структура; оранжевое — не хватает данных (ссылки, картинки, иконки,
    факты от автора) и дизайна; рекомендации — отдельно. Зелёный статус — когда закрыто всё, и рекомендации тоже */
-const CODEFIX = /H1 — только|Первых экранов|Целевых действий/;
+const CODEFIX = /H1 — только|Первых экранов|Целевых действий|всегда первый блок|в отдельный блок/;
 const LIM = /длиннее/, DES = /^нужен (шаблон в админке|дизайн шаблона)$/, DATA = /без ссылки|нет (картинки|фото|иконки)|нужно от автора|пуст/;
 const gradeOf = (p, R) => {
   const pageFix = c => c && c.fix && c.fix.addRole ? 'add' : c && CODEFIX.test(c.text) ? 'code' : '';
@@ -318,6 +310,20 @@ const pageMenu = p => {
   s.$('#rDel').onclick = () => { s.close(true); delAsk(p); };
 };
 
+/* памятка для редакции: как писать текст, чтобы он собрался как задумано. Рекомендации, а не обязаловка */
+const MEMO = [
+  ['[h1] Заголовок', 'Заголовок страницы — один, в начале'],
+  ['[h2] Заголовок', 'Новый раздел страницы'],
+  ['[h3] Заголовок', 'Карточка: абзацы под ним — её текст'],
+  ['- Заголовок — текст', 'Пункт. Тире во всех пунктах раздела — у пунктов заголовок и текст'],
+  ['@ 12 ноября · Москва', 'Подпись к строке над ней: дата, место, должность'],
+  ['[кнопка] Текст | ссылка', 'Кнопка. Если кнопка у каждого пункта — это кнопки карточек'],
+  ['[картинка] Подпись', 'Место для картинки'],
+  ['Тариф | Срок | Цена', 'Строка таблицы — от двух строк с одинаковым числом колонок'],
+];
+const memo = () => sheet(`<div class="sh-h"><div><h2>Как писать текст</h2><p class="sub">Размечать не обязательно: Гриди и модель разберут текст сами. Разметка помогает, если блок собрался не так.</p></div><button class="ib" data-close aria-label="Закрыть">${I.x}</button></div>
+  <div class="sh-b"><div class="memo">${MEMO.map(([a, b]) => `<code>${e(a)}</code><span>${e(b)}</span>`).join('')}</div>
+  <p class="hint">Пустые строки ни на что не влияют. Если текст не поместился в шаблон, Гриди покажет это в проверке — и предложит, как поправить.</p></div>`, {cls: 'tall'});
 /* инструкция — обычная страница Гриди (статья), собранная по разметке. Только общие сведения: её можно показывать по публичной ссылке */
 /* инструкция — страница Гриди (статья) с шаблонами. Только общие сведения: её же можно отдать ссылкой (до 4 тыс. знаков) */
 const GUIDE = [
@@ -479,9 +485,10 @@ const pageSettings = () => {
 /* 2а. Пустая страница: вставить текст и собрать */
 const draft = () => {
   const p = A.page, main = $app.querySelector('#eMain');
-  main.innerHTML = `<p class="draft-hint">Разметка не обязательна — Гриди разложит текст сам. Можно вставить и текст страницы от коллеги. Или <button class="link" id="dBlank">начните с чистого листа</button> — блоки сценария без текста.</p>
+  main.innerHTML = `<p class="draft-hint">Разметка не обязательна — Гриди разложит текст сам (<button class="link" id="dMemo">как писать текст</button>). Можно вставить и текст страницы от коллеги. Или <button class="link" id="dBlank">начните с чистого листа</button> — блоки сценария без текста.</p>
     <textarea class="draft" id="dTxt" placeholder="Вставьте или напишите текст.">${e(p.text || '')}</textarea>`;
   const ta = main.querySelector('#dTxt'); setTimeout(() => ta.focus(), 50);
+  main.querySelector('#dMemo').onclick = memo;
   /* с чистого листа: блоки по сценарию без текста — текст можно написать или «Придумать» */
   main.querySelector('#dBlank').onclick = async () => { const s0 = sc(), roles = (s0.roles || []).filter(r => r.req || r.id === 'hero').map(r => r.id);
     if (!roles.includes('hero')) roles.unshift('hero'); if (roles.length < 2) roles.push(defRole());
@@ -503,6 +510,8 @@ const build = async text => {
   const p = A.page; text = String(text || '').trim(); if (!text) return toast('Сначала вставьте текст.');
   p.text = text;
   if (isShare(text)) { fromShare(p, text); return done(p); }
+  /* В-правила: разметка по форме строк при вставке — один раз, видна в «Тексте» */
+  const pm = G.premark(text); p.text = text = pm.text;
   const main = $app.querySelector('#eMain'), dock = $app.querySelector('#eDock'); dock.innerHTML = '';
   main.innerHTML = `<div class="ld"><h2>Разбираем текст</h2><ol class="ld-st">
       <li data-s="1" class="on">Собираем по разметке</li><li data-s="2">Модель проверяет блоки и роли <small id="ldT"></small></li><li data-s="3">Подбираем шаблоны</li></ol>
@@ -529,7 +538,9 @@ const build = async text => {
   st(2, 'done'); st(3, 'on');
   const r = G.applyParse(p, j);
   if (j && !r.byModel) note = 'Модель разобрала плохо — страница собрана по разметке. Можно разобрать заново другой моделью.';
-  else if (r.lost) note = `Модель не разложила ${G.num(r.lost, 'строку', 'строки', 'строк')} — они в конце, в блоке «Не разобрано».`;
+  if (!r.byModel && !/^\s*\[h[12]\]/im.test(text)) note = (note ? note + ' ' : '') + 'Разметки разделов в тексте нет, поэтому без модели страница собрана почти одним блоком. Разберите заново или отметьте заголовки разделов [h2].';
+  else if (pm.used.length && !note) note = 'Гриди разметил при вставке: ' + pm.used.map(k => ({'В2': 'списки без маркеров', 'В3': 'кнопки со ссылкой'})[k]).join(', ') + ' — проверьте в «Тексте».';
+  if (r.lost) note = `Модель не разложила ${G.num(r.lost, 'строку', 'строки', 'строк')} — они в конце, в блоке «Не разобрано».`;
   done(p, note);
 };
 const done = async (p, note) => {

@@ -80,7 +80,8 @@ G.convertPage = async (page, scId) => {
       какие строки — какой блок, какая строка заголовок/пункт/подпись, подсказка к блоку.
    Текст пишет не модель: Гриди собирает блоки из исходных строк, разметка автора (кнопки, ссылки, списки) остаётся как была.
    Правил про конкретные слова («Содержание», «Читайте также»…) нет: всё решается по форме, служебное встаёт в подходящий шаблон. */
-const MARK = /^\s*(\[(h[1-4]|кнопка|ссылка|button|btn|link|картинка|фото|image|img)\]|@|(?:[-–•*]|\d+[.)])\s)/i;
+/* размеченная строка (и строка таблицы) — защищена: модель её не переделывает */
+const MARK = { test: l => G.MARKED(l) || / \| /.test(String(l)) };
 G.parseLines = page => G.paras(String(page.text || '').split('\n').filter(l => !/^\s*-{3,}\s*$/.test(l)).join('\n'), G.scenario(page.scenario).maxText);
 /* блоки сборки по разметке → номера строк (сборка строки не меняет, только группирует) */
 const baseRanges = (blocks, R) => { let k = 0; return blocks.map(b => { const ids = [];
@@ -88,14 +89,37 @@ const baseRanges = (blocks, R) => { let k = 0; return blocks.map(b => { const id
   return ids; }); };
 const span = ids => { if (!ids.length) return ''; const out = []; let a = ids[0], p = a; for (const x of ids.slice(1).concat([null])) { if (x === p + 1) { p = x; continue; } out.push(a === p ? '' + a : a + '-' + p); a = p = x; } return out.join(','); };
 const nums = (v, n) => { const out = []; for (const part of String(v == null ? '' : v).split(/[,;\s]+/).filter(Boolean)) { const m = part.match(/^(\d+)(?:\s*[-–]\s*(\d+))?$/); if (!m) continue; const a = +m[1], b = m[2] ? +m[2] : a; for (let i = Math.min(a, b); i <= Math.max(a, b) && i <= n; i++) if (i >= 1) out.push(i); } return out; };
+/* пример для промта — из примеров блоков сценария: строки без разметки и правильный ответ, вычисленный по тем же правилам */
+G.parseExample = sc => {
+  const rs = (sc.roles || []).filter(r => String(r.example || '').trim()); if (!rs.length) return G.EXAMPLE_FORMAT;
+  const lines = [], blocks = []; let n = 0;
+  for (const r of rs) {
+    const bl = {role: r.id, lines: '', title: [], items: [], meta: [], button: [], image: []}, first = n + 1; let card = 0;
+    for (const raw of String(r.example).split('\n').map(x => x.trim()).filter(Boolean)) {
+      const x = G.lineKind(raw); n++;
+      lines.push(`[${n}] ${x.k === 'p' ? raw : x.k === 'btn' ? G.splitBtn(x.t).txt : x.t}`);
+      if (x.k === 'h3' && card === 0) { card = n; continue; }
+      if (card && x.k === 'p') { bl.items.push(`${card}-${n}`); card = 0; continue; }
+      if (card) { bl.title.push(card); card = 0; }
+      if (/^h/.test(x.k)) bl.title.push(n); else if (x.k === 'li') bl.items.push(String(n)); else if (x.k === 'meta') bl.meta.push(n); else if (x.k === 'btn') bl.button.push(n); else if (x.k === 'img') bl.image.push(n);
+    }
+    if (card) bl.title.push(card);
+    bl.lines = first === n ? String(n) : `${first}-${n}`;
+    const o = {role: bl.role, lines: bl.lines}; ['title', 'meta', 'button', 'image'].forEach(k => { if (bl[k].length) o[k] = bl[k].join(','); }); if (bl.items.length) o.items = bl.items;
+    blocks.push(o);
+  }
+  return 'Строки:\n' + lines.join('\n') + '\nОтвет:\n' + JSON.stringify({blocks: blocks.map(b => ({...b, tip: ''})), story: ['…']});
+};
+G.EXAMPLE_FORMAT = 'Строки:\n[1] Заголовок раздела\n[2] Первый пункт — пояснение\n[3] Второй пункт — пояснение\n[4] Вопрос?\n[5] Ответ на вопрос.\n[6] Подробнее | https://example.ru\nОтвет:\n{"blocks":[{"role":"<роль>","lines":"1-6","title":"1","items":["2","3","4-5"],"button":"6","tip":""}],"story":["…"]}';
 G.parsePrompt = page => {
-  const sc = G.scenario(page.scenario), P = G.prompt('parse'), R = G.parseLines(page);
+  const sc = G.scenario(page.scenario), P = G.prompt(sc.prompt || 'parse') || G.prompt('parse'), R = G.parseLines(page);
   const base = G.newPage('', page.scenario, R.join('\n')); G.assemble(base); const rg = baseRanges(base.blocks, R);
   const marks = new Map(); rg.forEach((ids, i) => { if (ids.length) marks.set(ids[0], `== блок ${i + 1}: ${base.blocks[i].role}`); });
   return G.fill(P.text, {
     'тип': sc.name, 'действие': sc.action || 'нет', 'размер': (sc.rhythm && sc.rhythm.maxRun) || 1000,
     'роли': sc.roles.map(r => `${r.id} — ${r.name}${r.meaning ? ': ' + r.meaning : ''}${r.items ? ' (до ' + r.items + ' пунктов)' : ''}`).join('\n'),
     'правила': (sc.rules || []).map(r => '- ' + r).join('\n') || '—',
+    'пример': G.parseExample(sc),
     'строки': R.map((l, i) => (marks.has(i + 1) ? marks.get(i + 1) + '\n' : '') + `[${i + 1}] ${l}`).join('\n'),
   });
 };
@@ -117,17 +141,28 @@ G.applyParse = (page, json) => {
     const baseRole = i => { const b = base.blocks.find(bb => bb.text.split('\n').some(l => l.trim() === R[i - 1].trim())); return b ? b.role : roles[0]; };
     const blocks = out.map(({x, ids}) => {
       ids.sort((a, b) => a - b);
-      const set = k => new Set(nums(x[k], n).filter(i => ids.includes(i)));
-      const T = set('title'), I = set('items'), M = set('meta');
+      const set = k => new Set(nums(Array.isArray(x[k]) ? x[k].join(',') : x[k], n).filter(i => ids.includes(i)));
+      const T = set('title'), M = set('meta'), B = set('button'), P = set('image');
+      /* пункты: номер — пункт; диапазон «32-33» — карточка: первая строка заголовок [h3], остальные её текст */
+      const I = new Set(), C = new Map();
+      for (const part of (Array.isArray(x.items) ? x.items : String(x.items || '').split(/[,;]+/)).map(v => String(v).trim()).filter(Boolean)) {
+        const g = nums(part, n).filter(i => ids.includes(i)); if (g.length > 1 && /[-–]/.test(part)) { C.set(g[0], 'h'); g.slice(1).forEach(i => C.set(i, 't')); } else g.forEach(i => I.add(i)); }
+      /* split: {"7": "Доклады"} — строка делится на заголовок и текст пункта, если она действительно так начинается */
+      const SP = new Map(); if (x.split && typeof x.split === 'object') for (const [k, v] of Object.entries(x.split)) { const i = +k, l = R[i - 1], pre = String(v || '').trim(); if (ids.includes(i) && l && pre && l.startsWith(pre) && l.length > pre.length + 1 && !MARK.test(l)) SP.set(i, pre); }
       const role = roles.includes(x.role) ? x.role : baseRole(ids[0]);
-      let first = true;
-      const text = ids.map(i => { const l = R[i - 1]; if (MARK.test(l)) { first = false; return l; }
-        if (T.has(i) && l.length <= 120) { const h = role === 'hero' && first ? 'h1' : first ? 'h2' : 'h3'; first = false; return `[${h}] ${l}`; }
-        first = false;
+      let heads = ids.filter(i => /^\[h[12]\]/i.test(R[i - 1])).length;
+      const text = ids.map(i => { const l = R[i - 1]; if (MARK.test(l)) return l;
+        if (B.has(i) && l.length <= 200) return '[кнопка] ' + l;
+        if (P.has(i) && l.length <= 200) return '[картинка] ' + l;
+        if (C.get(i) === 'h' && l.length <= 120) return '[h3] ' + l;
+        if (C.get(i) === 't') return l;
+        /* уровень заголовка — не по месту строки: первый заголовок блока — H2 (H1 у первого экрана), следующие — H3 */
+        if (T.has(i) && l.length <= 120) { const h = heads ? 'h3' : role === 'hero' ? 'h1' : 'h2'; heads++; return `[${h}] ${l}`; }
+        if (SP.has(i)) { const pre = SP.get(i); return '- ' + pre + ' — ' + l.slice(pre.length).replace(/^[\s—–:.-]+/, ''); }
         if (I.has(i) && l.length <= 300) return '- ' + l;
         if (M.has(i) && l.length <= 120) return '@ ' + l;
         return l; }).join('\n');
-      let tx = text; const hs = (tx.match(/^\[h3\]/gim) || []).length; if (role !== 'hero' && hs === 1 && /^\[h3\]/i.test(tx)) tx = tx.replace(/^\[h3\]/i, '[h2]');
+      const tx = text;
       const b = G.newBlock(role, tx); const tip = String(x.tip || '').trim(); if (tip) b.tips = [tip.slice(0, 240)];
       return b;
     });
@@ -210,11 +245,11 @@ G.assemble = page => {
   G.autoPick(page);
 };
 /* роль по заголовку блока: ключевые слова роли + её название и смысл */
-const KEYS = {audience: ['кому', 'для кого', 'подойд', 'полезн'], speakers: ['спикер', 'эксперт', 'ведущ', 'выступ'], program: ['программ', 'расписан', 'план'], how: ['как попасть', 'как подключ', 'как это работа', 'шаг', 'как получить', 'как начать'], faq: ['вопрос', 'faq', 'ответ'], location: ['место', 'адрес', 'как добрат', 'локац', 'где'], cta: ['регистрац', 'заявк', 'записат', 'оформ', 'начать курс'], benefits: ['выгод', 'преимущ', 'что получ', 'возможност'], why: ['зачем', 'почему', 'проблем'], proof: ['отзыв', 'клиент', 'доверя', 'уже польз'], pricing: ['цен', 'тариф', 'стоимост', 'сколько стоит'], results: ['научит', 'результат', 'навык'], author: ['автор', 'преподава'], gallery: ['галере', 'фото'], more: ['материал', 'читайте', 'ещё'], about: ['что это', 'о мероприят', 'формат', 'о курсе', 'о продукте']};
+/* слова для узнавания блока по заголовку — в сценарии (role.keys), а не в коде */
 G.roleMatch = (role, title) => {
   const t = String(title || '').toLowerCase(); if (!t) return 0;
   let s = 0;
-  for (const k of [...(role.keywords || []), ...(KEYS[role.id] || [])]) if (t.includes(k)) s += 3;
+  for (const k of [...(role.keys || []), ...(role.keywords || [])]) if (t.includes(k)) s += 3;
   for (const w of (role.name + ' ' + (role.meaning || '')).toLowerCase().split(/[^а-яёa-z]+/).filter(w => w.length > 4)) if (t.includes(w.slice(0, 5))) s += 1;
   return s;
 };
@@ -277,6 +312,22 @@ G.fixByCode = page => {
   page.blocks.forEach((b, i) => { if (i > 0 && b.role !== 'hero' && /^\s*\[h1\]/im.test(b.text)) { b.text = b.text.replace(/^(\s*)\[h1\]/im, '$1[h2]'); n++; } });
   const heroes = page.blocks.filter(b => b.role === 'hero'); heroes.slice(1).forEach(b => { b.role = plain; b.text = b.text.replace(/^(\s*)\[h1\]/im, '$1[h2]'); n++; });
   const ctas = page.blocks.filter(b => G.isCta(b) && (b.role === 'cta' || b.role === 'subscribe')); ctas.slice(1).forEach(b => { b.role = plain; n++; });
+  /* первый экран не первым — наверх (текст не меняется, только порядок) */
+  const h0 = page.blocks.find(b => b.role === 'hero'); if (h0 && page.blocks[0] !== h0) { page.blocks.splice(page.blocks.indexOf(h0), 1); page.blocks.unshift(h0); n++; }
+  /* вводный текст над пунктами, которому нет места в шаблоне, — отдельным блоком над ними */
+  for (let i = 0; i < page.blocks.length; i++) { const b = page.blocks[i], t = G.tpl(b.tpl), s0 = G.src(b);
+    if (!t || t.component || !s0.paras.length || !s0.items.length || G.tplInfo(t).text.length) continue;
+    const v = G.values(b, page); if (!v || !G.leftovers(b, G.tplFor(b, t), v).some(x => s0.paras.includes(x))) continue;
+    const L = b.text.split('\n'), head = [], rest = []; let seenItem = false;
+    for (const l of L) { const k = G.lineKind(l).k; if (k === 'li' || k === 'h3') seenItem = true; (!seenItem && (k === 'p' || /^h[12]$/.test(k) || k === 'meta') ? head : rest).push(l); }
+    if (!head.some(l => G.lineKind(l).k === 'p') || !rest.length) continue;
+    const nb = G.newBlock(b.role, head.join('\n').trim()); b.text = rest.join('\n').trim(); b.tplLock = false; page.blocks.splice(i, 0, nb); i++; n++; }
+  /* кнопки блока, которым нет места в шаблоне, — отдельным блоком сразу после */
+  for (let i = 0; i < page.blocks.length; i++) { const b = page.blocks[i], t = G.tpl(b.tpl), s0 = G.src(b);
+    if (!t || t.component || !s0.cta.length || G.tplInfo(t).btn || G.tplInfo(t).iBtn) continue;
+    const L = b.text.split('\n'), btn = L.filter(l => G.lineKind(l).k === 'btn'), rest = L.filter(l => G.lineKind(l).k !== 'btn');
+    if (!btn.length || !rest.some(l => l.trim())) continue;
+    b.text = rest.join('\n').trim(); const nb = G.newBlock(b.role, btn.join('\n')); page.blocks.splice(i + 1, 0, nb); i++; n++; }
   if (n) G.autoPick(page);
   return n;
 };
