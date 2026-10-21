@@ -142,6 +142,8 @@ G.applyParse = (page, json) => {
   if (!out.length || lost.length > n / 4) { page.blocks = base.blocks; page.story = []; page.parsedBy = 'markup'; }
   else {
     const baseRole = i => { const b = base.blocks.find(bb => bb.text.split('\n').some(l => l.trim() === R[i - 1].trim())); return b ? b.role : roles[0]; };
+    /* М6: строку, которую модель пропустила, — на её место: в блок соседней строки выше (или ниже, если выше нет) */
+    for (const i of lost) { let j = i - 1; while (j >= 1 && owner[j] < 0) j--; if (j < 1) { j = i + 1; while (j <= n && owner[j] < 0) j++; } if (j >= 1 && j <= n && owner[j] >= 0) { owner[i] = owner[j]; out[owner[j]].ids.push(i); } }
     const blocks = out.map(({x, ids}) => {
       ids.sort((a, b) => a - b);
       const set = k => new Set(nums(Array.isArray(x[k]) ? x[k].join(',') : x[k], n).filter(i => ids.includes(i)));
@@ -169,8 +171,6 @@ G.applyParse = (page, json) => {
       const b = G.newBlock(role, tx); const tip = String(x.tip || '').trim(); if (tip) b.tips = [tip.slice(0, 240)];
       return b;
     });
-    /* строки, которые модель не разложила, — в конец, в «Не разобрано» */
-    if (lost.length) { const b = G.newBlock('unparsed', lost.map(i => R[i - 1]).join('\n')); b.tips = [`Модель не разложила ${G.num(lost.length, 'строку', 'строки', 'строк')} — перенесите их в нужные блоки или удалите блок.`]; blocks.push(b); }
     /* первый экран один: соседние блоки с этой ролью — один блок, строки без разметки под заголовком — подписи */
     for (let i = blocks.length - 1; i > 0; i--) if (blocks[i].role === 'hero' && blocks[i - 1].role === 'hero') { blocks[i - 1].text += '\n' + blocks[i].text.split('\n').map(l => MARK.test(l) || l.length > 80 ? l : '@ ' + l).join('\n'); blocks[i - 1].tips = [...(blocks[i - 1].tips || []), ...(blocks[i].tips || [])]; blocks.splice(i, 1); }
     page.blocks = blocks; page.story = (json.story || []).filter(Boolean).map(String); page.parsedBy = 'model';
@@ -317,6 +317,45 @@ G.fixByCode = page => {
   const ctas = page.blocks.filter(b => G.isCta(b) && (b.role === 'cta' || b.role === 'subscribe')); ctas.slice(1).forEach(b => { b.role = plain; n++; });
   /* первый экран не первым — наверх (текст не меняется, только порядок) */
   const h0 = page.blocks.find(b => b.role === 'hero'); if (h0 && page.blocks[0] !== h0) { page.blocks.splice(page.blocks.indexOf(h0), 1); page.blocks.unshift(h0); n++; }
+  const K = l => G.lineKind(l).k, lines = b => b.text.split('\n').map(x => x.trim()).filter(Boolean);
+  const drop = () => { page.blocks = page.blocks.filter(b => b.text.trim()); };
+  /* Ф9: служебное — картинка, подпись которой похожа на имя файла или на ошибку, — в «Не разобрано», сбоку от страницы */
+  const SERVICE = /^\S+\.(png|jpe?g|svg|webp|gif)$|^[a-z0-9]+(?:[-_][a-z0-9]+)+$|(?:error|status|статус)\s*\d{3}|^ошибка(?![а-яё])/i;
+  const svc = []; page.blocks.forEach(b => { if (b.role === 'unparsed') return; const L = lines(b), keep = L.filter(l => !(K(l) === 'img' && SERVICE.test(G.lineKind(l).t))); if (keep.length < L.length) { svc.push(...L.filter(l => !keep.includes(l))); b.text = keep.join('\n'); n++; } });
+  if (svc.length) { let u = page.blocks.find(b => b.role === 'unparsed'); if (!u) { u = G.newBlock('unparsed', ''); page.blocks.push(u); } u.text = [u.text, ...svc].filter(Boolean).join('\n'); u.tips = ['Служебное: декоративные картинки и ошибки сборки текста. На страницу не идёт — удалите или перенесите, если нужно.']; }
+  drop();
+  /* Ф6: блок из одних подписей — к блоку выше */
+  for (let i = 1; i < page.blocks.length; i++) { const L = lines(page.blocks[i]); if (L.length && L.every(l => K(l) === 'meta') && page.blocks[i].role !== 'unparsed') { page.blocks[i - 1].text += '\n' + L.join('\n'); page.blocks.splice(i, 1); i--; n++; } }
+  /* Ф7: заголовок в конце блока, после которого в блоке ничего нет, — в начало следующего (если тот не начинается своим заголовком раздела) */
+  for (let i = 0; i < page.blocks.length - 1; i++) { const L = lines(page.blocks[i]), nx = page.blocks[i + 1], NL = lines(nx); let k = L.length;
+    while (k > 1 && /^h[23]$/.test(K(L[k - 1]))) k--;
+    if (k === L.length || k === 0 || nx.role === 'unparsed' || (NL.length && /^h[12]$/.test(K(NL[0])))) continue;
+    page.blocks[i].text = L.slice(0, k).join('\n'); nx.text = [...L.slice(k), ...NL].join('\n'); nx.tplLock = false; n++; }
+  /* Ф8: в тексте, который не режется по шаблону (текст статьи), картинки, кнопки и списки не показываются — выносим их врезами на своё место.
+     Так длинный текст сам делится на текст и врезы. Заголовок [h3] прямо перед списком или картинкой уходит вместе с ними */
+  const vrezRole = sc.roles.some(r => r.id === 'vrez') ? 'vrez' : null;
+  for (let i = 0; i < page.blocks.length; i++) { const b = page.blocks[i], t = G.tpl(b.tpl), role = G.roleOf(sc, b.role);
+    if (!vrezRole || b.role === 'unparsed' || !(role.verbatim || (t && t.verbatim))) continue;
+    const L = lines(b), parts = []; let cur = {k: 'text', l: []};
+    const push = k => { if (cur.l.length) parts.push(cur); cur = {k, l: []}; };
+    for (let j = 0; j < L.length; j++) { const k = K(L[j]);
+      const ins = k === 'img' || k === 'btn' || (k === 'li' && (K(L[j + 1] || '') === 'li' || cur.k === 'ins')) || (k === 'meta' && cur.k === 'ins');
+      if (ins) { if (cur.k !== 'ins') { const h = cur.l.length > 1 && K(cur.l[cur.l.length - 1]) === 'h3' ? cur.l.pop() : null; push('ins'); if (h) cur.l.push(h); } cur.l.push(L[j]); }
+      else { if (cur.k !== 'text') push('text'); cur.l.push(L[j]); } }
+    push('');
+    if (!parts.some(p => p.k === 'ins')) continue;
+    const nb = parts.map(p => { const x = G.newBlock(p.k === 'ins' ? vrezRole : b.role, p.l.join('\n')); if (p.k !== 'ins') { x.tpl = b.tpl; x.tplLock = b.tplLock; } return x; });
+    nb[0].id = b.id; nb[0].tips = b.tips || []; page.blocks.splice(i, 1, ...nb); i += nb.length - 1; n++; }
+  /* Ф10: подряд два и больше коротких подраздела «[h3] + один абзац до 300 знаков» внутри текста — врез с карточками (как С5 при сборке без модели) */
+  for (let i = 0; i < page.blocks.length; i++) { const b = page.blocks[i], t = G.tpl(b.tpl), role = G.roleOf(sc, b.role);
+    if (!vrezRole || b.role === 'unparsed' || !(role.verbatim || (t && t.verbatim))) continue;
+    const L = lines(b), sub = j => K(L[j]) === 'h3' && L[j + 1] && K(L[j + 1]) === 'p' && L[j + 1].length <= 300 && (!L[j + 2] || K(L[j + 2]) !== 'p');
+    let j = 0, done = false;
+    while (j < L.length && !done) { if (!sub(j)) { j++; continue; } let e = j; while (e < L.length && sub(e)) e += 2;
+      if ((e - j) / 2 >= 2) { const before = L.slice(0, j), mid = L.slice(j, e), after = L.slice(e);
+        const nb = [before.length && Object.assign(G.newBlock(b.role, before.join('\n')), {tpl: b.tpl, tplLock: b.tplLock}), G.newBlock(vrezRole, mid.join('\n')), after.length && Object.assign(G.newBlock(b.role, after.join('\n')), {tpl: b.tpl, tplLock: b.tplLock})].filter(Boolean);
+        page.blocks.splice(i, 1, ...nb); n++; done = true; } else j = e; } }
+  drop(); if (n) G.autoPick(page);
   /* вводный текст над пунктами, которому нет места в шаблоне, — отдельным блоком над ними */
   for (let i = 0; i < page.blocks.length; i++) { const b = page.blocks[i], t = G.tpl(b.tpl), s0 = G.src(b);
     if (!t || t.component || !s0.paras.length || !s0.items.length || G.tplInfo(t).text.length) continue;

@@ -429,7 +429,10 @@ G.autoPick = (page, force) => {
     if (b.tplLock && !force && G.tpl(b.tpl)) continue;
     const r = G.rank(b, page), live = r.find(x => G.isLive(x.t)), need = r.find(x => !G.isLive(x.t));
     /* шаблон из админки всегда в приоритете: поменять текст дешевле, чем заказать дизайн. «Нужен дизайн» — только если в админке нет ничего */
-    const best = live || need || null;
+    /* П8: шаблон из админки, пока с ним достаточно поправить текст (уровни 0–2). Если в админке только «изменить число пунктов»
+       или «изменить текст под дизайн», а без админки есть шаблон, который подходит лучше, — он, с пометкой «нужен дизайн» */
+    const lv = x => (x ? x.tier || 0 : 9);
+    const best = live && lv(live) <= 2 ? live : need && lv(need) < lv(live) ? need : live || need || null;
     const nt = best ? best.t.id : null;
     if (nt !== b.tpl) { b.tpl = nt; b.values = null; }
   }

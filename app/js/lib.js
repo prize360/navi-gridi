@@ -122,6 +122,7 @@ EDIT.scenarios = (box, o) => {
   const isNew = !o; o = o || {id: '', name: 'Новый сценарий', kind: 'landing', action: '', button: '', maxText: 14000, rules: [], roles: [{id: 'hero', name: 'Первый экран: главное сообщение и действие', req: 1}, {id: 'cta', name: 'Целевое действие: кнопка или форма', req: 1}]};
   const draw = () => {
     box.innerHTML = `<div class="edit">${editHead('scenarios', o, isNew, isNew ? 'Новый сценарий' : o.name)}
+      ${o._update ? '<p class="hint" style="margin:0 0 12px">Системный сценарий обновился: новые поля дописаны в вашу копию, ваши правки на месте. Сохраните, чтобы убрать эту пометку.</p>' : ''}
       <div class="card"><div class="grid2"><div class="fld"><label class="lbl" for="sName">Название</label><input class="in" id="sName" value="${e(o.name)}"></div>
         <div class="fld"><label class="lbl" for="sAct">Целевое действие</label><input class="in" id="sAct" value="${e(o.action)}" placeholder="Регистрация на мероприятие"></div></div>
         <div class="fld" style="margin:0"><span class="lbl">Тип страницы</span><div class="seg" id="sKind"><button data-v="landing" aria-pressed="${o.kind !== 'article'}">Лендинг — важен порядок блоков</button><button data-v="article" aria-pressed="${o.kind === 'article'}">Статья — важен ритм врезов</button></div></div></div>

@@ -40,6 +40,13 @@ const KINDS = {templates: 'Шаблоны', scenarios: 'Сценарии', promp
 G.KINDS = KINDS; G.examples = G.examples || [];
 /* пример страницы → новая копия: id и даты свои, блоки — глубокая копия */
 G.fromExample = x => ({...G.clone(x), id: G.uid('p'), created: Date.now(), updated: Date.now(), story: []});
+/* своя копия системного элемента после обновления библиотеки: новые поля из системного дописываются, свои правки не трогаются.
+   У сценария — и в блоках с тем же id */
+G.mergeNew = (sys, mine) => { const o = {...mine};
+  for (const k in sys) if (!(k in o)) o[k] = sys[k];
+  if (Array.isArray(sys.roles) && Array.isArray(o.roles)) o.roles = o.roles.map(r => { const sr = sys.roles.find(x => x.id === r.id); if (!sr) return r; const m = {...r}; for (const k in sr) if (!(k in m)) m[k] = sr[k]; return m; });
+  if (mine._base && mine._base !== BUILT_SETTINGS.version) o._update = true;
+  return o; };
 G.lib = {
   local(kind) { return G.ls.get('lib.' + kind, {items: {}, removed: []}); },
   saveLocal(kind, v) { G.ls.set('lib.' + kind, v); },
@@ -51,14 +58,14 @@ G.lib = {
       if (loc.removed.includes(o.id)) continue;
       /* правка участника сохраняется и после обновления библиотеки: новая version её не прячет */
       const li = loc.items[o.id] || null;
-      out.push(li ? {...li, _local: 'changed'} : {...o});
+      out.push(li ? {...G.mergeNew(o, li), _local: 'changed'} : {...o});
     }
     for (const id in loc.items) if (!BUILT[kind].some(o => o.id === id)) out.push({...loc.items[id], _local: 'new'});
     return (this._cache[kind] = out);
   },
   get(kind, id) { return this.all(kind).find(o => o.id === id) || null; },
   save(kind, obj) {
-    const loc = this.local(kind), o = {...obj, _base: BUILT_SETTINGS.version}; delete o._local;
+    const loc = this.local(kind), o = {...obj, _base: BUILT_SETTINGS.version}; delete o._local; delete o._update;
     loc.items[o.id] = o; loc.removed = loc.removed.filter(x => x !== o.id); this.saveLocal(kind, loc); G.lib.bump();
   },
   remove(kind, id) {
