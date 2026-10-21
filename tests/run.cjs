@@ -61,9 +61,10 @@ for (const f of fs.readdirSync(path.join(__dirname, 'fixtures')).filter(f => f.e
   const run = (src, ans) => { const pm = G.premark(rd(src)), pg = G.newPage('t', ev.id, pm.text); G.applyParse(pg, ans); G.fixByCode(pg); G.autoPick(pg); return {pg, R: G.parseLines(pg)}; };
   for (const src of ['event-hand.md', 'event-plain.md']) {
     console.log(src);
-    for (const who of [null, 'deepseek', 'gpt', 'gigachat']) {
+    for (const who of [null, 'deepseek', 'gpt', 'gigachat', ...(src === 'event-plain.md' ? ['deepseek.v2', 'gpt.v2', 'gigachat.v2'] : [])]) {
       const ans = who ? JSON.parse(rd(src.replace('.md', '.' + who + '.json'))) : null, {pg, R} = run(src, ans), tag = who || 'без модели';
-      ok(words(pg.blocks) === norm(R.join('\n')), `${tag}: текст целиком`);
+      const dash = t => t.replace(/ — /g, ' '); /* М5: split добавляет только разделитель « — » */
+      ok(dash(words(pg.blocks)) === dash(norm(R.join('\n'))), `${tag}: текст целиком`);
       ok(cnt(pg) === 3, `${tag}: кнопки со ссылками ${cnt(pg)} из 3`);
       ok(pg.blocks.some(b => b.tpl === 'table' && /Тариф \| Что входит/.test(b.text)), `${tag}: таблица — в таблице`);
       if (src === 'event-hand.md' || who) ok(!lostErr(pg).length, `${tag}: всё встало в шаблоны${lostErr(pg).length ? ' — ' + lostErr(pg).map(c => c.text).join(' | ') : ''}`);
