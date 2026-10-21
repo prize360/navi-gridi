@@ -365,6 +365,7 @@ const settings = () => {
       <div class="list">
         <a class="row ic" href="#/lib/templates">${I.grid}<span><b>Библиотека</b><small>Шаблоны, сценарии, промты и иконки</small></span></a>
         <label class="row ic file">${I.plus}<span><b>Страница от коллеги</b><small>Архив или page.json. Текст из чата — просто вставьте в новую страницу</small></span><input type="file" id="sImp" accept=".zip,.json,application/zip,application/json"></label>
+        <button class="row ic" id="sPilot">${I.out}<span><b>Итоги пилота</b><small>Архив для меня: правки библиотеки, недостающие шаблоны, запуски модели — без текстов страниц</small></span></button>
         <button class="row ic" id="sGuide">${I.note}<span><b>Как работает Гриди</b><small>Коротко обо всём</small></span></button>
         <a class="row ic" href="navi.html" target="_blank" rel="noopener">${I.eye}<span><b>Нави ↗</b><small>Гайд и прототип навигации — в новой вкладке</small></span></a>
       </div>
@@ -373,6 +374,7 @@ const settings = () => {
   let mode = st.mode === 'api' ? 'api' : 'manual';
   s.$$('#sMode button').forEach(b => b.onclick = () => { mode = b.dataset.v; s.$$('#sMode button').forEach(x => x.classList.toggle('on', x === b)); s.$('#sApi').hidden = mode !== 'api'; });
   s.$('#sOk').onclick = () => { G.ls.set('llm', {mode, base: s.$('#sBase').value.trim(), model: s.$('#sModel').value.trim(), key: s.$('#sKey').value.trim()}); G._modelOkAt = 0; s.close(); toast('Сохранено'); };
+  s.$('#sPilot').onclick = async () => { try { await G.pilotExport(false); toast('Архив итогов скачан'); } catch (err) { toast(err.message); } };
   s.$('#sGuide').onclick = () => { s.close(true); openGuide(); };
   s.$('#sImp').onchange = async ev => { try { await G.importProject(ev.target.files[0]); s.close(); toast('Страница добавлена'); home(); } catch (err) { toast(err.message); } };
 };
