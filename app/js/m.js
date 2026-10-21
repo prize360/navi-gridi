@@ -196,6 +196,7 @@ const sheet = (html, {onClose, cls = '', free = false, onFull} = {}) => {
     set: html2 => { root.querySelector('.sh-in').innerHTML = html2; },
     full: on => { sh.classList.toggle('full', on); if (onFull) onFull(on); },
     close: (silent) => { if (h.closed) return; h.closed = true; root.classList.remove('on'); setTimeout(() => root.remove(), 200); if (!silent && onClose) onClose(); }};
+  root._sheet = h; /* смена экрана закрывает шторку как крестик: ожидание ответа модели отменяется, а не висит */
   root.querySelector('.sh-dim').onclick = () => free && sh.classList.contains('full') ? h.full(false) : h.close();
   const esc = ev => { if (ev.key !== 'Escape' || h.closed || document.querySelector('.sh-wrap:last-of-type') !== root) return; free && sh.classList.contains('full') ? h.full(false) : h.close(); };
   addEventListener('keydown', esc);
@@ -522,7 +523,7 @@ const build = async text => {
     x.querySelector('#mOk').onclick = () => { const v = x.querySelector('#mAns').value; if (!G.parseJSON(v)) { x.querySelector('#mErr').textContent = 'В ответе нет JSON. Попросите модель: «верни только JSON».'; return; } x.innerHTML = ''; res(v); }; });
   let j = null, note = '';
   try { j = await G.ask('Разбор: ' + sc().name, G.parsePrompt(p)); }
-  catch (err) { if (cancelled || err.message === 'cancel') { Object.assign(ui, keep); p.blocks = []; return draft(); } note = 'Модель не ответила — страница собрана по разметке.'; }
+  catch (err) { if (cancelled || err.message === 'cancel') { Object.assign(ui, keep); p.blocks = []; return draft(); } note = `Модель не разобрала текст: ${err.message} Страница собрана по разметке — можно разобрать заново.`; }
   finally { Object.assign(ui, keep); }
   if (cancelled) { p.blocks = []; return draft(); }
   st(2, 'done'); st(3, 'on');
@@ -961,7 +962,7 @@ const route = () => {
   if (S.dirty && location.hash !== lastHash && !confirm('Есть несохранённые изменения. Уйти без сохранения?')) { history.replaceState(null, '', lastHash); return; }
   S.dirty = false; lastHash = location.hash;
   /* смена экрана закрывает открытые шторки (настройки → библиотека) */
-  document.querySelectorAll('.sh-wrap').forEach(x => x.remove()); document.body.classList.remove('noscroll');
+  document.querySelectorAll('.sh-wrap').forEach(x => x._sheet ? x._sheet.close() : x.remove()); document.body.classList.remove('noscroll');
   if (/^#[szj]=/.test(location.hash)) return;
   const m = location.hash.match(/^#\/p\/(.+)$/), l = libRoute();
   if (l) { if (A.view === 'edit') save(); A.view = 'lib'; A.page = null; document.body.classList.remove('shell', 'picking'); libView(); return; }
