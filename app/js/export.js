@@ -22,7 +22,8 @@ G.imageSlots = (b, page) => {
   return out;
 };
 
-const blockRows = (page) => page.blocks.map((b, i) => {
+/* «Не разобрано» (служебное) на страницу и в вёрстку не идёт */
+const blockRows = (page) => page.blocks.filter(b => b.role !== 'unparsed').map((b, i) => {
   const t = G.tpl(b.tpl), v = G.values(b, page) || {top: {}, items: []}, sc = G.scenario(page.scenario);
   return {i: i + 1, b, t, v, role: G.roleOf(sc, b.role).name, imgs: G.imageSlots(b, page)};
 });

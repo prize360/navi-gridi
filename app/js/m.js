@@ -119,7 +119,8 @@ const report = p => {
   p.blocks.forEach(b => { const s0 = G.src(b); s0.cta.forEach((c, k) => { if (!(s0.urls || [])[k]) { const t = `Нет ссылки у кнопки «${c}» — допишите адрес через « | »`; if (!dis.includes(t)) checks.push({level: 'info', text: t, block: b}); } });
     s0.items.forEach(it => { if (it.cta && !it.url) { const t = `Нет ссылки у кнопки «${it.cta}» — допишите адрес через « | »`; if (!dis.includes(t)) checks.push({level: 'info', text: t, block: b}); } }); });
   p.blocks.forEach(b => (b.tips || []).forEach(t => { if (!dis.includes(t)) checks.push({level: 'info', text: t, block: b, tip: true}); }));
-  p.blocks.filter(b => b.role === 'unparsed').forEach(b => checks.unshift({level: 'error', text: 'Блок «Не разобрано»: разнесите абзацы по блокам (Роль) или удалите блок', block: b}));
+  /* «Не разобрано» — служебное сбоку от страницы: на страницу не идёт, поэтому не ошибка, а напоминание */
+  p.blocks.filter(b => b.role === 'unparsed').forEach(b => checks.unshift({level: 'warn', text: 'Блок «Не разобрано» на страницу не попадёт: перенесите нужное в блоки (Роль) или удалите его', block: b}));
   const order = {error: 0, warn: 1, info: 2}; checks.sort((a, b) => order[a.level] - order[b.level]);
   const missing = G.missing(p), byBlock = {};
   checks.forEach(c => { c.kind = kindOf(c); if (c.label === undefined) c.label = labelOf(c); });
@@ -432,7 +433,7 @@ const bindAdd = main => main.querySelectorAll('[data-add]').forEach(c => c.oncli
 const GOAL = {event: 'event', article: 'info', course: 'course', sale: 'sale', product: 'sale'};
 const naviPayload = p => { const s0 = G.scenario(p.scenario), goal = GOAL[s0.id] || (s0.kind === 'article' ? 'info' : 'event');
   const hero = p.blocks.find(b => b.role === 'hero'), hs = hero ? G.src(hero) : {};
-  const blocks = p.blocks.map(b => { const t = G.tpl(b.tpl), s = G.src(b); return {kind: b.role === 'hero' ? 'hero' : G.isCta(b) ? 'cta' : 'grid', navi: false, title: s.level === 'h3' || s.level === 'h1' ? '' : s.title || '', html: `<section class="blk">${blockHTML(b, p)}</section>`}; });
+  const blocks = p.blocks.filter(b => b.role !== 'unparsed').map(b => { const t = G.tpl(b.tpl), s = G.src(b); return {kind: b.role === 'hero' ? 'hero' : G.isCta(b) ? 'cta' : 'grid', navi: false, title: s.level === 'h3' || s.level === 'h1' ? '' : s.title || '', html: `<section class="blk">${blockHTML(b, p)}</section>`}; });
   const cta = p.blocks.find(b => G.isCta(b)), cs = cta ? G.src(cta) : {};
   return {type: 'gridi:page', cat: {id: 'g-' + p.id, name: hs.title || p.name, goal, lead: hs.lead || '', meta: (hs.meta || [])[0] || ''},
     fill: {overlay: true, name: hs.title || p.name, goal, blocks, program: [], programTitle: '',

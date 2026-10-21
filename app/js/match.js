@@ -209,7 +209,6 @@ const tieW = (x, b) => (x.t.component && x.t.roles && x.t.roles.includes(b.role)
 G.rank = (b, page) => G.pool(b, page).map(t => ({t, ...G.score(b, t, page)})).sort((a, c) => (a.tier || 0) - (c.tier || 0) || (a.flat || 0) - (c.flat || 0) || (a.lostN || 0) - (c.lostN || 0) || c.score - a.score || tieW(c, b) - tieW(a, b) || a.over - c.over);
 G.TIERS = ['Подходит', 'Сократить текст', 'Переписать в поля', 'Изменить число пунктов', 'Изменить текст под дизайн'];
 G.isLive = t => !!(t && (t.status.prod || t.component));
-G.MISS = 80;
 
 /* назначить лучший шаблон, если не закреплён вручную */
 G.autoPick = (page, force) => {
@@ -413,11 +412,6 @@ G.checks = page => {
 G.rule = id => ((window.GUIDE_RULES || {}).rules || []).find(r => r.id === id) || null;
 G.CHECK_CATS = [['text', 'Текст и структура'], ['tpl', 'Шаблоны'], ['navi', 'Навигация — правила Нави']];
 
-/* шаблоны, которых не хватает: ТЗ дизайнерам */
-G.missing = page => page.blocks.map(b => {
-  const r = G.rank(b, page)[0];
-  return !r || r.score < G.MISS || r.bad.length ? {b, best: r, need: G.blockSummary(b), role: G.roleOf(G.scenario(page.scenario), b.role).name} : null;
-}).filter(Boolean);
 })();
 
 /* ---------- выбор шаблона для блока ---------- */
@@ -437,7 +431,8 @@ G.autoPick = (page, force) => {
     if (nt !== b.tpl) { b.tpl = nt; b.values = null; }
   }
 };
-G.missing = page => page.blocks.filter(b => { const t = G.tpl(b.tpl); if (!t) return true; if (!G.isLive(t)) return true; return (G.score(b, t, page).tier || 0) >= 3; }).map(b => ({b, t: G.tpl(b.tpl), role: G.roleOf(G.scenario(page.scenario), b.role).name, need: G.blockSummary(b), best: G.rank(b, page)[0]}));
+/* шаблоны, которых не хватает: ТЗ дизайнерам (служебное «Не разобрано» не считается) */
+G.missing = page => page.blocks.filter(b => b.role !== 'unparsed').filter(b => { const t = G.tpl(b.tpl); if (!t) return true; if (!G.isLive(t)) return true; return (G.score(b, t, page).tier || 0) >= 3; }).map(b => ({b, t: G.tpl(b.tpl), role: G.roleOf(G.scenario(page.scenario), b.role).name, need: G.blockSummary(b), best: G.rank(b, page)[0]}));
 })();
 
 /* самопроверка шаблона: пробный текст → разметка → обратно в поля; что не вернулось на место — список полей */
