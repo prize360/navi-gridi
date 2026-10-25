@@ -137,7 +137,12 @@ const sc = () => G.scenario(A.page.scenario);
 const roleName = b => { const n = G.roleOf(sc(), b.role).name || b.role; return n.split(':')[0]; };
 /* замечание блока — в его названии рядом с номером и ролью; видно, когда блок выделен */
 const blockNote = (b, p, T = A.mode === 'note') => { const R = report(p).rows, pick = l => (l.find(x => x.b === b) || {}).text || '';
-  return T ? pick(R.stop) || pick(R.rule) || pick(R.hint) : pick(R.stop) || pick(R.rule) || pick(R.fit); };
+  return T ? pick(R.stop) || pick(R.rule) : pick(R.stop) || pick(R.rule) || pick(R.fit); };
+/* подсказки модели и рекомендации по блоку — плашкой прямо под блоком, в обоих режимах: видно без выбора блока */
+const tipPlate = (b, p) => { const H = report(p).rows.hint.filter(x => x.b === b); if (!H.length) return '';
+  return `<div class="tips" data-tips="${e(b.id)}">${H.map(x => `<div class="tip"><span class="tip-i">${I.ai}</span><span class="tip-t">${e(x.text)}</span><button class="tip-x" data-tipx="${e(x.text)}" aria-label="Скрыть подсказку" title="Скрыть">${I.x}</button></div>`).join('')}</div>`; };
+const bindTips = main => main.querySelectorAll('[data-tipx]').forEach(x => x.onclick = ev => { ev.stopPropagation(); const p = A.page; p.dismissed = p.dismissed || []; p.dismissed.push(x.dataset.tipx); save();
+  const box = x.closest('.tips'), tip = x.closest('.tip'); tip.remove(); if (box && !box.children.length) box.remove(); toast('Подсказка скрыта'); });
 const bn = (b, i) => { const n = blockNote(b, A.page); return `<b class="bn"><span>${i + 1}</span><em><i>${e(roleName(b))}</i>${n ? `<i class="bn-n">${e(n)}</i>` : ''}</em></b>`; };
 const defRole = () => { const s = sc(); return s.kind === 'article' ? 'content' : ((s.roles || []).find(r => r.id !== 'hero' && r.id !== 'cta') || {id: 'about'}).id; };
 const repick = b => { if (b.tplLock) return; const r = G.rank(b, A.page)[0]; b.tpl = r ? r.t.id : null; };
@@ -155,10 +160,12 @@ const shareMeta = b => { const t = b.tpl ? ' · шаблон: ' + b.tpl : '', ic
   return t + (ic ? ' · иконки: ' + ic : ''); };
 const shareText = p => [`=== ${p.name} · ${G.scenario(p.scenario).name}`, ...p.blocks.map(b => `--- ${G.roleOf(G.scenario(p.scenario), b.role).name}${shareMeta(b)}\n${b.text}`)].join('\n');
 const isShare = t => /^---\s+\S/m.test(t);
+/* названия ролей до общего набора (2026-10-26) — чтобы старый текст из «Поделиться» собирался так же */
+const OLD_NAMES = {'что это': 'about', 'кому подходит': 'audience', 'спикеры': 'speakers', 'автор курса': 'speakers', 'чему научитесь': 'benefits', 'что получите': 'benefits', 'почему это нужно': 'why', 'как это работает': 'how', 'как подключить': 'how', 'как попасть': 'how', 'кто уже пользуется': 'proof', 'стоимость': 'pricing'};
 const fromShare = (p, text) => {
   const head = text.match(/^===\s*(.*?)\s*·\s*(.+)$/m);
   if (head) { const s = G.lib.all('scenarios').find(x => x.name === head[2].trim()); if (s) p.scenario = s.id; if (head[1] && p.name === 'Без названия') p.name = head[1]; }
-  const s = G.scenario(p.scenario), find = n => { n = n.trim().toLowerCase(); const r = (s.roles || []).find(r => r.name.toLowerCase() === n || r.id === n || r.name.toLowerCase().split(':')[0] === n.split(':')[0]); return r ? r.id : n.startsWith('первый') ? 'hero' : n.startsWith('целев') ? 'cta' : defRole(); };
+  const s = G.scenario(p.scenario), find = n => { n = n.trim().toLowerCase(); const r = G.allRoles(s).find(r => r.name.toLowerCase() === n || r.id === n || r.name.toLowerCase().split(':')[0] === n.split(':')[0]) || G.allRoles(s).find(r => r.id === OLD_NAMES[n]); return r ? r.id : n.startsWith('первый') ? 'hero' : n.startsWith('целев') ? 'cta' : defRole(); };
   const blocks = []; let cur = null;
   for (const raw of text.split('\n')) {
     const m = raw.match(/^---\s+(.+)$/);
@@ -250,7 +257,7 @@ const appear = () => { if (!matchMedia('(prefers-reduced-motion: reduce)').match
 const render = () => { A.view === 'home' ? home() : A.view === 'lib' ? libView() : editor(); };
 const go = async (view, id) => {
   A.view = view; A.sel = null; A.line = null;
-  if (view === 'edit') { A.page = await G.store.get(id); if (!A.page) { A.view = 'home'; } else A.mode = A.page.blocks.length ? 'page' : 'note'; }
+  if (view === 'edit') { A.page = await G.store.get(id); if (!A.page) { A.view = 'home'; } else { A.page.blocks.forEach(b => b.role = G.roleId(b.role)); A.mode = A.page.blocks.length ? 'page' : 'note'; } }
   location.hash = view === 'edit' && A.page ? '#/p/' + A.page.id : '#/';
   document.body.classList.toggle('shell', A.view === 'edit'); render(); appear(); scrollTo(0, 0);
 };
@@ -334,7 +341,7 @@ const GUIDE = [
   ["content", "[h2] От текста — к странице\nГриди превращает текст в страницу. Вы вставляете текст — Гриди делит его на блоки и подбирает каждому шаблон сетки. Текст остаётся единым: в режиме «Текст» вы правите содержание и структуру, в режиме «Шаблоны» смотрите результат.", "article-text", 0],
   ["vrez", "- Вставьте текст — Можно из документа или со страницы. Гриди автоматически распознает заголовки, списки, таблицы и ссылки.\n- Нажмите «Собрать» — Модель разделит текст на блоки, Гриди подберёт шаблоны по смыслу блока, модель уложит текст в поля. «Сохранить текст как есть» — без укладки.", "a-12", {"i1": {"icon": "sdds-Ai"}}],
   ["content", "[h2] Два режима одного текста\nПереключатель внизу справа: «Текст» — содержание и структура, «Шаблоны» — оформление. Изменения сразу видны в обоих режимах: шаблон лишь отображает текст блока.", "article-text", 0],
-  ["vrez", "- Текст — Меняйте текст, управляйте ролью и порядком блоков, объединяйте и разделяйте их, меняйте разметку строк.\n- Шаблоны и ИИ — Выбирайте шаблоны, изображения и иконки. С помощью ИИ исправляйте ошибки, адаптируйте текст под шаблон, придумывайте содержание или запускайте свой промт.", "a-12", {"i0": {"icon": "sdds-SortBigSmall"}, "i1": {"icon": "sdds-Apps"}}],
+  ["vrez", "- Текст — Меняйте текст, порядок блоков и роль (она есть и в выборе шаблона), объединяйте и разделяйте их, меняйте разметку строк.\n- Шаблоны и ИИ — Выбирайте шаблоны, изображения и иконки. С помощью ИИ исправляйте ошибки, адаптируйте текст под шаблон, придумывайте содержание или запускайте свой промт.", "a-12", {"i0": {"icon": "sdds-SortBigSmall"}, "i1": {"icon": "sdds-Apps"}}],
   ["content", "[h2] Как выбирается шаблон\nГриди учитывает содержимое блока: число пунктов, кнопки, заголовок, цитату или таблицу. Картинки не влияют на выбор — их добавляют позже. Если пунктов больше четырёх, похожие шаблоны собираются по рядам.", "article-text", 0],
   ["vrez", "- Подходит — Всё помещается и выглядит правильно.\n- Почти — Текст нужно немного изменить, например сократить.\n- Не подходит — Часть текста не помещается в шаблон.", "n-46", {"i0": {"icon": "sdds-DoneCircle"}, "i1": {"icon": "sdds-AttentionCircle"}, "i2": {"icon": "sdds-CloseCircle"}}],
   ["content", "[h2] Правила страницы\nЕсли в библиотеке нет подходящего шаблона, Гриди попробует подобрать новый и отметит блок «нужен дизайн»", "article-text", 0],
@@ -344,7 +351,7 @@ const GUIDE = [
   ["content", "[h2] Модель\nГриди работает и вручную: подготовит промт, который вы отправите в свою модель, а затем вставите ответ. С ключом модель вызывается автоматически, а ключ хранится только в этом браузере. При разборе модель возвращает номера строк, а не сам текст, поэтому исходный текст не искажается.", "article-text", 0],
   ["vrez", "- Разбор — Модель отвечает номерами строк, а не текстом: исходный текст не искажается.\n- Улучшения — Модель видит роль блока и поля шаблона, поэтому текст ложится в лимиты", "a-12", {"i0": {"icon": "sdds-ListView"}, "i1": {"icon": "sdds-MagicWand"}}],
   ["content", "[h2] Библиотека\nШаблоны, сценарии, промты и иконки доступны в настройках, в разделе «Библиотека». Ваши изменения сохраняются только в этом браузере.", "article-text", 0],
-  ["vrez", "- Сценарий — Тип страницы: нужные блоки и их порядок. Свой сценарий появится отдельной вкладкой на главной.\n- Промт — Свои промты позволяют менять поведение, появляются в доступных ИИ командах.\n- Иконки — Подбираются по словам в пункте, но любую иконку можно заменить для автоподбора.", "n-46", {"i0": {"icon": "sdds-SortAlphabetAsc"}, "i1": {"icon": "sdds-Edit"}, "i2": {"icon": "sdds-StarCircle"}}]];
+  ["vrez", "- Сценарий — Памятка: какие блоки обычно есть на такой странице. Роли блоков общие для всех страниц. Свой сценарий появится вкладкой на главной.\n- Промт — Свои промты позволяют менять поведение, появляются в доступных ИИ командах.\n- Иконки — Подбираются по словам в пункте, но любую иконку можно заменить для автоподбора.", "n-46", {"i0": {"icon": "sdds-SortAlphabetAsc"}, "i1": {"icon": "sdds-Edit"}, "i2": {"icon": "sdds-StarCircle"}}]];
 G.guidePage = () => G.unpack({page: {name: 'Как работает Гриди', scenario: 'article', blocks: GUIDE.map(([role, text, tpl, images]) => ({role, text, tpl: tpl || undefined, lock: 1, images: images || undefined}))}, templates: [], scenario: null}).page;
 /* открывается превью — читать, а не править */
 const openGuide = () => { G.ls.set('guideSeen', 1); document.querySelector('.hello')?.remove(); preview(G.guidePage()); };
@@ -484,11 +491,11 @@ const pageSettings = () => {
   const s = sheet(`<div class="sh-h"><h2>Страница</h2><button class="ib" data-close aria-label="Закрыть">${I.x}</button></div>
     <div class="sh-b"><label class="lbl" for="psName">Название</label><input class="in" id="psName" value="${e(p.name)}">
     <p class="lbl">Сценарий</p><div class="chips" id="psSc">${all.map(x => `<button class="chip ${x.id === p.scenario ? 'on' : ''}" data-id="${e(x.id)}">${e(x.name)}</button>`).join('')}</div>
-    ${p.blocks.length ? '<p class="hint">Смена сценария меняет набор ролей блоков. Текст не меняется.</p>' : ''}</div>
+    ${p.blocks.length ? '<p class="hint">Сценарий — какие блоки обычно есть на такой странице. Роли общие: при смене сценария блоки и текст остаются.</p>' : ''}</div>
     <div class="sh-f"><button class="pill pri wide" id="psOk">Готово</button></div>`);
   let scId = p.scenario;
   s.$$('#psSc .chip').forEach(c => c.onclick = () => { scId = c.dataset.id; s.$$('#psSc .chip').forEach(x => x.classList.toggle('on', x === c)); });
-  s.$('#psOk').onclick = () => { p.name = s.$('#psName').value.trim() || p.name; if (scId !== p.scenario) { p.scenario = scId; const roles = (G.scenario(scId).roles || []).map(r => r.id); p.blocks.forEach(b => { if (!roles.includes(b.role) && b.role !== 'hero' && b.role !== 'cta') b.role = defRole(); b.tplLock = false; repick(b); }); } save(); s.close(); editor(); };
+  s.$('#psOk').onclick = () => { p.name = s.$('#psName').value.trim() || p.name; if (scId !== p.scenario) { p.scenario = scId; const roles = G.allRoles(G.scenario(scId)).map(r => r.id); p.blocks.forEach(b => { if (!roles.includes(b.role) && b.role !== 'hero' && b.role !== 'cta') b.role = defRole(); b.tplLock = false; repick(b); }); } save(); s.close(); editor(); };
 };
 
 /* 2а. Пустая страница: вставить текст и собрать */
@@ -496,8 +503,14 @@ const pageSettings = () => {
    вид строки правится той же панелью. Памятка по разметке не нужна — неверную разметку поправит модель при сборке */
 const draft = () => {
   const p = A.page, main = $app.querySelector('#eMain'), L = lines(p.text);
-  main.innerHTML = `<div class="note draft-note"><p class="draft-hint">Вставьте текст из документа — заголовки, списки и ссылки разметятся сами. Размечать не обязательно. Или <button class="link" id="dBlank">начните с чистого листа</button>.</p>
+  main.innerHTML = `<div class="note draft-note"><div class="memo" id="dMemo"></div><p class="draft-hint">Вставьте текст из документа — заголовки, списки и ссылки разметятся сами. Размечать не обязательно. Или <button class="link" id="dBlank">начните с чистого листа</button>.</p>
     <div class="ed draft-ed" contenteditable="true" spellcheck="true" data-id="__draft" data-ph="Вставьте или напишите текст">${(L.length ? L : [{k: 'p', t: ''}]).map(l => lineHTML(l.k, l.t)).join('')}</div></div>`;
+  /* сценарий — памятка: какие блоки обычно есть на такой странице; обязательные — жирным. Порядок и названия — подсказка, Гриди разберёт сам */
+  const memo = () => { const box = main.querySelector('#dMemo'), s0 = sc(), all = G.lib.all('scenarios');
+    box.innerHTML = `<div class="memo-sc">${all.map(x => `<button class="chip sm ${x.id === s0.id ? 'on' : ''}" data-msc="${e(x.id)}">${e(x.name)}</button>`).join('')}</div>
+      <p class="memo-l"><span>Обычно на странице:</span> ${(s0.roles || []).map(r => r.req ? `<b>${e(r.name.split(':')[0])}</b>` : e(r.name.split(':')[0])).join(' · ')}</p>`;
+    box.querySelectorAll('[data-msc]').forEach(x => x.onclick = () => { p.scenario = x.dataset.msc; save(); memo(); const sm = $app.querySelector('#eTtl small'); if (sm) sm.textContent = sc().name; }); };
+  memo();
   const ta = main.querySelector('.draft-ed'); bindEd(ta); fmtBar();
   const read = () => tidy([...ta.children].map(d => md(d.dataset.k, d.textContent.replace(/ /g, ' ').trim())));
   const empty0 = () => ta.classList.toggle('is-empty', !ta.textContent.trim() && ta.children.length <= 1);
@@ -579,9 +592,9 @@ const notes = () => {
   if (!p.blocks.length) { main.innerHTML = `<div class="note">${empty('На странице нет блоков', 'Добавьте первый блок ниже или вставьте текст заново.')}${addChips()}</div>`; bindAdd(main); return; }
   main.innerHTML = `<div class="note">${p.blocks.map((b, i) => `<section class="nb" data-id="${e(b.id)}">
       <button class="nb-line ${iss[b.id] ? 'warn' : ''}" data-role="${e(b.id)}"><b class="bn">${i + 1}</b><span>${e(roleName(b))}</span>${mediaHint(b)}${blockNote(b, p, true) ? `<em class="nb-note">${e(blockNote(b, p, true))}</em>` : ''}</button>
-      <div class="ed" contenteditable="true" spellcheck="true" data-id="${e(b.id)}">${(lines(b.text).length ? lines(b.text) : [{k: 'p', t: ''}]).map(l => lineHTML(l.k, l.t)).join('')}</div></section>`).join('')}
+      <div class="ed" contenteditable="true" spellcheck="true" data-id="${e(b.id)}">${(lines(b.text).length ? lines(b.text) : [{k: 'p', t: ''}]).map(l => lineHTML(l.k, l.t)).join('')}</div>${tipPlate(b, p)}</section>`).join('')}
     ${addChips()}</div>`;
-  main.querySelectorAll('.ed').forEach(bindEd); bindAdd(main);
+  main.querySelectorAll('.ed').forEach(bindEd); bindAdd(main); bindTips(main);
   main.querySelectorAll('[data-role]').forEach(x => x.onclick = ev => { ev.stopPropagation(); if (A.sel === x.dataset.role) { unselect(); return; } const a = document.activeElement; if (a && a.blur) a.blur(); select(x.dataset.role); });
   main.addEventListener('focusin', ev => { if (A.sel && ev.target.closest('.ed')) unselect(); });
   main.onclick = ev => { if (A.sel && !ev.target.closest('.nb-line,.add,.sel-float')) unselect(); };
@@ -734,11 +747,11 @@ const blockHTML0 = (b, p, t) => {
 /* 2в. Страница: тот же текст в шаблонах */
 const canvas = () => {
   const p = A.page, main = $app.querySelector('#eMain'), iss = report(p).byBlock;
-  main.innerHTML = `<div class="cv">${p.blocks.map((b, i) => `<div class="cb ${A.sel === b.id ? 'sel' : ''} ${iss[b.id] ? 'warn' : ''}" data-id="${e(b.id)}">${bn(b, i)}${blockHTML(b, p)}</div>`).join('')}${addChips()}</div>`;
+  main.innerHTML = `<div class="cv">${p.blocks.map((b, i) => `<div class="cb ${A.sel === b.id ? 'sel' : ''} ${iss[b.id] ? 'warn' : ''}" data-id="${e(b.id)}">${bn(b, i)}${blockHTML(b, p)}</div>${tipPlate(b, p)}`).join('')}${addChips()}</div>`;
   main.querySelectorAll('.cb').forEach(x => x.onclick = ev => { ev.stopPropagation(); if (A.sel) { unselect(); return; } select(x.dataset.id); });
   /* клик мимо блока снимает выбор */
   main.onclick = ev => { if (A.sel && !ev.target.closest('.cb,.add,.sel-float')) unselect(); };
-  bindAdd(main);
+  bindAdd(main); bindTips(main);
 };
 let cat = null;
 const BK = () => A.mode === 'note' ? '.nb' : '.cb';
@@ -762,6 +775,7 @@ const placeSel = () => { if (!selEl || !selEl.isConnected || !A.sel) return; con
 const unselect = () => { A.sel = null; if (selEl) { selEl.remove(); selEl = null; } document.body.classList.remove('picking'); const ea = $app.querySelector('#eAct'); if (ea) ea.innerHTML = ''; $app.querySelectorAll('.cb.sel,.nb.sel').forEach(x => x.classList.remove('sel')); if (cat) { const h = cat; cat = null; h.close(true); } if (A.view === 'edit' && A.page && A.page.blocks.length) island(); };
 const redrawBlock = b => { if (A.mode === 'note') { const id = A.sel; notes(); if (id) select(id); const bd = $app.querySelector('#eOut .badge'), r = report(A.page); if (bd) { bd.textContent = r.count; bd.hidden = !r.count; bd.className = 'badge ' + r.grade.level; } return; } const el = $app.querySelector(`.cb[data-id="${b.id}"]`); if (!el) return; const r = report(A.page);
   el.innerHTML = bn(b, A.page.blocks.indexOf(b)) + blockHTML(b, A.page); el.classList.toggle('warn', !!r.byBlock[b.id]);
+  const nx = el.nextElementSibling; if (nx && nx.classList.contains('tips')) nx.remove(); el.insertAdjacentHTML('afterend', tipPlate(b, A.page)); bindTips(el.parentElement);
   const bd = $app.querySelector('#eOut .badge'); if (bd) { bd.textContent = r.count; bd.hidden = !r.count; bd.className = 'badge ' + r.grade.level; }
   if (A.sel === b.id) selBar(); };
 
@@ -830,30 +844,41 @@ const aiSheet = b => {
   s.$$('[data-p]').forEach(x => x.onclick = () => { s.close(true); runPrompt(b, x.dataset.p); });
 };
 /* роль блока в режиме текста: что это за часть страницы — от неё зависят подходящие шаблоны */
-const roleSheet = b => { const p = A.page, roles = (sc().roles || []);
+/* роли для выбора: сначала роли сценария, потом общие роли того же вида страницы */
+const roleList = () => G.allRoles ? G.allRoles(sc()) : (sc().roles || []);
+const setRole = (b, r) => { if (b.role === r) return false; b.role = r; b.tpl = null; b.tplLock = false; b.values = null; repick(b); save(); return true; };
+const roleSheet = b => { const p = A.page, roles = roleList();
   const s = sheet(`<div class="sh-h"><div><h2>Роль блока</h2><p class="sub">От роли зависят подходящие шаблоны</p></div><button class="ib round ok" data-close aria-label="Готово">${I.check}</button></div>
     <div class="list">${roles.map(r => `<button class="row ${r.id === b.role ? 'on' : ''}" data-r="${e(r.id)}">${e(r.name.split(':')[0])}${r.id === b.role ? ` ${I.check}` : ''}</button>`).join('')}</div>`);
-  s.$$('[data-r]').forEach(x => x.onclick = () => { if (b.role !== x.dataset.r) { b.role = x.dataset.r; b.tpl = null; b.tplLock = false; b.values = null; save(); } s.close(); notes(); select(b.id); }); };
+  s.$$('[data-r]').forEach(x => x.onclick = () => { setRole(b, x.dataset.r); s.close(); A.mode === 'note' ? notes() : canvas(); select(b.id); }); };
 /* каталог шаблонов: категории по типу, сначала подходящие, у каждого — почему не подходит */
 const catalog = () => {
   const p = A.page, b = p.blocks.find(x => x.id === A.sel); if (!b) return;
-  const i = p.blocks.indexOf(b), ranked = G.rank(b, p);
-  const types = []; ranked.forEach(r => { const t = tplLabel(r.t).type; if (!types.includes(t)) types.push(t); });
-  let tab = 'fit';
-  const card = r => { const l = tplLabel(r.t), w = why(r), bad = (r.tier || 0) >= 2;
-    return `<button class="tc ${r.t.id === b.tpl ? 'on' : ''} ${bad ? 'dim' : ''}" data-t="${e(r.t.id)}"><div class="tc-pv">${blockHTML(b, p, r.t)}${r.t.id === b.tpl ? `<i class="tc-ok">${I.check}</i>` : ''}</div>
-      <span class="tc-n">${e(l.name)}</span>${l.sub ? `<span class="tc-s">${e(l.sub)}</span>` : ''}
-      <span class="tc-v ${bad ? 'bad' : ''}">${e(G.TIERS[r.tier || 0])}${!G.isLive(r.t) ? ' · нужен дизайн' : ''}</span>${w && (r.tier || 0) ? `<span class="tc-why">${e(w)}</span>` : ''}</button>`; };
+  const i = p.blocks.indexOf(b); let ranked = [], types = [];
+  const rerank = () => { ranked = G.rank(b, p); types = []; ranked.forEach(r => { const t = tplLabel(r.t).type; if (!types.includes(t)) types.push(t); }); };
+  rerank();
+  /* подходящих нет — открыть категорию текущего шаблона, а не пустой экран */
+  const tab0 = () => ranked.some(r => (r.tier || 0) <= 1) || !b.tpl || !G.tpl(b.tpl) ? 'fit' : tplLabel(G.tpl(b.tpl)).type;
+  let tab = tab0();
+  /* карточка: превью, название и одна метка; параметры шаблона и что поменять — во всплывающей подсказке */
+  const card = r => { const l = tplLabel(r.t), w = why(r), tier = r.tier || 0, bad = tier >= 2, live = G.isLive(r.t);
+    const tag = !live ? 'Нужен дизайн' : G.TIERS[tier], tip = [l.name, l.sub, tier ? G.TIERS[tier] + (w ? ': ' + w : '') : '', !live ? 'шаблона нет в админке' : ''].filter(Boolean).join(' · ');
+    return `<button class="tc ${r.t.id === b.tpl ? 'on' : ''} ${bad ? 'dim' : ''}" data-t="${e(r.t.id)}" title="${e(tip)}"><div class="tc-pv">${blockHTML(b, p, r.t)}${r.t.id === b.tpl ? `<i class="tc-ok">${I.check}</i>` : ''}</div>
+      <span class="tc-n">${e(l.name)}</span><span class="tc-v ${bad || !live ? 'bad' : ''} ${!tier && live ? 'ok' : ''}">${e(tag)}</span></button>`; };
+  const roleChips = () => `<div class="cat-roles"><span class="lbl">Роль</span>${roleList().filter(r => r.id !== 'unparsed').map(r => `<button class="chip sm ${r.id === b.role ? 'on' : ''}" data-role-c="${e(r.id)}">${e(r.name.split(':')[0])}</button>`).join('')}</div>`;
   const list = () => tab === 'fit' ? ranked.filter(r => (r.tier || 0) <= 1) : ranked.filter(r => tplLabel(r.t).type === tab);
   const draw = () => { const L = list();
     cat.set(`<div class="sh-h"><div><h2>Шаблон · ${i + 1}. ${e(roleName(b))}</h2><p class="sub">${ranked.length} шаблонов</p></div><button class="ib round ok" data-close aria-label="Готово">${I.check}</button></div>
+      ${roleChips()}
       <div class="cat-tabs">${[['fit', 'Подходящие', ranked.filter(r => (r.tier || 0) <= 1).length], ...types.map(t => [t, t, ranked.filter(r => tplLabel(r.t).type === t).length])].map(([k, n, c]) => `<button class="chip ${k === tab ? 'on' : ''}" data-tab="${e(k)}">${e(n)} <i>${c}</i></button>`).join('')}</div>
       <div class="sh-b">${L.length ? `<div class="tgrid">${L.map(card).join('')}</div>` : !ranked.length ? empty('Шаблонов для этой роли нет', 'Попробуйте другую роль блока или добавьте шаблон в библиотеке.', [['role', 'Сменить роль', true]]) : empty('Подходящих шаблонов нет', 'Поменяйте текст блока или попробуйте другую роль. В категориях выше — все шаблоны и что в них придётся поменять.', [['text', 'Изменить текст', true], ['role', 'Сменить роль']])}</div>`);
-    requestAnimationFrame(() => cat && cat.$$('.tc-pv').forEach(x => x.style.setProperty('--k', x.clientWidth / 560))); };
+    requestAnimationFrame(() => { if (!cat) return; cat.$$('.tc-pv').forEach(x => x.style.setProperty('--k', x.clientWidth / 560)); const on = cat.$('.cat-roles .on'), row = cat.$('.cat-roles'); if (on && row) row.scrollLeft = on.offsetLeft - row.clientWidth / 2 + on.offsetWidth / 2; }); };
   if (cat) cat.close(true);
   cat = sheet('', {cls: 'full cat', onClose: () => { cat = null; }});
   draw();
   cat.root.addEventListener('click', ev => {
+    const rc = ev.target.closest('[data-role-c]');
+    if (rc) { if (setRole(b, rc.dataset.roleC)) { rerank(); tab = tab0(); redrawBlock(b); draw(); } return; }
     const tb = ev.target.closest('[data-tab]'), tp = ev.target.closest('[data-t]'), es = ev.target.closest('[data-es]');
     if (es) { const k = es.dataset.es; cat.close(); if (k === 'text') toText(b); if (k === 'role') roleSheet(b); return; }
     if (tb) { tab = tb.dataset.tab; draw(); cat.$('.sh-b').scrollTop = 0; }

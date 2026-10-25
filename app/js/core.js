@@ -106,7 +106,13 @@ G.prompt = id => G.lib.get('prompts', id);
 /* правила сценария уходят в промт разбора: пишите их в терминах ролей сценария и формы текста, без слов конкретной редакции */
 G.rulesLint = (kind, rules) => 'Правила уточняют разбор, формат ответа они не меняют. Пишите в терминах ролей сценария (их названия — в списке блоков) и формы текста: заголовок, пункты, кнопка, подпись.';
 const SYS_ROLES = {hero: {id: 'hero', name: 'Первый экран', meaning: 'Заголовок, главное сообщение и действие'}, cta: {id: 'cta', name: 'Целевое действие', meaning: 'Кнопка или форма — главное действие страницы'}, unparsed: {id: 'unparsed', name: 'Не разобрано', meaning: 'Абзацы, которые модель не разложила по блокам', verbatim: true, system: true}};
-G.roleOf = (sc, roleId) => (sc.roles || []).find(r => r.id === roleId) || SYS_ROLES[roleId] || {id: roleId, name: roleId, meaning: ''};
+/* роль блока: из сценария, иначе — общая роль того же вида страницы (library/scenarios.js), иначе служебная */
+const sharedRole = (sc, id) => { const r = (G.ROLES || []).find(x => x.id === id && x.kind === (sc.kind || 'landing')); if (!r) return null; const o = {...r}; delete o.kind; return o; };
+G.roleId = id => (G.ROLE_ALIAS || {})[id] || id;
+G.roleOf = (sc, roleId) => { roleId = G.roleId(roleId); return (sc.roles || []).find(r => r.id === roleId) || sharedRole(sc, roleId) || SYS_ROLES[roleId] || {id: roleId, name: roleId, meaning: ''}; };
+/* все роли для выбора и для разбора: сначала роли сценария по порядку, потом остальные общие роли того же вида */
+G.allRoles = sc => { const own = sc.roles || [], ids = new Set(own.map(r => r.id));
+  return [...own, ...(G.ROLES || []).filter(r => r.kind === (sc.kind || 'landing') && !ids.has(r.id)).map(r => sharedRole(sc, r.id))]; };
 
 /* ---------- хранение страниц: IndexedDB, запасной вариант — localStorage ---------- */
 const DB = {db: null, fallback: false};

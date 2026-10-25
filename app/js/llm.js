@@ -122,7 +122,8 @@ G.parsePrompt = page => {
   const marks = new Map(); rg.forEach((ids, i) => { if (ids.length) marks.set(ids[0], `== блок ${i + 1}: ${base.blocks[i].role}`); });
   return G.fill(P.text, {
     'тип': sc.name, 'действие': sc.action || 'нет', 'размер': (sc.rhythm && sc.rhythm.maxRun) || 1000,
-    'роли': sc.roles.map(r => `${r.id} — ${r.name}${r.meaning ? ': ' + r.meaning : ''}${r.items ? ' (до ' + r.items + ' пунктов)' : ''}`).join('\n'),
+    'роли': (() => { const line = r => `${r.id} — ${r.name}${r.meaning ? ': ' + r.meaning : ''}${r.items ? ' (до ' + r.items + ' пунктов)' : ''}`, all = G.allRoles(sc), own = all.slice(0, sc.roles.length), more = all.slice(sc.roles.length);
+      return own.map(line).join('\n') + (more.length ? '\nРеже — если в тексте есть такой блок:\n' + more.map(line).join('\n') : ''); })(),
     'правила': (sc.rules || []).map(r => '- ' + r).join('\n') || '—',
     'пример': G.parseExample(sc),
     'строки': R.map((l, i) => (marks.has(i + 1) ? marks.get(i + 1) + '\n' : '') + `[${i + 1}] ${l}`).join('\n'),
@@ -130,7 +131,7 @@ G.parsePrompt = page => {
 };
 /* ответ модели → блоки. Плохой или пустой ответ — остаётся сборка по разметке */
 G.applyParse = (page, json) => {
-  const sc = G.scenario(page.scenario), R = G.parseLines(page), n = R.length, roles = sc.roles.map(r => r.id).concat(['hero', 'cta']);
+  const sc = G.scenario(page.scenario), R = G.parseLines(page), n = R.length, roles = G.allRoles(sc).map(r => r.id).concat(['hero', 'cta']);
   const all = String(page.text || '').split(/\n+/).map(x => x.trim()).filter(Boolean), rest = all.slice(n).join('\n');
   const base = G.newPage('', page.scenario, R.join('\n')); G.assemble(base);
   const owner = new Array(n + 1).fill(-1), out = [], fixes = [];
@@ -156,7 +157,7 @@ G.applyParse = (page, json) => {
         const g = nums(part, n).filter(i => ids.includes(i)); if (g.length > 1 && /[-–]/.test(part)) { C.set(g[0], 'h'); g.slice(1).forEach(i => C.set(i, 't')); } else g.forEach(i => I.add(i)); }
       /* split: {"7": "Доклады"} — строка делится на заголовок и текст пункта, если она действительно так начинается */
       const SP = new Map(); if (x.split && typeof x.split === 'object') for (const [k, v] of Object.entries(x.split)) { const i = +k, l = R[i - 1], pre = String(v || '').trim(); if (ids.includes(i) && l && pre && l.startsWith(pre) && l.length > pre.length + 1 && !MARK.test(l)) SP.set(i, pre); }
-      const role = roles.includes(x.role) ? x.role : baseRole(ids[0]);
+      const role = roles.includes(G.roleId(x.role)) ? G.roleId(x.role) : baseRole(ids[0]);
       /* М1: разметка автора — подсказка. Защищены только строки с « | » (таблица, кнопка со ссылкой);
          остальную модель может отметить по-своему — так чинится неверная разметка. Каждое изменение считается */
       const decided = i => B.has(i) || P.has(i) || C.has(i) || T.has(i) || SP.has(i) || I.has(i) || M.has(i) || PL.has(i);
@@ -247,6 +248,8 @@ G.assemble = page => {
       const title = G.src(b).title, last = i === blocks.length - 1, btnOnly = G.src(b).cta.length && !G.src(b).items.length;
       let best = null, bs = 0;
       for (const r of free()) { const sc0 = G.roleMatch(G.roleOf(sc, r), title); if (sc0 > bs) { bs = sc0; best = r; } }
+      /* блок, которого нет в сценарии (цифры на странице продукта), — общая роль, если заголовок прямо о ней */
+      if (!best) for (const r of G.allRoles(sc).slice(sc.roles.length)) { if (used.has(r.id)) continue; const s1 = G.roleMatch(r, title); if (s1 >= 3 && s1 > bs) { bs = s1; best = r.id; } }
       if (!best && last && btnOnly && free().includes('cta')) best = 'cta';
       if (!best) best = free().find(r => r !== 'cta') || order[order.length - 1];
       b.role = best; used.add(best);
