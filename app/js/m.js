@@ -16,6 +16,7 @@ const I = {
   star: '<svg viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="2"/><circle cx="16.5" cy="7.5" r="3.5"/><path d="M4 20l3.5-6 3.5 6zM14 14h6v6h-6z"/></svg>',
   tag: '<svg viewBox="0 0 24 24"><path d="M4 12V5a1 1 0 011-1h7l8 8-8 8-8-8z"/><circle cx="8.5" cy="8.5" r="1.3"/></svg>',
   note: '<svg viewBox="0 0 24 24"><path d="M5 6h14M5 11h14M5 16h9"/></svg>',
+  shuffle: '<svg viewBox="0 0 24 24"><path d="M4 7h3c4 0 6 10 10 10h3M4 17h3c1.6 0 2.8-1.6 3.8-3.5M13.2 9.5C14.2 8.1 15.4 7 17 7h3M18 4l3 3-3 3M18 14l3 3-3 3"/></svg>',
   page: '<svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="7" rx="1.5"/><rect x="4" y="14" width="7" height="6" rx="1.5"/><rect x="13" y="14" width="7" height="6" rx="1.5"/></svg>',
   out: '<svg viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>',
   pen: '<svg viewBox="0 0 24 24"><path d="M4 20l4-1 11-11-3-3L5 16l-1 4z"/></svg>',
@@ -323,15 +324,15 @@ const MEMO = [
   ['[картинка] Подпись', 'Место для картинки'],
   ['Тариф | Срок | Цена', 'Строка таблицы — от двух строк с одинаковым числом колонок'],
 ];
-const memo = () => sheet(`<div class="sh-h"><div><h2>Как писать текст</h2><p class="sub">Размечать не обязательно: Гриди и модель разберут текст сами. Разметка помогает, если блок собрался не так.</p></div><button class="ib" data-close aria-label="Закрыть">${I.x}</button></div>
+const memo = () => sheet(`<div class="sh-h"><div><h2>Как писать текст</h2><p class="sub">Размечать не обязательно: модель разберёт текст сама и поправит неверную разметку. Таблицы и кнопки со ссылкой она не меняет.</p></div><button class="ib" data-close aria-label="Закрыть">${I.x}</button></div>
   <div class="sh-b"><div class="memo">${MEMO.map(([a, b]) => `<code>${e(a)}</code><span>${e(b)}</span>`).join('')}</div>
   <p class="hint">Пустые строки ни на что не влияют. Если текст не поместился в шаблон, Гриди покажет это в проверке — и предложит, как поправить.</p></div>`, {cls: 'tall'});
 /* инструкция — обычная страница Гриди (статья), собранная по разметке. Только общие сведения: её можно показывать по публичной ссылке */
 /* инструкция — страница Гриди (статья) с шаблонами. Только общие сведения: её же можно отдать ссылкой (до 4 тыс. знаков) */
 const GUIDE = [
-  ["hero", "[h1] Как работает Гриди\nСоберите страницу из текста: вставьте, разберите, проверьте и передайте в вёрстку", "n-30", 0],
+  ["hero", "[h1] Как работает Гриди\nСоберите страницу из текста: вставьте, соберите, проверьте и передайте в вёрстку", "n-30", 0],
   ["content", "[h2] От текста — к странице\nГриди превращает текст в страницу. Вы вставляете текст — Гриди делит его на блоки и подбирает каждому шаблон сетки. Текст остаётся единым: в режиме «Текст» вы правите содержание и структуру, в режиме «Шаблоны» смотрите результат.", "article-text", 0],
-  ["vrez", "- Вставьте текст — Можно из документа или со страницы. Гриди автоматически распознает заголовки, списки, таблицы и ссылки.\n- Нажмите «Разобрать» — Гриди соберёт блоки по разметке, а модель проверит их границы и роли. Затем посмотрите страницу: у каждого блока уже будет шаблон.", "a-12", {"i1": {"icon": "sdds-Ai"}}],
+  ["vrez", "- Вставьте текст — Можно из документа или со страницы. Гриди автоматически распознает заголовки, списки, таблицы и ссылки.\n- Нажмите «Собрать» — Модель разделит текст на блоки, Гриди подберёт шаблоны по смыслу блока, модель уложит текст в поля. «Сохранить текст как есть» — без укладки.", "a-12", {"i1": {"icon": "sdds-Ai"}}],
   ["content", "[h2] Два режима одного текста\nПереключатель внизу справа: «Текст» — содержание и структура, «Шаблоны» — оформление. Изменения сразу видны в обоих режимах: шаблон лишь отображает текст блока.", "article-text", 0],
   ["vrez", "- Текст — Меняйте текст, управляйте ролью и порядком блоков, объединяйте и разделяйте их, меняйте разметку строк.\n- Шаблоны и ИИ — Выбирайте шаблоны, изображения и иконки. С помощью ИИ исправляйте ошибки, адаптируйте текст под шаблон, придумывайте содержание или запускайте свой промт.", "a-12", {"i0": {"icon": "sdds-SortBigSmall"}, "i1": {"icon": "sdds-Apps"}}],
   ["content", "[h2] Как выбирается шаблон\nГриди учитывает содержимое блока: число пунктов, кнопки, заголовок, цитату или таблицу. Картинки не влияют на выбор — их добавляют позже. Если пунктов больше четырёх, похожие шаблоны собираются по рядам.", "article-text", 0],
@@ -367,6 +368,7 @@ const settings = () => {
         <label class="row ic file">${I.plus}<span><b>Страница от коллеги</b><small>Архив или page.json. Текст из чата — просто вставьте в новую страницу</small></span><input type="file" id="sImp" accept=".zip,.json,application/zip,application/json"></label>
         <button class="row ic" id="sPilot">${I.out}<span><b>Итоги пилота</b><small>Архив для меня: правки библиотеки, недостающие шаблоны, запуски модели — без текстов страниц</small></span></button>
         <button class="row ic" id="sGuide">${I.note}<span><b>Как работает Гриди</b><small>Коротко обо всём</small></span></button>
+        <button class="row ic" id="sMemo">${I.note}<span><b>Как размечать текст</b><small>Не обязательно: неверную разметку поправит модель</small></span></button>
         <a class="row ic" href="navi.html" target="_blank" rel="noopener">${I.eye}<span><b>Нави ↗</b><small>Гайд и прототип навигации — в новой вкладке</small></span></a>
       </div>
     </div>
@@ -376,6 +378,7 @@ const settings = () => {
   s.$('#sOk').onclick = () => { G.ls.set('llm', {mode, base: s.$('#sBase').value.trim(), model: s.$('#sModel').value.trim(), key: s.$('#sKey').value.trim()}); G._modelOkAt = 0; s.close(); toast('Сохранено'); };
   s.$('#sPilot').onclick = async () => { try { await G.pilotExport(false); toast('Архив итогов скачан'); } catch (err) { toast(err.message); } };
   s.$('#sGuide').onclick = () => { s.close(true); openGuide(); };
+  s.$('#sMemo').onclick = () => { s.close(true); memo(); };
   s.$('#sImp').onchange = async ev => { try { await G.importProject(ev.target.files[0]); s.close(); toast('Страница добавлена'); home(); } catch (err) { toast(err.message); } };
 };
 
@@ -387,7 +390,7 @@ const editor = () => {
   const title = `<b>${e(p.name)}</b><small>${e(sc().name)}${p.blocks.length ? ' · ' + (G.len(p.blocks.map(x => x.text).join('')) / 1000).toFixed(1).replace('.0', '') + 'k знаков' : ''}</small>`;
   $app.innerHTML = `<header class="hd" id="eHd"><div class="hd-edit"><div class="hfield" id="eField"></div><button class="ib round ok" id="eOk" aria-label="Готово">${I.check}</button></div>
     <button class="ib round" id="eBack" aria-label="Назад">${I.back}</button><button class="ttl" id="eTtl">${title}</button>
-      ${p.blocks.length ? `<button class="ib round" id="ePrev" aria-label="Превью">${I.eye}</button>
+      ${p.blocks.length && A.mode === 'page' && G.designChoices(p) ? `<button class="ib round" id="eAlt" aria-label="Другой дизайн" title="Другой дизайн: другие шаблоны того же смысла">${I.shuffle}</button>` : ''}${p.blocks.length ? `<button class="ib round" id="ePrev" aria-label="Превью">${I.eye}</button>
       <button class="ib round dark" id="eOut" aria-label="Выгрузка">${I.out}${miss ? `<span class="badge ${report(p).grade.level}">${miss}</span>` : ''}</button>` : `<button class="ib round" id="eTune" aria-label="Настройки страницы">${I.tune}</button>`}</header>
     <main id="eMain"></main><div class="dock" id="eDock"><div id="eDockMain"><div class="bar"><div id="eAct"></div><i class="bar-div" aria-hidden="true"></i><div id="eSw"></div></div></div></div>`;
   $app.querySelector('#eBack').onclick = () => { if (A.sel) { unselect(); return; } save(); go('home'); };
@@ -395,6 +398,8 @@ const editor = () => {
   $app.querySelector('#eOk').onclick = () => { const a = document.activeElement; if (a && a.blur) a.blur(); getSelection().removeAllRanges(); fmtSync(); };
   const tn = $app.querySelector('#eTune'); if (tn) tn.onclick = pageSettings;
   const pv = $app.querySelector('#ePrev'); if (pv) pv.onclick = () => preview();
+  /* «Другой дизайн»: следующий вариант шаблонов внутри семейства, без модели; закреплённые вручную не трогаем */
+  const alt = $app.querySelector('#eAlt'); if (alt) alt.onclick = () => { p.seed = (p.seed || 0) + 1; G.autoPick(p); save(); editor(); toast('Другие шаблоны того же смысла. Текст не влезает — «Поправить» в выгрузке.'); };
   const out = $app.querySelector('#eOut'); if (out) out.onclick = exportView;
   if (!p.blocks.length) return draft();
   A.mode === 'note' ? notes() : canvas();
@@ -487,26 +492,28 @@ const pageSettings = () => {
 };
 
 /* 2а. Пустая страница: вставить текст и собрать */
+/* новая страница открывается сразу редактором строк, как «Текст»: вставка из документа размечается сама,
+   вид строки правится той же панелью. Памятка по разметке не нужна — неверную разметку поправит модель при сборке */
 const draft = () => {
-  const p = A.page, main = $app.querySelector('#eMain');
-  main.innerHTML = `<p class="draft-hint">Разметка не обязательна — Гриди разложит текст сам (<button class="link" id="dMemo">как писать текст</button>). Можно вставить и текст страницы от коллеги. Или <button class="link" id="dBlank">начните с чистого листа</button> — блоки сценария без текста.</p>
-    <textarea class="draft" id="dTxt" placeholder="Вставьте или напишите текст.">${e(p.text || '')}</textarea>`;
-  const ta = main.querySelector('#dTxt'); setTimeout(() => ta.focus(), 50);
-  main.querySelector('#dMemo').onclick = memo;
+  const p = A.page, main = $app.querySelector('#eMain'), L = lines(p.text);
+  main.innerHTML = `<div class="note draft-note"><p class="draft-hint">Вставьте текст из документа — заголовки, списки и ссылки разметятся сами. Размечать не обязательно. Или <button class="link" id="dBlank">начните с чистого листа</button>.</p>
+    <div class="ed draft-ed" contenteditable="true" spellcheck="true" data-id="__draft" data-ph="Вставьте или напишите текст">${(L.length ? L : [{k: 'p', t: ''}]).map(l => lineHTML(l.k, l.t)).join('')}</div></div>`;
+  const ta = main.querySelector('.draft-ed'); bindEd(ta); fmtBar();
+  const read = () => tidy([...ta.children].map(d => md(d.dataset.k, d.textContent.replace(/ /g, ' ').trim())));
+  const empty0 = () => ta.classList.toggle('is-empty', !ta.textContent.trim() && ta.children.length <= 1);
+  ta.addEventListener('input', () => { p.text = read(); save(); empty0(); }); empty0();
   /* с чистого листа: блоки по сценарию без текста — текст можно написать или «Придумать» */
   main.querySelector('#dBlank').onclick = async () => { const s0 = sc(), roles = (s0.roles || []).filter(r => r.req || r.id === 'hero').map(r => r.id);
     if (!roles.includes('hero')) roles.unshift('hero'); if (roles.length < 2) roles.push(defRole());
     p.blocks = roles.map(r => G.newBlock(r, '')); p.text = ''; A.mode = 'note'; await G.store.put(p); editor();
     toast('Блоки сценария готовы — пишите текст или «Придумать текст» в меню ИИ'); };
-  ta.oninput = () => { p.text = ta.value; save(); };
-  ta.addEventListener('paste', ev => { const html = ev.clipboardData && ev.clipboardData.getData('text/html');
-    if (!html || !/<(h[1-6]|li|table|img|a\s)/i.test(html)) return; const md = G.htmlToMarkup(html); if (!md.trim()) return;
-    ev.preventDefault(); const a = ta.selectionStart, z = ta.selectionEnd; ta.value = ta.value.slice(0, a) + md + ta.value.slice(z); ta.selectionStart = ta.selectionEnd = a + md.length;
-    p.text = ta.value; save(); ta.dispatchEvent(new Event('input')); toast('Заголовки, списки и ссылки размечены автоматически'); });
-  /* одна кнопка: разбор целиком — разметка, модель, шаблоны — одним этапом */
+  /* вставка: построчно, с разметкой; после неё — сохранить текст (paste в редакторе строк не всегда даёт input) */
+  ta.addEventListener('paste', () => setTimeout(() => { p.text = read(); save(); empty0(); }, 0));
+  /* одна кнопка «Собрать»: разбор, шаблоны, укладка. Галочка — не переписывать текст: укладка не нужна */
   const dock = $app.querySelector('#eDock');
-  dock.innerHTML = `<button class="pill grad wide" id="dGo">Разобрать</button>`;
-  dock.querySelector('#dGo').onclick = () => build(ta.value);
+  dock.innerHTML = `<div class="build-bar"><label class="chk"><input type="checkbox" id="dKeep" ${p.verbatim ? 'checked' : ''}><span>Сохранить текст как есть</span></label><button class="pill grad wide" id="dGo">Собрать</button></div>`;
+  dock.querySelector('#dKeep').onchange = ev => { p.verbatim = ev.target.checked; save(); };
+  dock.querySelector('#dGo').onclick = () => build(read());
 };
 /* 2а'. Разбор — экран загрузки. Модель не подключена — промт и ответ здесь же, вторым шагом.
    Страница сохраняется только после разбора; отмена — назад к тексту, текст на месте. */
@@ -516,38 +523,48 @@ const build = async text => {
   if (isShare(text)) { fromShare(p, text); return done(p); }
   /* В-правила: разметка по форме строк при вставке — один раз, видна в «Тексте» */
   const pm = G.premark(text); p.text = text = pm.text;
+  /* сборка — три шага: разбор (модель), шаблоны (код, по семейству роли), укладка (модель; не нужна, если текст сохраняется как есть) */
   const main = $app.querySelector('#eMain'), dock = $app.querySelector('#eDock'); dock.innerHTML = '';
-  main.innerHTML = `<div class="ld"><h2>Разбираем текст</h2><ol class="ld-st">
-      <li data-s="1" class="on">Собираем по разметке</li><li data-s="2">Модель проверяет блоки и роли <small id="ldT"></small></li><li data-s="3">Подбираем шаблоны</li></ol>
+  const asks = p.verbatim ? 1 : 2; let askN = 0;
+  main.innerHTML = `<div class="ld"><h2>Собираем страницу</h2><ol class="ld-st">
+      <li data-s="1" class="on">Разбираем текст на блоки <small class="ldT"></small></li><li data-s="2">Подбираем шаблоны</li><li data-s="3">${p.verbatim ? 'Текст сохраняем как есть' : 'Укладываем текст в шаблоны'} <small class="ldT"></small></li></ol>
     <div id="ldX"></div><button class="pill ghost" id="ldCancel">Отменить</button></div>`;
   const st = (n, cls) => { const li = main.querySelector(`[data-s="${n}"]`); if (li) li.className = cls; };
   let ctl = new AbortController(), manualRej = null, cancelled = false;
   main.querySelector('#ldCancel').onclick = () => { cancelled = true; ctl.abort(); if (manualRej) manualRej(new Error('cancel')); };
-  st(1, 'done'); st(2, 'on');
   const ui = G.ui, keep = {busy: ui.busy, manualAsk: ui.manualAsk};
-  ui.busy = () => { G._askEl = main.querySelector('.ld'); const t0 = Date.now(), tm = setInterval(() => { const el = main.querySelector('#ldT'); if (el) el.textContent = Math.round((Date.now() - t0) / 1000) + ' с'; }, 1000);
-    const h = {signal: ctl.signal, timedOut: false, done: () => clearInterval(tm)}; setTimeout(() => { if (!h.signal.aborted) { h.timedOut = true; ctl.abort(); } }, 240000); return h; };
-  ui.manualAsk = (label, prompt) => new Promise((res, rej) => { manualRej = rej; const x = main.querySelector('#ldX'); G._askEl = main.querySelector('.ld');
-    x.innerHTML = `<div class="ld-man"><p>Модель не подключена: скопируйте промт, отправьте в свою модель и вставьте ответ.</p>
+  ui.busy = () => { G._askEl = main.querySelector('.ld'); const el = main.querySelector('.ld-st .on .ldT'), t0 = Date.now(), tm = setInterval(() => { if (el) el.textContent = Math.round((Date.now() - t0) / 1000) + ' с'; }, 1000);
+    ctl = new AbortController(); const h = {signal: ctl.signal, timedOut: false, done: () => clearInterval(tm)}; setTimeout(() => { if (!h.signal.aborted) { h.timedOut = true; ctl.abort(); } }, 240000); return h; };
+  ui.manualAsk = (label, prompt) => new Promise((res, rej) => { manualRej = rej; askN++; const x = main.querySelector('#ldX'); G._askEl = main.querySelector('.ld');
+    x.innerHTML = `<div class="ld-man"><p><b>Шаг ${askN} из ${asks}.</b> Модель не подключена: скопируйте промт, отправьте в свою модель и вставьте ответ.</p>
       <button class="pill pri" id="mCopy">Скопировать промт</button> <span class="hint">${prompt.length.toLocaleString('ru-RU')} зн.</span>
       <textarea class="ta" id="mAns" rows="5" placeholder="Ответ модели целиком"></textarea><p class="hint err" id="mErr"></p>
       <button class="pill pri wide" id="mOk">Продолжить</button></div>`;
     x.querySelector('#mCopy').onclick = async () => { await G.copy(prompt); toast('Промт скопирован'); };
     x.querySelector('#mOk').onclick = () => { const v = x.querySelector('#mAns').value; if (!G.parseJSON(v)) { x.querySelector('#mErr').textContent = 'В ответе нет JSON. Попросите модель: «верни только JSON».'; return; } x.innerHTML = ''; res(v); }; });
-  let j = null, note = '';
+  const mine = {busy: ui.busy, manualAsk: ui.manualAsk};
+  let j = null, note = '', parseErr = false;
   try { j = await G.ask('Разбор: ' + sc().name, G.parsePrompt(p)); }
-  catch (err) { if (cancelled || err.message === 'cancel') { Object.assign(ui, keep); p.blocks = []; return draft(); } note = `Модель не разобрала текст: ${err.message} Страница собрана по разметке — можно разобрать заново.`; }
-  finally { Object.assign(ui, keep); }
-  if (cancelled) { p.blocks = []; return draft(); }
-  st(2, 'done'); st(3, 'on');
+  catch (err) { if (cancelled || err.message === 'cancel') { Object.assign(ui, keep); p.blocks = []; return draft(); } parseErr = true; note = `Модель не разобрала текст: ${err.message} Страница собрана по разметке — можно собрать заново.`; }
+  if (cancelled) { Object.assign(ui, keep); p.blocks = []; return draft(); }
+  st(1, 'done'); st(2, 'on');
   const r = G.applyParse(p, j);
-  /* что чинится без модели — сразу: только порядок блоков и разметка, слова не меняются (Ф1–Ф5) */
-  const fixed = G.fixByCode(p);
-  if (j && !r.byModel) note = 'Модель разобрала плохо — страница собрана по разметке. Можно разобрать заново другой моделью.';
-  if (!r.byModel && !/^\s*\[h[12]\]/im.test(text)) note = (note ? note + ' ' : '') + 'Разметки разделов в тексте нет, поэтому без модели страница собрана почти одним блоком. Разберите заново или отметьте заголовки разделов [h2].';
+  /* что чинится без модели — сразу: только порядок блоков и разметка, слова не меняются (Ф1–Ф5); шаблоны — по семейству роли (П9) */
+  const fixed = G.fixByCode(p); G.autoPick(p);
+  st(2, 'done'); st(3, 'on');
+  /* укладка — один запрос на страницу; отмена или ошибка не теряют разбор: текст можно уложить позже из меню ИИ */
+  let fitNote = '';
+  if (!p.verbatim && !parseErr) { Object.assign(ui, mine); cancelled = false;
+    try { await G.runAdapt(p, 'fit'); }
+    catch (err) { fitNote = cancelled || err.message === 'cancel' ? 'Текст не уложен в шаблоны — уложить можно в меню ИИ.' : `Текст не уложен: ${err.message} Уложить можно в меню ИИ.`; } }
+  Object.assign(ui, keep);
+  if (j && !r.byModel) note = 'Модель разобрала плохо — страница собрана по разметке. Можно собрать заново другой моделью.';
+  if (!r.byModel && !/^\s*\[h[12]\]/im.test(text)) note = (note ? note + ' ' : '') + 'Разметки разделов в тексте нет, поэтому без модели страница собрана почти одним блоком. Соберите заново или отметьте заголовки разделов.';
   else if (pm.used.length && !note) note = 'Гриди разметил при вставке: ' + pm.used.map(k => ({'В2': 'списки без маркеров', 'В3': 'кнопки со ссылкой'})[k]).join(', ') + ' — проверьте в «Тексте».';
+  if (r.markFixes) note = (note ? note + ' ' : '') + `Модель поправила разметку в ${G.num(r.markFixes, 'строке', 'строках', 'строках')} — замечание сверху.`;
   if (fixed) note = (note ? note + ' ' : '') + `Гриди сам поправил ${G.num(fixed, 'место', 'места', 'мест')}: порядок блоков и то, что не встало в шаблон, — без изменения текста.`;
   if (r.lost) note = (note ? note + ' ' : '') + `Модель пропустила ${G.num(r.lost, 'строку', 'строки', 'строк')} — Гриди вернул их на место, к соседним строкам.`;
+  if (fitNote) note = (note ? note + ' ' : '') + fitNote;
   done(p, note);
 };
 const done = async (p, note) => {
@@ -658,7 +675,7 @@ const fmtSync = () => {
   const dock = document.getElementById('eDock'); if (dock) dock.classList.toggle('typing', on); pin();
   const cur = (A.line && A.line.isConnected) ? A.line.dataset.k : '';
   fmtEl.querySelectorAll('[data-k]').forEach(x => x.classList.toggle('on', x.dataset.k === cur));
-  const sp = fmtEl.querySelector('[data-split]'); sp.hidden = !!document.querySelector('.sh-wrap');
+  const sp = fmtEl.querySelector('[data-split]'); sp.hidden = !!document.querySelector('.sh-wrap') || !A.page || !A.page.blocks.length;
   placeFmt();
 };
 /* панель ролей — над строкой с курсором (под ней, если строка у самого верха); она часть текста и едет вместе с ним */

@@ -337,7 +337,9 @@ const URGENT = /(только сегодня|успейте|успеть|пос�
 G.checks = page => {
   const sc = G.scenario(page.scenario), out = [], add = (level, text, block, fix) => out.push({level, text, block, fix});
   const art = sc.kind === 'article';
-  if (!page.blocks.length) { add('error', 'На странице нет блоков. Разберите текст на вкладке «Текст».'); return out; }
+  if (!page.blocks.length) { add('error', 'На странице нет блоков. Соберите страницу из текста.'); return out; }
+  /* М1: модель поправила разметку автора — показываем, что именно, чтобы автор мог вернуть своё в «Тексте» */
+  const mf = page.markFixes || []; if (mf.length) add('warn', `Модель поправила разметку в ${G.num(mf.length, 'строке', 'строках', 'строках')}: ${mf.slice(0, 3).map(x => `«${G.cut(x.from, 40)}» → «${G.cut(x.to, 40)}»`).join('; ')}${mf.length > 3 ? '…' : ''}. Проверьте в «Тексте».`);
   /* ошибки — только то, что ломает гриду */
   const heroes = page.blocks.filter(b => b.role === 'hero'), ctas = page.blocks.filter(b => G.isCta(b));
   if (heroes.length > 1) add('error', `Первых экранов ${heroes.length} — на странице он один.`, heroes[1]);
@@ -418,17 +420,55 @@ G.CHECK_CATS = [['text', 'Текст и структура'], ['tpl', 'Шабл�
 (() => {
 const G = window.Gridi;
 /* выбор: лучший из админки, если подходит; иначе лучший «нужен дизайн» */
+/* тип шаблона — его семейство; у компонентов сайта — своё название */
+const COMP = {'article-text': 'Текст статьи', accordion: 'Аккордеон', table: 'Таблица', 'tf-reg': 'Форма'};
+G.typeOf = t => (t ? t.type || COMP[t.id] || '' : '');
+/* П9: семейство блока — из роли сценария (prefer/templates) и из формы текста. Форма сильнее роли:
+   время в начале всех пунктов → Шаги, имена с подписями → Люди, числа → Цифры, 2+ картинки → Галерея, цитата → Цитата */
+G.formFamily = b => { const s = G.src(b), it = s.items, bi = G.blockInfo(b), o = [];
+  if (s.table || bi.table) o.push('Таблица');
+  if (it.length && it.filter(x => /\?/.test(x.title || x.text)).length * 2 >= it.length) o.push('Аккордеон', 'Список');
+  if (it.length >= 2 && it.every(x => /^\d{1,2}[:.]\d{2}/.test(x.title || x.text))) o.push('Шаги');
+  if (it.length >= 2 && it.every(x => /\d/.test(x.title || ''))) o.push('Цифры');
+  if (s.images.length >= 2 && !it.length) o.push('Галерея');
+  if (!it.length && /^[«"„“]/.test(s.lead || '') && s.meta.length) o.push('Цитата');
+  return o; };
+G.roleFamily = (b, page) => { const role = G.roleOf(G.scenario(page.scenario), b.role), out = new Set();
+  for (const t of G.refTpls([].concat(role.prefer || [], role.templates || role.tpl || []))) if (G.typeOf(t)) out.add(G.typeOf(t));
+  return out; };
+G.familyOf = (b, page) => { const f = G.formFamily(b); return f.length ? new Set(f) : G.roleFamily(b, page); };
+/* кандидаты блока: шаблоны семейства по форме, затем по роли — если с ними достаточно поправить текст (уровни 0–2);
+   «изменить число пунктов» в семействе не берём: модель выдумывает недостающие пункты (третьего спикера, даты). Иначе все по рангу */
+const lv = x => (x ? x.tier || 0 : 9);
+G.candidates = (b, page) => { const r = G.rank(b, page);
+  for (const F of [new Set(G.formFamily(b)), G.roleFamily(b, page)]) { if (!F.size) continue;
+    const fam = r.filter(x => F.has(G.typeOf(x.t)) && lv(x) <= 2); if (fam.length) return fam; }
+  return r; };
+/* П8 внутри кандидатов: шаблон из админки, пока с ним достаточно поправить текст (уровни 0–2);
+   если в админке только «изменить число пунктов» или «изменить текст под дизайн», а без админки есть подходящий лучше, — он, с пометкой «нужен дизайн» */
+const bestOf = c => { const live = c.find(x => G.isLive(x.t)), need = c.find(x => !G.isLive(x.t));
+  return live && lv(live) <= 2 ? live : need && lv(need) < lv(live) ? need : live || need || null; };
+/* равные лучшему: тот же уровень и тот же статус «в админке» — между ними перебирает «Другой дизайн» (page.seed) */
+const peers = (c, best) => c.filter(x => lv(x) <= Math.max(1, lv(best)) && G.isLive(x.t) === G.isLive(best.t));
+/* сколько вариантов у страницы для «Другого дизайна»: блоки, где есть из чего выбрать */
+G.designChoices = page => page.blocks.filter(b => b.role !== 'unparsed' && b.role !== 'content' && !b.tplLock).reduce((n, b) => { const c = G.candidates(b, page), best = bestOf(c); return n + (best && !G.tpl(best.t.id).component && peers(c, best).length > 1 ? 1 : 0); }, 0);
 G.autoPick = (page, force) => {
-  for (const b of page.blocks) {
-    if (b.tplLock && !force && G.tpl(b.tpl)) continue;
-    const r = G.rank(b, page), live = r.find(x => G.isLive(x.t)), need = r.find(x => !G.isLive(x.t));
-    /* шаблон из админки всегда в приоритете: поменять текст дешевле, чем заказать дизайн. «Нужен дизайн» — только если в админке нет ничего */
-    /* П8: шаблон из админки, пока с ним достаточно поправить текст (уровни 0–2). Если в админке только «изменить число пунктов»
-       или «изменить текст под дизайн», а без админки есть шаблон, который подходит лучше, — он, с пометкой «нужен дизайн» */
-    const lv = x => (x ? x.tier || 0 : 9);
-    const best = live && lv(live) <= 2 ? live : need && lv(need) < lv(live) ? need : live || need || null;
-    const nt = best ? best.t.id : null;
+  const seed = page.seed || 0, uses = {}; let prev = null;
+  for (const [bi, b] of page.blocks.entries()) {
+    if (b.role === 'unparsed') continue;
+    if (b.tplLock && !force && G.tpl(b.tpl)) { uses[b.tpl] = (uses[b.tpl] || 0) + 1; prev = b.tpl; continue; }
+    const c = G.candidates(b, page), best = bestOf(c);
+    let pick = best;
+    if (best) {
+      const eq = peers(c, best), free = b.role !== 'content' && !G.tpl(best.t.id).component;
+      if (seed && free && eq.length > 1) pick = eq[(eq.indexOf(best) + seed + bi) % eq.length];
+      /* разнообразие: соседний блок в том же шаблоне или шаблон уже дважды на странице — следующий из равных, затем из кандидатов до «переписать в поля» */
+      const bad = x => x.t.id === prev || (uses[x.t.id] || 0) >= 2;
+      if (free && bad(pick)) { const alt = eq.find(x => !bad(x)) || c.find(x => !bad(x) && lv(x) <= Math.max(2, lv(best)) && G.isLive(x.t) === G.isLive(best.t)); if (alt) pick = alt; }
+    }
+    const nt = pick ? pick.t.id : null;
     if (nt !== b.tpl) { b.tpl = nt; b.values = null; }
+    if (nt) uses[nt] = (uses[nt] || 0) + 1; prev = nt;
   }
 };
 /* шаблоны, которых не хватает: ТЗ дизайнерам (служебное «Не разобрано» не считается) */

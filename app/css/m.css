@@ -554,3 +554,10 @@ a.row,label.row{color:inherit;text-decoration:none;cursor:pointer}.row.file inpu
 @media (hover:hover){.hello-b:hover b{text-decoration:underline}}
 .memo{display:grid;grid-template-columns:auto 1fr;gap:10px 14px;align-items:baseline;margin-bottom:14px}.memo code{font:13px ui-monospace,Menlo,monospace;background:var(--bg);padding:4px 8px;border-radius:8px;white-space:nowrap}.memo span{font-size:14px}
 @media (max-width:520px){.memo{grid-template-columns:1fr}.memo span{margin:-6px 0 4px}}
+/* новая страница: редактор строк вместо поля ввода; «Собрать» и галочка — внизу */
+.draft-note .draft-hint{padding:12px 0 4px}
+.draft-ed{min-height:calc(100dvh - 230px);padding-bottom:140px}
+.draft-ed.is-empty>.ln:first-child::after{content:'Вставьте или напишите текст';color:var(--mute);pointer-events:none}
+.build-bar{display:flex;flex-direction:column;gap:10px;align-items:stretch;width:100%}
+.chk{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--ink);cursor:pointer;justify-content:center}
+.chk input{width:18px;height:18px;accent-color:var(--ink);margin:0}

@@ -85,6 +85,8 @@ G.convertPage = async (page, scId) => {
    Правил про конкретные слова («Содержание», «Читайте также»…) нет: всё решается по форме, служебное встаёт в подходящий шаблон. */
 /* размеченная строка (и строка таблицы) — защищена: модель её не переделывает */
 const MARK = { test: l => G.MARKED(l) || / \| /.test(String(l)) };
+/* М1: модель не трогает только строки таблицы и кнопки со ссылкой — в них « | » */
+const LOCK = l => / \| /.test(String(l));
 G.parseLines = page => G.paras(String(page.text || '').split('\n').filter(l => !/^\s*-{3,}\s*$/.test(l)).join('\n'), G.scenario(page.scenario).maxText);
 /* блоки сборки по разметке → номера строк (сборка строки не меняет, только группирует) */
 const baseRanges = (blocks, R) => { let k = 0; return blocks.map(b => { const ids = [];
@@ -131,7 +133,7 @@ G.applyParse = (page, json) => {
   const sc = G.scenario(page.scenario), R = G.parseLines(page), n = R.length, roles = sc.roles.map(r => r.id).concat(['hero', 'cta']);
   const all = String(page.text || '').split(/\n+/).map(x => x.trim()).filter(Boolean), rest = all.slice(n).join('\n');
   const base = G.newPage('', page.scenario, R.join('\n')); G.assemble(base);
-  const owner = new Array(n + 1).fill(-1), out = [];
+  const owner = new Array(n + 1).fill(-1), out = [], fixes = [];
   for (const x of (json && Array.isArray(json.blocks) ? json.blocks : [])) {
     const ids = [...new Set(nums(x.lines || x.paras, n))].filter(i => owner[i] < 0); if (!ids.length) continue;
     const k = out.length; ids.forEach(i => owner[i] = k);
@@ -147,7 +149,7 @@ G.applyParse = (page, json) => {
     const blocks = out.map(({x, ids}) => {
       ids.sort((a, b) => a - b);
       const set = k => new Set(nums(Array.isArray(x[k]) ? x[k].join(',') : x[k], n).filter(i => ids.includes(i)));
-      const T = set('title'), M = set('meta'), B = set('button'), P = set('image');
+      const T = set('title'), M = set('meta'), B = set('button'), P = set('image'), PL = set('plain');
       /* пункты: номер — пункт; диапазон «32-33» — карточка: первая строка заголовок [h3], остальные её текст */
       const I = new Set(), C = new Map();
       for (const part of (Array.isArray(x.items) ? x.items : String(x.items || '').split(/[,;]+/)).map(v => String(v).trim()).filter(Boolean)) {
@@ -155,17 +157,23 @@ G.applyParse = (page, json) => {
       /* split: {"7": "Доклады"} — строка делится на заголовок и текст пункта, если она действительно так начинается */
       const SP = new Map(); if (x.split && typeof x.split === 'object') for (const [k, v] of Object.entries(x.split)) { const i = +k, l = R[i - 1], pre = String(v || '').trim(); if (ids.includes(i) && l && pre && l.startsWith(pre) && l.length > pre.length + 1 && !MARK.test(l)) SP.set(i, pre); }
       const role = roles.includes(x.role) ? x.role : baseRole(ids[0]);
-      let heads = ids.filter(i => /^\[h[12]\]/i.test(R[i - 1])).length;
-      const text = ids.map(i => { const l = R[i - 1]; if (MARK.test(l)) return l;
-        if (B.has(i) && l.length <= 200) return '[кнопка] ' + l;
-        if (P.has(i) && l.length <= 200) return '[картинка] ' + l;
-        if (C.get(i) === 'h' && l.length <= 120) return '[h3] ' + l;
-        if (C.get(i) === 't') return l;
+      /* М1: разметка автора — подсказка. Защищены только строки с « | » (таблица, кнопка со ссылкой);
+         остальную модель может отметить по-своему — так чинится неверная разметка. Каждое изменение считается */
+      const decided = i => B.has(i) || P.has(i) || C.has(i) || T.has(i) || SP.has(i) || I.has(i) || M.has(i) || PL.has(i);
+      let heads = ids.filter(i => /^\[h[12]\]/i.test(R[i - 1]) && !decided(i)).length;
+      const text = ids.map(i => { const l = R[i - 1];
+        if (LOCK(l) || (MARK.test(l) && !decided(i))) return l;
+        const a = G.lineKind(l), raw = MARK.test(l) ? a.t : l, mark = v => { if (MARK.test(l) && v.trim() !== l.trim()) fixes.push({from: l, to: v}); return v; };
+        if (PL.has(i)) return mark(raw);
+        if (B.has(i) && raw.length <= 200) return mark('[кнопка] ' + raw);
+        if (P.has(i) && raw.length <= 200) return mark('[картинка] ' + raw);
+        if (C.get(i) === 'h' && raw.length <= 120) return mark('[h3] ' + raw);
+        if (C.get(i) === 't') return mark(raw);
         /* уровень заголовка — не по месту строки: первый заголовок блока — H2 (H1 у первого экрана), следующие — H3 */
-        if (T.has(i) && l.length <= 120) { const h = heads ? 'h3' : role === 'hero' ? 'h1' : 'h2'; heads++; return `[${h}] ${l}`; }
-        if (SP.has(i)) { const pre = SP.get(i); return '- ' + pre + ' — ' + l.slice(pre.length).replace(/^[\s—–:.-]+/, ''); }
-        if (I.has(i) && l.length <= 300) return '- ' + l;
-        if (M.has(i) && l.length <= 120) return '@ ' + l;
+        if (T.has(i) && raw.length <= 120) { const h = heads ? 'h3' : role === 'hero' ? 'h1' : 'h2'; heads++; return mark(`[${h}] ${raw}`); }
+        if (SP.has(i)) { const pre = SP.get(i); return mark('- ' + pre + ' — ' + raw.slice(pre.length).replace(/^[\s—–:.-]+/, '')); }
+        if (I.has(i) && raw.length <= 300) return mark('- ' + raw);
+        if (M.has(i) && raw.length <= 120) return mark('@ ' + raw);
         return l; }).join('\n');
       const tx = text;
       const b = G.newBlock(role, tx); const tip = String(x.tip || '').trim(); if (tip) b.tips = [tip.slice(0, 240)];
@@ -175,11 +183,12 @@ G.applyParse = (page, json) => {
     for (let i = blocks.length - 1; i > 0; i--) if (blocks[i].role === 'hero' && blocks[i - 1].role === 'hero') { blocks[i - 1].text += '\n' + blocks[i].text.split('\n').map(l => MARK.test(l) || l.length > 80 ? l : '@ ' + l).join('\n'); blocks[i - 1].tips = [...(blocks[i - 1].tips || []), ...(blocks[i].tips || [])]; blocks.splice(i, 1); }
     page.blocks = blocks; page.story = (json.story || []).filter(Boolean).map(String); page.parsedBy = 'model';
   }
+  page.markFixes = page.parsedBy === 'model' ? fixes : [];
   /* текст длиннее лимита разбора — хвост по разметке */
   if (rest) { const tail = G.newPage('', page.scenario, rest); G.assemble(tail); page.blocks.push(...tail.blocks); }
   page.blocks.forEach(b => { const s0 = G.src(b); if (s0.table && !s0.items.length && !b.tplLock && b.role !== 'unparsed') { b.tpl = 'table'; b.tplLock = true; } });
   G.autoPick(page);
-  return {total: n, lost: page.parsedBy === 'model' ? lost.length : 0, byModel: page.parsedBy === 'model'};
+  return {total: n, lost: page.parsedBy === 'model' ? lost.length : 0, byModel: page.parsedBy === 'model', markFixes: page.markFixes.length};
 };
 
 /* ---------- сборка по разметке, без модели ---------- */
