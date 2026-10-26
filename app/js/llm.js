@@ -408,9 +408,11 @@ G.runFix = async page => {
 /* ---------- переписать текст по запросу автора (режим «Текст») ----------
    Модель получает разметку блоков и возвращает её же. Строки с « | » (кнопки со ссылкой, таблицы) — неприкосновенны:
    пропала такая строка — она возвращается на своё место по порядку. «Не разобрано» не отправляется. */
-G.rewritePrompt = (page, ids, req) => { const sc = G.scenario(page.scenario), P = G.prompt('rewrite');
+/* промт по разметке (rewrite и прогоны коллег input: 'markup'): блоки целиком в разметке — работает с любым блоком, и с текстом статьи, и с формой */
+G.markupPrompt = (page, promptId, ids, vals = {}) => { const sc = G.scenario(page.scenario), P = G.prompt(promptId);
   const list = page.blocks.filter(b => (!ids || ids.includes(b.id)) && b.role !== 'unparsed' && b.text.trim());
-  return {list, text: G.fill(P.text, {'запрос': String(req || '').trim(), 'тип': sc.name, 'действие': sc.action || 'нет', 'блоки': list.map(b => `### id: ${b.id} (${G.roleOf(sc, b.role).name.split(':')[0]})\n${b.text}`).join('\n\n')})}; };
+  return {list, text: G.fill(P.text, {...vals, 'тип': sc.name, 'действие': sc.action || 'нет', 'блоки': list.map(b => `### id: ${b.id} (${G.roleOf(sc, b.role).name.split(':')[0]})\n${b.text}`).join('\n\n')})}; };
+G.rewritePrompt = (page, ids, req) => G.markupPrompt(page, 'rewrite', ids, {'запрос': String(req || '').trim()});
 G.applyRewrite = (page, json, list) => { let n = 0, kept = 0;
   const got = json && Array.isArray(json.blocks) ? json.blocks : Array.isArray(json) ? json : [];
   /* блок — по id; по порядку — только если модель не вернула ни одного верного id, а блоков столько же */
@@ -427,9 +429,10 @@ G.applyRewrite = (page, json, list) => { let n = 0, kept = 0;
     const t = lines.join('\n').replace(/\n{3,}/g, '\n\n').trim(); if (t === b.text.trim()) continue;
     b.orig = b.orig || b.text; b.text = t; b.values = null; b.valuesBy = 'rewrite'; n++; }
   return {n, kept}; };
-G.runRewrite = async (page, ids, req) => { const {list, text} = G.rewritePrompt(page, ids, req);
-  if (!list.length) { G.ui.toast('Переписывать нечего: в блоках нет текста.'); return {n: 0, kept: 0}; }
-  const json = await G.ask('Переписать текст', text); return G.applyRewrite(page, json, list); };
+G.runMarkup = async (page, promptId, ids, vals = {}) => { const {list, text} = G.markupPrompt(page, promptId, ids, vals);
+  if (!list.length) { G.ui.toast('Нечего менять: в блоках нет текста.'); return {n: 0, kept: 0}; }
+  const json = await G.ask(G.prompt(promptId).name, text); return G.applyRewrite(page, json, list); };
+G.runRewrite = (page, ids, req) => G.runMarkup(page, 'rewrite', ids, {'запрос': String(req || '').trim()});
 G.runAdapt = async (page, promptId, blockIds, askVals = {}) => {
   const p = G.prompt(promptId);
   /* укладка всей страницы — только блоки, где текст не подходит шаблону; свои промты и один блок — как выбрано */

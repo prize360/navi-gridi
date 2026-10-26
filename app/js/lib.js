@@ -194,12 +194,12 @@ EDIT.icons = (box, o) => {
 /* ---------- свой промт ---------- */
 EDIT.prompts = (box, o) => {
   const isNew = !o;
-  o = o || {id: '', name: 'Новый промт', stage: 'adapt', input: 'fields', description: '', ask: [], text: 'Ты — редактор. Задача: …\nПравила:\n- Смысл, факты, цифры, имена и даты не меняй.\n- Лимит знаков каждого поля не превышай.\nТип страницы: {{тип}}.\nВерни ТОЛЬКО JSON одним блоком кода ```json: {"blocks":[{"id":"","top":{"<ключ>":""},"items":[{"<ключ>":""}]}]}\nВерни только блоки, которые изменил.\n\n{{блоки}}'};
-  o.ask = o.ask || []; o.input = 'fields'; o.stage = 'adapt';
+  o = o || {id: '', name: 'Новый промт', stage: 'adapt', input: 'markup', description: '', ask: [], text: 'ЗАДАЧА\nТы — редактор. Задача: …\nТип страницы: {{тип}}.\n\nТЕКСТ\nСмысл, факты, цифры, имена, даты и ссылки не меняй. Строки с « | » оставь как есть. Разметку и порядок строк сохраняй.\n\nОТВЕТ\nТолько JSON без пояснений:\n{"blocks":[{"id":"","text":""}]}\n- id — как во входе. text — весь текст блока в разметке, строки через \\\\n. Верни только блоки, которые изменил.\n\nДАННЫЕ\n{{блоки}}'};
+  o.ask = o.ask || []; o.input = o.input || 'fields'; o.stage = 'adapt';
   const draw = () => {
     const vars = ['тип', 'действие', 'блоки', ...o.ask.map(a => a.k)];
     box.innerHTML = `<div class="edit">${editHead('prompts', o, isNew, isNew ? 'Новый промт' : o.name)}
-      <div class="card"><h3>Как сделать</h3><ol class="howto"><li>Напишите задачу и что нельзя трогать.</li><li>Оставьте <code>{{блоки}}</code> — туда встанет текст из шаблонов.</li><li>Не меняйте строку с форматом ответа <code>{"blocks": …}</code>.</li></ol></div>
+      <div class="card"><h3>Как сделать</h3><ol class="howto"><li>Напишите задачу и что нельзя трогать.</li><li>Оставьте <code>{{блоки}}</code> — туда встанет текст блоков в разметке.</li><li>Не меняйте строку с форматом ответа <code>{"blocks": …}</code>.</li></ol></div>
       <div class="tpledit"><div class="edit">
       <div class="card"><div class="fld"><label class="lbl" for="pName">Название в меню</label><input class="in" id="pName" value="${e(o.name)}"></div>
         <div class="fld" style="margin:0"><label class="lbl" for="pDesc">Что делает — одной строкой</label><input class="in" id="pDesc" value="${e(o.description || '')}"></div></div>

@@ -251,8 +251,10 @@ const sure = (btn, label, run) => { if (btn.dataset.sure) return run(); btn.data
 /* вопросы промта (например, тон или тема интеграции) — шторкой */
 const askVals = pr => new Promise(res => {
   const s = sheet(`<div class="sh-h"><h2>${e(pr.name)}</h2><button class="ib" data-close aria-label="Закрыть">${I.x}</button></div>
-    <div class="sh-b">${pr.ask.map(a => `<label class="lbl" for="ask-${e(a.k)}">${e(a.label)}</label><textarea class="ta" rows="3" id="ask-${e(a.k)}" placeholder="${e(a.placeholder || '')}"></textarea>`).join('')}</div>
+    <div class="sh-b">${pr.ask.map(a => `<label class="lbl" for="ask-${e(a.k)}">${e(a.label)}</label><textarea class="ta" rows="3" id="ask-${e(a.k)}" placeholder="${e(a.placeholder || '')}"></textarea>${a.chips ? `<div class="chips rw-q">${a.chips.map(c => `<button class="chip sm" data-ac="${e(a.k)}">${e(c)}</button>`).join('')}</div>` : ''}`).join('')}</div>
     <div class="sh-f"><button class="pill pri wide" id="askOk">Запустить</button></div>`, {onClose: () => res(null)});
+  s.$$('[data-ac]').forEach(x => x.onclick = () => { const q = s.$('#ask-' + CSS.escape(x.dataset.ac)); q.value = [q.value.trim(), x.textContent.toLowerCase()].filter(Boolean).join(', '); q.focus(); });
+  setTimeout(() => { const q = s.$('textarea'); if (q) q.focus(); }, 60);
   s.$('#askOk').onclick = () => { const o = {}; pr.ask.forEach(a => o[a.k] = s.$('#ask-' + CSS.escape(a.k)).value.trim()); s.close(true); res(o); };
 });
 
@@ -367,48 +369,60 @@ const openGuide = () => { G.ls.set('guideSeen', 1); document.querySelector('.hel
 /* что Гриди понял из строки Krea app */
 const kreaNote = raw => { const a = G.parseKrea(raw); if (!a) return 'Не задан — у картинок будет только «Текст для Krea»';
   return [a.api ? `API: app ${a.id.slice(0, 8)}…, поле «${a.input}»` : a.id ? 'Нет имени поля текста — вставьте пример запроса целиком' : '', a.url ? 'ссылка для ручного режима' : ''].filter(Boolean).join(' · ') || 'Не похоже на ссылку Krea'; };
+/* настройки — пунктами: модель текста, картинки Krea, библиотека, сброс. Модель и Krea открываются своими шторками */
 const settings = () => {
-  const st = G.llmSettings(), ks = G.kreaSettings();
+  const st = G.llmSettings(), ks = G.kreaSettings(), kn = (G.lib.settings().krea || []).filter(k => G.parseKrea(k.url)).length;
   const s = sheet(`<div class="sh-h"><h2>Настройки</h2><button class="ib" data-close aria-label="Закрыть">${I.x}</button></div>
-    <div class="sh-b">
-      <p class="lbl">Модель</p>
-      <div class="seg wide" id="sMode"><button data-v="manual" class="${st.mode !== 'api' ? 'on' : ''}">Вручную</button><button data-v="api" class="${st.mode === 'api' ? 'on' : ''}">Свой ключ</button></div>
-      <p class="hint">Вручную — Гриди даст промт, вы отправите его в свою модель и вставите ответ.</p>
-      <div id="sApi" ${st.mode === 'api' ? '' : 'hidden'}>
-        <label class="lbl" for="sBase">Адрес API (формат OpenAI)</label><input class="in" id="sBase" value="${e(st.base)}">
-        <label class="lbl" for="sModel">Модель</label><input class="in" id="sModel" value="${e(st.model)}">
-        <label class="lbl" for="sKey">Ключ — хранится только в этом браузере</label><input class="in" id="sKey" type="password" value="${e(st.key)}" autocomplete="off">
-      </div>
-      <p class="lbl">Картинки — Krea</p>
-      <div class="seg wide" id="sKMode"><button data-v="manual" class="${ks.mode !== 'api' ? 'on' : ''}">Вручную</button><button data-v="api" class="${ks.mode === 'api' ? 'on' : ''}">Свой ключ</button></div>
-      <p class="hint">Вручную — Гриди скопирует текст для картинки и откроет app. Свой ключ — Гриди сам запустит app и положит картинку в блок.</p>
-      <div id="sKApi" ${ks.mode === 'api' ? '' : 'hidden'}><label class="lbl" for="sKKey">Ключ API Krea — хранится только в этом браузере</label><input class="in" id="sKKey" type="password" value="${e(ks.key)}" autocomplete="off"></div>
-      ${(G.lib.settings().krea || []).map(k => `<label class="lbl" for="sK${e(k.size)}">${e(k.name)} · ${e(k.size)}</label><textarea class="ta krea-in" id="sK${e(k.size)}" data-kr="${e(k.size)}" rows="2" placeholder="Ссылка на app или пример запроса со страницы API app">${e(k.url || '')}</textarea><p class="hint krea-st" data-krs="${e(k.size)}"></p>`).join('')}
-      <p class="lbl">Ещё</p>
-      <div class="list">
+    <div class="sh-b"><div class="list">
+        <button class="row ic" id="sModelR">${I.ai}<span><b>Модель текста</b><small>${st.mode === 'api' && st.key ? 'Свой ключ · ' + e(st.model || 'модель не указана') : 'Вручную — промт копируется в свою модель'}</small></span></button>
+        <button class="row ic" id="sKreaR">${I.img}<span><b>Картинки — Krea</b><small>${ks.mode === 'api' && ks.key ? 'Свой ключ' : 'Вручную'} · ${kn ? G.num(kn, 'app задан', 'app задано', 'app задано') : 'app не заданы'}</small></span></button>
         <a class="row ic" href="#/lib/templates">${I.grid}<span><b>Библиотека</b><small>Шаблоны, сценарии, промты и иконки</small></span></a>
         <label class="row ic file">${I.plus}<span><b>Страница от коллеги</b><small>Архив или page.json. Текст из чата — просто вставьте в новую страницу</small></span><input type="file" id="sImp" accept=".zip,.json,application/zip,application/json"></label>
         <button class="row ic" id="sPilot">${I.out}<span><b>Итоги пилота</b><small>Архив для меня: правки библиотеки, недостающие шаблоны, запуски модели — без текстов страниц</small></span></button>
         <button class="row ic" id="sGuide">${I.note}<span><b>Как работает Гриди</b><small>Коротко обо всём</small></span></button>
-        <button class="row ic" id="sMemo">${I.note}<span><b>Как размечать текст</b><small>Не обязательно: неверную разметку поправит модель</small></span></button>
+        <button class="row ic" id="sMemo">${I.note}<span><b>Как писать текст</b><small>Заголовки, пункты, кнопки — минута</small></span></button>
         <a class="row ic" href="navi.html" target="_blank" rel="noopener">${I.eye}<span><b>Нави ↗</b><small>Гайд и прототип навигации — в новой вкладке</small></span></a>
-      </div>
-    </div>
-    <div class="sh-f"><button class="pill pri wide" id="sOk">Сохранить</button></div>`, {cls: 'tall'});
-  let mode = st.mode === 'api' ? 'api' : 'manual';
-  s.$$('#sMode button').forEach(b => b.onclick = () => { mode = b.dataset.v; s.$$('#sMode button').forEach(x => x.classList.toggle('on', x === b)); s.$('#sApi').hidden = mode !== 'api'; });
-  let kmode = ks.mode;
-  s.$$('#sKMode button').forEach(b => b.onclick = () => { kmode = b.dataset.v; s.$$('#sKMode button').forEach(x => x.classList.toggle('on', x === b)); s.$('#sKApi').hidden = kmode !== 'api'; });
-  s.$$('[data-kr]').forEach(x => { const st0 = s.$(`[data-krs="${x.dataset.kr}"]`), upd = () => { st0.textContent = kreaNote(x.value); }; upd(); x.oninput = upd; });
-  s.$('#sOk').onclick = () => { G.ls.set('llm', {mode, base: s.$('#sBase').value.trim(), model: s.$('#sModel').value.trim(), key: s.$('#sKey').value.trim()}); G._modelOkAt = 0;
-    G.ls.set('krea', {mode: kmode, key: s.$('#sKKey').value.trim()});
-    const urls = {}; s.$$('[data-kr]').forEach(x => { if (x.value.trim()) urls[x.dataset.kr] = x.value.trim(); }); G.ls.set('settings', {...G.ls.get('settings', {}), kreaUrls: urls});
-    s.close(); toast('Сохранено'); };
+        <button class="row ic danger" id="sReset">${I.trash}<span><b>Сбросить данные в этом браузере</b><small>Страницы, ключи, правки библиотеки — всё, что Гриди хранит здесь</small></span></button>
+      </div></div>`, {cls: 'tall'});
+  s.$('#sModelR').onclick = () => { s.close(true); modelSheet(); };
+  s.$('#sKreaR').onclick = () => { s.close(true); kreaSheet(); };
   s.$('#sPilot').onclick = async () => { try { await G.pilotExport(false); toast('Архив итогов скачан'); } catch (err) { toast(err.message); } };
   s.$('#sGuide').onclick = () => { s.close(true); openGuide(); };
   s.$('#sMemo').onclick = () => { s.close(true); memo(); };
+  s.$('#sReset').onclick = () => { s.close(true); resetSheet(); };
   s.$('#sImp').onchange = async ev => { try { await G.importProject(ev.target.files[0]); s.close(); toast('Страница добавлена'); home(); } catch (err) { toast(err.message); } };
 };
+const back2set = s => { s.close(true); settings(); };
+const modelSheet = () => { const st = G.llmSettings(); let mode = st.mode === 'api' ? 'api' : 'manual';
+  const s = sheet(`<div class="sh-h"><div><h2>Модель текста</h2><p class="sub">Разбор, укладка и свои запросы</p></div><button class="ib" data-close aria-label="Закрыть">${I.x}</button></div>
+    <div class="sh-b"><div class="seg wide" id="sMode"><button data-v="manual" class="${mode !== 'api' ? 'on' : ''}">Вручную</button><button data-v="api" class="${mode === 'api' ? 'on' : ''}">Свой ключ</button></div>
+      <p class="hint">Вручную — Гриди даст промт, вы отправите его в свою модель и вставите ответ.</p>
+      <div id="sApi" ${mode === 'api' ? '' : 'hidden'}>
+        <label class="lbl" for="sBase">Адрес API (формат OpenAI)</label><input class="in" id="sBase" value="${e(st.base)}">
+        <label class="lbl" for="sModel">Модель</label><input class="in" id="sModel" value="${e(st.model)}">
+        <label class="lbl" for="sKey">Ключ — хранится только в этом браузере</label><input class="in" id="sKey" type="password" value="${e(st.key)}" autocomplete="off"></div></div>
+    <div class="sh-f"><button class="pill pri wide" id="sOk">Сохранить</button></div>`, {cls: 'tall'});
+  s.$$('#sMode button').forEach(b => b.onclick = () => { mode = b.dataset.v; s.$$('#sMode button').forEach(x => x.classList.toggle('on', x === b)); s.$('#sApi').hidden = mode !== 'api'; });
+  s.$('#sOk').onclick = () => { G.ls.set('llm', {mode, base: s.$('#sBase').value.trim(), model: s.$('#sModel').value.trim(), key: s.$('#sKey').value.trim()}); G._modelOkAt = 0; toast('Сохранено'); back2set(s); }; };
+const kreaSheet = () => { const ks = G.kreaSettings(); let kmode = ks.mode;
+  const s = sheet(`<div class="sh-h"><div><h2>Картинки — Krea</h2><p class="sub">Вручную — Гриди скопирует текст для картинки и откроет app. Свой ключ — сам запустит app и положит картинку в блок</p></div><button class="ib" data-close aria-label="Закрыть">${I.x}</button></div>
+    <div class="sh-b"><div class="seg wide" id="sKMode"><button data-v="manual" class="${kmode !== 'api' ? 'on' : ''}">Вручную</button><button data-v="api" class="${kmode === 'api' ? 'on' : ''}">Свой ключ</button></div>
+      <div id="sKApi" ${kmode === 'api' ? '' : 'hidden'}><label class="lbl" for="sKKey">Ключ API Krea — хранится только в этом браузере</label><input class="in" id="sKKey" type="password" value="${e(ks.key)}" autocomplete="off"></div>
+      ${(G.lib.settings().krea || []).map(k => `<label class="lbl" for="sK${e(k.size)}">${e(k.name)} · ${e(k.size)}</label><textarea class="ta krea-in" id="sK${e(k.size)}" data-kr="${e(k.size)}" rows="2" placeholder="Ссылка на app или пример запроса со страницы API app">${e(k.url || '')}</textarea><p class="hint krea-st" data-krs="${e(k.size)}"></p>`).join('')}</div>
+    <div class="sh-f"><button class="pill pri wide" id="sOk">Сохранить</button></div>`, {cls: 'tall'});
+  s.$$('#sKMode button').forEach(b => b.onclick = () => { kmode = b.dataset.v; s.$$('#sKMode button').forEach(x => x.classList.toggle('on', x === b)); s.$('#sKApi').hidden = kmode !== 'api'; });
+  s.$$('[data-kr]').forEach(x => { const st0 = s.$(`[data-krs="${x.dataset.kr}"]`), upd = () => { st0.textContent = kreaNote(x.value); }; upd(); x.oninput = upd; });
+  s.$('#sOk').onclick = () => { G.ls.set('krea', {mode: kmode, key: s.$('#sKKey').value.trim()});
+    const urls = {}; s.$$('[data-kr]').forEach(x => { if (x.value.trim()) urls[x.dataset.kr] = x.value.trim(); }); G.ls.set('settings', {...G.ls.get('settings', {}), kreaUrls: urls});
+    toast('Сохранено'); back2set(s); }; };
+/* сброс: всё, что Гриди хранит в этом браузере. Перед сбросом можно скачать итоги пилота */
+const resetSheet = () => { const s = sheet(`<div class="sh-h"><div><h2>Сбросить данные?</h2><p class="sub">Удалятся страницы, ключи модели и Krea, свои шаблоны, сценарии и промты в этом браузере. Встроенная библиотека останется. Отменить нельзя</p></div><button class="ib" data-close aria-label="Закрыть">${I.x}</button></div>
+    <div class="sh-b"><div class="list"><button class="row ic" id="rPilot">${I.out}<span><b>Сначала скачать итоги пилота</b><small>Архив без текстов страниц</small></span></button></div></div>
+    <div class="sh-f"><button class="pill wide danger" id="rGo">Сбросить всё</button></div>`);
+  s.$('#rPilot').onclick = async () => { try { await G.pilotExport(false); toast('Архив итогов скачан'); } catch (err) { toast(err.message); } };
+  s.$('#rGo').onclick = async () => { try { Object.keys(localStorage).filter(k => k.startsWith(G.NS + '.')).forEach(k => localStorage.removeItem(k)); } catch (err) {}
+    try { await new Promise(res => { const r = indexedDB.deleteDatabase(G.NS); r.onsuccess = r.onerror = r.onblocked = () => res(); }); } catch (err) {}
+    location.hash = ''; location.reload(); }; };
 
 /* 2. Редактор */
 const editor = () => {
@@ -418,7 +432,7 @@ const editor = () => {
   const title = `<b>${e(p.name)}</b><small>${e(sc().name)}${(n => n ? ' · ' + (n < 1000 ? n + ' знаков' : (n / 1000).toFixed(1).replace('.0', '') + 'k знаков') : '')(G.len(p.blocks.map(x => x.text).join('')))}</small>`;
   $app.innerHTML = `<header class="hd" id="eHd"><div class="hd-edit"><div class="hfield" id="eField"></div><button class="ib round ok" id="eOk" aria-label="Готово">${I.check}</button></div>
     <button class="ib round" id="eBack" aria-label="Назад">${I.back}</button><button class="ttl" id="eTtl">${title}</button>
-      ${p.blocks.length ? `<button class="ib round" id="eAI" aria-label="ИИ" title="ИИ: пересобрать страницу, переписать текст">${I.ai}</button>` : ''}${p.blocks.length && A.mode === 'page' && G.designChoices(p) ? `<button class="ib round" id="eAlt" aria-label="Другой дизайн" title="Другой дизайн: другие шаблоны того же смысла">${I.shuffle}</button>` : ''}${p.blocks.length ? `<button class="ib round" id="ePrev" aria-label="Превью">${I.eye}</button>
+      <button class="ib round" id="eMemo" aria-label="Как писать текст" title="Как писать текст">${I.note}</button>${p.blocks.length && A.mode === 'page' && G.designChoices(p) ? `<button class="ib round" id="eAlt" aria-label="Другой дизайн" title="Другой дизайн: другие шаблоны того же смысла">${I.shuffle}</button>` : ''}${p.blocks.length ? `<button class="ib round" id="ePrev" aria-label="Превью">${I.eye}</button>
       <button class="ib round dark" id="eOut" aria-label="Выгрузка">${I.out}${miss ? `<span class="badge ${report(p).grade.level}">${miss}</span>` : ''}</button>` : `<button class="ib round" id="eTune" aria-label="Настройки страницы">${I.tune}</button>`}</header>
     <main id="eMain"></main><div class="dock" id="eDock"><div id="eDockMain"><div class="bar"><div id="eAct"></div><i class="bar-div" aria-hidden="true"></i><div id="eSw"></div></div></div></div>`;
   $app.querySelector('#eBack').onclick = () => { if (A.sel) { unselect(); return; } save(); go('home'); };
@@ -428,7 +442,7 @@ const editor = () => {
   const pv = $app.querySelector('#ePrev'); if (pv) pv.onclick = () => preview();
   /* «Другой дизайн»: следующий вариант шаблонов внутри семейства, без модели; закреплённые вручную не трогаем */
   const alt = $app.querySelector('#eAlt'); if (alt) alt.onclick = () => { p.seed = (p.seed || 0) + 1; G.autoPick(p); save(); editor(); toast('Другие шаблоны того же смысла. Текст не влезает — «Поправить» в выгрузке.'); };
-  const ai = $app.querySelector('#eAI'); if (ai) ai.onclick = () => aiSheet(null);
+  $app.querySelector('#eMemo').onclick = () => memo();
   const out = $app.querySelector('#eOut'); if (out) out.onclick = exportView;
   A.mode === 'note' ? notes() : canvas();
   island();
@@ -444,7 +458,8 @@ const island = () => {
   const p = A.page, dock = $app.querySelector('#eDockMain'); if (!dock) return;
   if (!dock.querySelector('#eSw')) dock.innerHTML = '<div class="bar"><div id="eAct"></div><i class="bar-div" aria-hidden="true"></i><div id="eSw"></div></div>';
   const sw = dock.querySelector('#eSw');
-  sw.innerHTML = `<div class="sw"><div class="seg slide ${A.mode === 'page' ? 'r' : ''}" role="tablist"><button data-m="note" aria-label="Текст" title="Текст: смысл и структура">${I.note}</button><button data-m="page" aria-label="Шаблоны" title="Шаблоны: дизайн">${I.page}</button></div></div>`;
+  sw.innerHTML = `<div class="sw"><button class="ib sw-ai" id="eAI" aria-label="ИИ" title="ИИ: пересобрать страницу, свой запрос">${I.ai}</button><div class="seg slide ${A.mode === 'page' ? 'r' : ''}" role="tablist"><button data-m="note" aria-label="Текст" title="Текст: смысл и структура">${I.note}</button><button data-m="page" aria-label="Шаблоны" title="Шаблоны: дизайн">${I.page}</button></div></div>`;
+  sw.querySelector('#eAI').onclick = ev => { ev.stopPropagation(); aiSheet(); };
   sw.querySelectorAll('[data-m]').forEach(x => x.onclick = ev => { ev.stopPropagation(); if (A.mode === x.dataset.m) return;
     sw.querySelector('.seg').classList.toggle('r', x.dataset.m === 'page');
     const keep = A.sel, top = [...$app.querySelectorAll('#eMain [data-id]')].find(el => el.getBoundingClientRect().bottom > 120);
@@ -535,9 +550,10 @@ const build = async text => {
   const pm = G.premark(text); p.text = text = pm.text;
   /* сборка — три шага: разбор (модель), шаблоны (код, по семейству роли), укладка (модель; не нужна, если текст сохраняется как есть) */
   const main = $app.querySelector('#eMain'), dock = $app.querySelector('#eDock'); dock.innerHTML = '';
-  const asks = p.verbatim ? 1 : 2; let askN = 0;
+  /* «Сохранить текст как есть» больше нет: пересборка всегда укладывает текст в шаблоны */
+  delete p.verbatim; const asks = 2; let askN = 0;
   main.innerHTML = `<div class="ld"><h2>Собираем страницу</h2><ol class="ld-st">
-      <li data-s="1" class="on">Разбираем текст на блоки <small class="ldT"></small></li><li data-s="2">Подбираем шаблоны</li><li data-s="3">${p.verbatim ? 'Текст сохраняем как есть' : 'Укладываем текст в шаблоны'} <small class="ldT"></small></li></ol>
+      <li data-s="1" class="on">Разбираем текст на блоки <small class="ldT"></small></li><li data-s="2">Подбираем шаблоны</li><li data-s="3">Укладываем текст в шаблоны <small class="ldT"></small></li></ol>
     <div id="ldX"></div><button class="pill ghost" id="ldCancel">Отменить</button></div>`;
   const st = (n, cls) => { const li = main.querySelector(`[data-s="${n}"]`); if (li) li.className = cls; };
   let ctl = new AbortController(), manualRej = null, cancelled = false;
@@ -564,7 +580,7 @@ const build = async text => {
   st(2, 'done'); st(3, 'on');
   /* укладка — один запрос на страницу; отмена или ошибка не теряют разбор: текст можно уложить позже из меню ИИ */
   let fitNote = '';
-  if (!p.verbatim && !parseErr) { Object.assign(ui, mine); cancelled = false;
+  if (!parseErr) { Object.assign(ui, mine); cancelled = false;
     try { await G.runAdapt(p, 'fit'); }
     catch (err) { fitNote = cancelled || err.message === 'cancel' ? 'Текст не уложен в шаблоны — уложить можно в меню ИИ.' : `Текст не уложен: ${err.message} Уложить можно в меню ИИ.`; } }
   Object.assign(ui, keep);
@@ -659,7 +675,8 @@ const splitPasted = ed => { const p = A.page, b = blockOf(ed); if (!b) return;
   const tmp = G.newPage('', p.scenario, b.text); G.assemble(tmp); if (tmp.blocks.length < 2) return;
   const i = p.blocks.indexOf(b); p.blocks.splice(i, 1, ...tmp.blocks);
   if (tmp.blocks.length >= 3) p.blocks = p.blocks.filter(x => !G.isEmpty(x));
-  if (!p.text) p.text = tmp.text; G.autoPick(p); save(); A.sel = null; notes();
+  if (!p.text) p.text = tmp.text; if (p.name === 'Без названия') { const h = p.blocks.find(x => x.role === 'hero'), t = h && G.src(h).title; if (t) p.name = t.slice(0, 80); }
+  G.autoPick(p); save(); A.sel = null; editor();
   toast(`Текст разделён на ${G.num(tmp.blocks.length, 'блок', 'блока', 'блоков')} по заголовкам. Точнее — «ИИ → Пересобрать страницу»`); };
 /* панель разметки над клавиатурой: вид строки и разделить блок */
 let fmtEl = null;
@@ -745,13 +762,15 @@ const sibling = (t, k) => { const c = t.ctor; if (c) { const key = o => JSON.str
   return {...t, items: {...t.items, n: k}, cols: Math.min(k, 4), _virtual: true}; };
 const rowsPlan = (b, t) => { if (!t || !t.items || !GRID.includes(t.layout)) return null; const n = G.src(b).items.length; return n > 4 ? G.rowsOf(n) : null; };
 /* один сломанный блок не должен ронять всю страницу: показываем заглушку и пишем в консоль */
-const blockHTML = (b, p, t = G.tpl(b.tpl)) => { try { return blockHTML0(b, p, t); } catch (err) { console.error('Блок не отрисовался', b, err); return `<div class="wf-page"><section class="wf wf-none"><div class="wf-empty">Блок не отрисовался: ${e(err.message)}</div></section></div>`; } };
-const blockHTML0 = (b, p, t) => {
+const blockHTML = (b, p, t = G.tpl(b.tpl), bare) => { try { return blockHTML0(b, p, t, bare); } catch (err) { console.error('Блок не отрисовался', b, err); return `<div class="wf-page"><section class="wf wf-none"><div class="wf-empty">Блок не отрисовался: ${e(err.message)}</div></section></div>`; } };
+const blockHTML0 = (b, p, t, bare) => {
   /* пустой блок — маска: пример роли в шаблоне, серым */
   if (!b.text.trim()) { const gb = G.ghostBlock(b, p), gt = t || (G.rank(gb, p)[0] || {}).t; return gt ? `<div class="wf-page wf-ghost">${G.wireBlock(gt, G.autoFill(gb, gt, p), {})}</div>` : `<div class="wf-page">${empty('Пустой блок', 'Добавьте текст — шаблон подберётся сам.')}</div>`; }
   if (!t) return `<div class="wf-page">${empty('Шаблон не подобран', 'Под такой текст шаблона нет. Измените текст или выберите шаблон вручную.')}</div>`;
   const plan = rowsPlan(b, t);
-  if (!plan) return `<div class="wf-page">${G.wireBlock(t, t && (t.id === b.tpl ? G.values(b, p) : G.autoFill(b, t, p)), G.wireImgs(b, t))}</div>`;
+  /* что не встало в поля шаблона — не пропадает: серой полосой под блоком, с «Вынести в отдельный блок» */
+  const lostHTML = v => { const L = G.leftovers(b, t, v || {}); return L.length ? `<div class="wf-lost"><b>Не встало в шаблон</b>${L.map(x => `<p>${e(x)}</p>`).join('')}<button class="pill sm" data-lost="${e(b.id)}">Вынести в отдельный блок</button></div>` : ''; };
+  if (!plan) { const v = t && (t.id === b.tpl ? G.values(b, p) : G.autoFill(b, t, p)); return `<div class="wf-page">${G.wireBlock(t, v, G.wireImgs(b, t))}</div>${!bare && t.id === b.tpl ? lostHTML(v) : ''}`; }
   const all = G.autoFill(b, {...t, items: {...t.items, n: G.src(b).items.length}}, p), imgs = G.wireImgs(b, t); let at = 0;
   return plan.map((k, i) => { const tt = sibling(t, k), v = {...all, top: i ? {} : all.top, head: i ? undefined : all.head, items: all.items.slice(at, at + k)};
     const im = {}; for (let j = 0; j < k; j++) if (imgs['i' + (at + j)]) im['i' + j] = imgs['i' + (at + j)]; if (!i && imgs.main) im.main = imgs.main; at += k;
@@ -765,8 +784,9 @@ const canvas = () => {
   main.querySelectorAll('.cb').forEach(x => x.onclick = ev => { ev.stopPropagation(); if (A.sel) { unselect(); return; } select(x.dataset.id); });
   /* клик мимо блока снимает выбор */
   main.onclick = ev => { if (A.sel && !ev.target.closest('.cb,.add,.sel-float')) unselect(); };
-  bindAdd(main); bindTips(main);
+  bindAdd(main); bindTips(main); bindLost(main);
 };
+const bindLost = root => root.querySelectorAll('[data-lost]').forEach(x => x.onclick = ev => { ev.stopPropagation(); const n0 = A.page.blocks.length; G.fixByCode(A.page); G.autoPick(A.page); save(); editor(); toast(A.page.blocks.length > n0 ? 'Текст вынесен в отдельный блок' : 'Не получилось вынести — поправьте текст или выберите другой шаблон'); });
 let cat = null;
 const BK = () => A.mode === 'note' ? '.nb' : '.cb';
 const select = id => { A.sel = id; document.body.classList.add('picking');
@@ -789,7 +809,7 @@ const placeSel = () => { if (!selEl || !selEl.isConnected || !A.sel) return; con
 const unselect = () => { A.sel = null; if (selEl) { selEl.remove(); selEl = null; } document.body.classList.remove('picking'); const ea = $app.querySelector('#eAct'); if (ea) ea.innerHTML = ''; $app.querySelectorAll('.cb.sel,.nb.sel').forEach(x => x.classList.remove('sel')); if (cat) { const h = cat; cat = null; h.close(true); } if (A.view === 'edit' && A.page && A.page.blocks.length) island(); };
 const redrawBlock = b => { if (A.mode === 'note') { const id = A.sel; notes(); if (id) select(id); const bd = $app.querySelector('#eOut .badge'), r = report(A.page); if (bd) { bd.textContent = r.count; bd.hidden = !r.count; bd.className = 'badge ' + r.grade.level; } return; } const el = $app.querySelector(`.cb[data-id="${b.id}"]`); if (!el) return; const r = report(A.page);
   el.innerHTML = bn(b, A.page.blocks.indexOf(b)) + blockHTML(b, A.page); el.classList.toggle('warn', !!r.byBlock[b.id]);
-  const nx = el.nextElementSibling; if (nx && nx.classList.contains('tips')) nx.remove(); el.insertAdjacentHTML('afterend', tipPlate(b, A.page)); bindTips(el.parentElement);
+  const nx = el.nextElementSibling; if (nx && nx.classList.contains('tips')) nx.remove(); el.insertAdjacentHTML('afterend', tipPlate(b, A.page)); bindTips(el.parentElement); bindLost(el);
   const bd = $app.querySelector('#eOut .badge'); if (bd) { bd.textContent = r.count; bd.hidden = !r.count; bd.className = 'badge ' + r.grade.level; }
   if (A.sel === b.id) selBar(); };
 
@@ -827,8 +847,7 @@ const selBar = () => {
   const p = A.page, b = p.blocks.find(x => x.id === A.sel), dock = $app.querySelector('#eAct'); if (!b || !dock) return;
   document.body.classList.add('has-sel');
   const i = p.blocks.indexOf(b), slots = G.imageSlots(b, p), icons = iconSlots(b), T = A.mode === 'note', hot = G.fixNotes(b, p).length;
-  const acts = [['ai', sd('Ai', I.ai), 'Улучшить с ИИ', false, hot ? 'hot' : ''],
-    ...(T ? [['role', I.tag, 'Роль']] : [['cat', sd('CardstackHoriz', I.grid), 'Шаблон'], ...(slots.length ? [['img', I.img, 'Картинки']] : icons.length ? [['img', sd('StarCircle', I.icons), 'Иконки']] : [])]),
+  const acts = [...(T ? [['role', I.tag, 'Роль']] : [['cat', sd('CardstackHoriz', I.grid), 'Шаблон'], ...(slots.length ? [['img', I.img, 'Картинки']] : icons.length ? [['img', sd('StarCircle', I.icons), 'Иконки']] : [])]),
     ['up', I.up, 'Выше', !i], ['down', I.down, 'Ниже', i >= p.blocks.length - 1], ['more', I.dots, 'Ещё']];
   dock.innerHTML = `<div class="bacts" role="toolbar" aria-label="Блок ${i + 1}">${acts.map(([k, ic, n, dis, cls]) => `<button data-a="${k}" aria-label="${n}" title="${n}" class="${cls || ''}" ${dis ? 'disabled' : ''}>${ic}</button>`).join('')}</div>`;
   dock.onclick = ev => { const a = ev.target.closest('[data-a]'); if (!a) return; ev.stopPropagation();
@@ -845,48 +864,37 @@ const selBar = () => {
   };
 };
 /* ИИ: список улучшений блока — системные и свои промты; у каждого — что он сделает */
-/* ИИ — одно окно. Вся страница: пересобрать (разбор и укладка, как при сборке), свой запрос, готовые улучшения.
-   Блок (из панели блока): свой запрос и улучшения этого блока. Охват переключается вверху */
-const REW = ['Короче', 'Проще', 'На «вы»', 'Без канцелярита', 'Живее', 'Убрать повторы'];
-const aiSheet = b0 => {
-  const p = A.page; let b = b0 || null; const selB = b0 || (A.sel && p.blocks.find(x => x.id === A.sel)) || null;
-  const run = f => { s.close(true); Promise.resolve().then(f).catch(err => { console.error(err); if (err.message !== 'cancel') toast('Не получилось: ' + err.message); }); };
-  const blockList = x => { const fixN = G.fixNotes(x, p).length, emptyB = G.isEmpty(x);
-    return [...(fixN ? [['fix', `Поправить ошибки · ${fixN}`, 'Замечания проверки по этому блоку: лимиты, кнопки, пустые поля', 'hot']] : []),
-      ...(!emptyB && G.adaptable(x, G.prompt('fit'), p) ? [['fit', 'Уложить в шаблон', 'Сократит и разложит текст по полям выбранного шаблона']] : []),
-      ['write', 'Придумать текст', emptyB ? 'Заполнит блок по смыслу остальной страницы' : 'Напишет текст блока заново по шаблону и смыслу страницы'],
-      ...G.lib.all('prompts').filter(y => y.stage === 'adapt' && !y.system).map(y => [y.id, y.name, y.description || ''])]; };
-  const pageList = () => { const fixN = p.blocks.reduce((n, x) => n + G.fixNotes(x, p).length, 0);
-    return [['fit', 'Уложить весь текст в шаблоны', 'Сократит и разложит текст блоков, которые не влезают'],
-      ...(fixN ? [['fix', `Поправить ошибки · ${fixN}`, 'Лимиты, кнопки и разметка по замечаниям проверки', 'hot']] : []),
-      ...G.lib.all('prompts').filter(y => y.stage === 'adapt' && !y.system).map(y => [y.id, y.name, y.description || ''])]; };
+/* ИИ — одно окно из переключателя. Мало действий: пересобрать страницу, свой запрос, уложить в шаблоны, свои промты.
+   Если блок выделен — сверху выбор: вся страница или этот блок. Данные для запроса спрашиваются при запуске */
+const aiSheet = () => {
+  const p = A.page, selB = (A.sel && p.blocks.find(x => x.id === A.sel)) || null; let b = selB;
+  const own = G.lib.all('prompts').filter(y => y.stage === 'adapt' && !y.system).map(y => [y.id, y.name, y.description || '']);
+  const list = () => b ? [['rewrite', 'Свой запрос', 'Напишите, что сделать с текстом блока: короче, проще, другой тон…'],
+      ...(!G.isEmpty(b) && G.adaptable(b, G.prompt('fit'), p) ? [['fit', 'Уложить в шаблон', 'Сократит и разложит текст по полям шаблона']] : []),
+      ['write', 'Придумать текст', G.isEmpty(b) ? 'Напишет текст блока по смыслу остальной страницы' : 'Напишет текст блока заново по смыслу страницы'], ...own]
+    : [['rebuild', 'Пересобрать страницу', 'Модель заново разделит весь текст на блоки, подберёт шаблоны и уложит текст — порядок и шаблоны могут поменяться', 'hot'],
+      ['rewrite', 'Свой запрос', 'Напишите, что сделать с текстом страницы: короче, проще, другой тон…'],
+      ['fit', 'Уложить в шаблоны', 'Сократит и разложит текст блоков, которые не влезают'], ...own];
   const s = sheet('', {cls: 'tall'});
-  const draw = () => { const L = b ? blockList(b) : pageList();
-    s.set(`<div class="sh-h"><div><h2>ИИ</h2><p class="sub">${b ? `${p.blocks.indexOf(b) + 1}. ${e(roleName(b))}` : 'Вся страница'}</p></div><button class="ib" data-close aria-label="Закрыть">${I.x}</button></div>
+  const draw = () => { s.set(`<div class="sh-h"><div><h2>ИИ</h2><p class="sub">${b ? `${p.blocks.indexOf(b) + 1}. ${e(roleName(b))}` : 'Вся страница'}</p></div><button class="ib" data-close aria-label="Закрыть">${I.x}</button></div>
     <div class="sh-b">${selB ? `<div class="seg wide" id="aiSc"><button data-v="page" class="${b ? '' : 'on'}">Вся страница</button><button data-v="block" class="${b ? 'on' : ''}">${p.blocks.indexOf(selB) + 1}. ${e(roleName(selB))}</button></div>` : ''}
-      ${b ? '' : `<div class="list"><button class="row hot" id="aiRe"><b>Пересобрать страницу</b><small>Модель заново разделит текст на блоки и уложит его в шаблоны — как при сборке</small></button></div>
-        <label class="chk ai-keep"><input type="checkbox" id="aiKeep" ${p.verbatim ? 'checked' : ''}><span>Сохранить текст как есть — без укладки в шаблоны</span></label>`}
-      <p class="lbl">Свой запрос</p><textarea class="ta" rows="2" id="rwQ" placeholder="${e(G.prompt('rewrite').ask[0].placeholder)}"></textarea>
-      <div class="chips rw-q">${REW.map(x => `<button class="chip sm" data-q="${e(x)}">${e(x)}</button>`).join('')}</div>
-      <button class="pill pri wide" id="rwGo">Переписать</button>
-      <p class="lbl">Готовые</p><div class="list">${L.map(([id, n, d, cls]) => `<button class="row ${cls || ''}" data-p="${e(id)}"><b>${e(n)}</b>${d ? `<small>${e(d)}</small>` : ''}</button>`).join('')}</div>
+      <div class="list">${list().map(([id, n, d, cls]) => `<button class="row ${cls || ''}" data-p="${e(id)}"><b>${e(n)}</b>${d ? `<small>${e(d)}</small>` : ''}</button>`).join('')}</div>
       <p class="hint">Свои промты — в библиотеке, раздел «Промты».</p></div>`);
-    const q = s.$('#rwQ');
     s.$$('#aiSc button').forEach(x => x.onclick = () => { b = x.dataset.v === 'block' ? selB : null; draw(); });
-    s.$$('[data-q]').forEach(x => x.onclick = () => { q.value = [q.value.trim(), x.dataset.q.toLowerCase()].filter(Boolean).join(', '); q.focus(); });
-    const kp = s.$('#aiKeep'); if (kp) kp.onchange = () => { p.verbatim = kp.checked; save(); };
-    const re = s.$('#aiRe'); if (re) re.onclick = () => run(() => build(p.blocks.map(x => x.text).filter(t => t.trim()).join('\n')));
-    s.$('#rwGo').onclick = () => { const req = q.value.trim(); if (!req) { q.focus(); return toast('Напишите, что сделать с текстом'); }
-      run(async () => { const r = await G.runRewrite(p, b ? [b.id] : null, req);
-        p.blocks.forEach(x => { if (x.valuesBy === 'rewrite') { repick(x); x.valuesBy = null; } }); save(); editor();
-        toast(r.n ? `Переписано ${G.num(r.n, 'блок', 'блока', 'блоков')}${r.kept ? ` · ${G.num(r.kept, 'кнопку или строку таблицы', 'кнопки или строки таблицы', 'кнопок или строк таблицы')} Гриди вернул как было` : ''}` : 'Модель ничего не изменила'); }); };
-    s.$$('[data-p]').forEach(x => x.onclick = () => { const id = x.dataset.p;
-      if (b) return run(() => runPrompt(b, id));
-      run(async () => { let n = 0;
-        if (id === 'fix') { const res = await G.runFix(p); n = res.byCode + res.byModel; }
-        else { const P = G.prompt(id); let vals = {}; if (P.ask && P.ask.length) { vals = await askVals(P); if (!vals) return; } n = await G.runAdapt(p, id, null, vals); }
-        G.autoPick(p); save(); editor(); toast(n ? `«${x.querySelector('b').textContent}»: обновлено ${G.num(n, 'блок', 'блока', 'блоков')}` : 'Модель ничего не изменила'); }); }); };
-  draw(); setTimeout(() => { const q = s.$('#rwQ'); if (q && b) q.focus(); }, 50); };
+    s.$$('[data-p]').forEach(x => x.onclick = () => { const id = x.dataset.p; s.close(true);
+      aiRun(b, id).catch(err => { console.error(err); if (err.message !== 'cancel') toast('Не получилось: ' + err.message); }); }); };
+  draw(); };
+/* запуск одного действия ИИ: свой запрос и промты по разметке — для любого блока; поля шаблона — только fit и write */
+const aiRun = async (b, id) => { const p = A.page, P = G.prompt(id);
+  if (id === 'rebuild') return build(p.blocks.map(x => x.text).filter(t => t.trim()).join('\n'));
+  if (b && (id === 'fit' || id === 'write' || P.input === 'fields')) return runPrompt(b, id);
+  let vals = {}; if (P && P.ask && P.ask.length) { vals = await askVals(P); if (!vals) return; }
+  if (id === 'rewrite' || P.input === 'markup') {
+    const r = await G.runMarkup(p, id, b ? [b.id] : null, vals);
+    p.blocks.forEach(x => { if (x.valuesBy === 'rewrite') { repick(x); x.valuesBy = null; } }); save(); editor();
+    return toast(r.n ? `«${P.name}»: изменено ${G.num(r.n, 'блок', 'блока', 'блоков')}${r.kept ? ` · ${G.num(r.kept, 'кнопку или строку таблицы', 'кнопки или строки таблицы', 'кнопок или строк таблицы')} Гриди вернул как было` : ''}` : `«${P.name}»: модель ничего не изменила`); }
+  const n = await G.runAdapt(p, id, null, vals); G.autoPick(p); save(); editor();
+  toast(n ? `«${P.name}»: обновлено ${G.num(n, 'блок', 'блока', 'блоков')}` : `«${P.name}»: модель ничего не изменила`); };
 /* роль блока в режиме текста: что это за часть страницы — от неё зависят подходящие шаблоны */
 /* роли для выбора: сначала роли сценария, потом общие роли того же вида страницы */
 const roleList = () => G.allRoles ? G.allRoles(sc()) : (sc().roles || []);
@@ -911,7 +919,7 @@ const catalog = () => {
   /* карточка: превью, название и одна метка; параметры шаблона и что поменять — во всплывающей подсказке */
   const card = r => { const l = tplLabel(r.t), w = why(r), tier = r.tier || 0, bad = tier >= 2, live = G.isLive(r.t);
     const tag = !live ? 'Нужен дизайн' : G.TIERS[tier], tip = [l.name, l.sub, tier ? G.TIERS[tier] + (w ? ': ' + w : '') : '', !live ? 'шаблона нет в админке' : ''].filter(Boolean).join(' · ');
-    return `<button class="tc ${r.t.id === b.tpl ? 'on' : ''} ${bad ? 'dim' : ''}" data-t="${e(r.t.id)}" title="${e(tip)}"><div class="tc-pv">${blockHTML(b, p, r.t)}${r.t.id === b.tpl ? `<i class="tc-ok">${I.check}</i>` : ''}</div>
+    return `<button class="tc ${r.t.id === b.tpl ? 'on' : ''} ${bad ? 'dim' : ''}" data-t="${e(r.t.id)}" title="${e(tip)}"><div class="tc-pv">${blockHTML(b, p, r.t, true)}${r.t.id === b.tpl ? `<i class="tc-ok">${I.check}</i>` : ''}</div>
       <span class="tc-n">${e(l.name)}</span><span class="tc-v ${bad || !live ? 'bad' : ''} ${!tier && live ? 'ok' : ''}">${e(tag)}</span></button>`; };
   const list = () => tab === 'fit' ? ranked.filter(r => (r.tier || 0) <= 1) : ranked.filter(r => tplLabel(r.t).type === tab);
   const draw = () => { const L = list();
