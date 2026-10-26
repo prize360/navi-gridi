@@ -81,7 +81,8 @@ G.leftovers = (b, t, v) => {
   const out = [];
   if (s.title && !has(s.title)) out.push(s.title);
   s.meta.forEach(m => { if (!has(m) && !m.split(/\s*[,—–]\s*/).every(has)) out.push(m); });
-  s.paras.forEach(p => { if (!has(p)) out.push(p); });
+  /* абзац мог разойтись по двум полям: «Имя, должность» — в имя и должность цитаты */
+  s.paras.forEach(p => { if (!has(p) && !p.split(/\s*[,—–]\s*/).every(has)) out.push(p); });
   /* пункт мог разойтись по слотам через « — »: должность и тема, тема и описание шага */
   s.items.forEach(i => [i.title, i.text, i.meta, i.cta].forEach(x => { if (x && !has(x) && !String(x).split(/\n|\s+—\s+/).every(has)) out.push(x); }));
   s.cta.forEach(c => { if (!has(c)) out.push(c); });
@@ -122,6 +123,8 @@ G.itemParts = it => { it = it || {};
     if (!text && / — /.test(title)) { const k = title.indexOf(' — '); text = title.slice(k + 3).trim(); title = title.slice(0, k).trim(); }
     return {mark: it.title, title, text, meta: '', cta: it.cta || '', markUsed: true}; }
   return {mark: '', title: it.title || '', text: it.text || '', meta: it.meta || '', cta: it.cta || ''}; };
+/* автор цитаты без подписи «@»: короткая последняя строка без точки, перед ней — текст */
+G.quoteWho = s => { const P = s.paras || []; const w = P[P.length - 1]; return P.length >= 2 && w && G.len(w) <= 90 && !/[.!?…]$/.test(w.trim()) ? w : ''; };
 const hasMarkF = t => !!(t && t.items && t.items.fields.some(f => f.role === 'mark'));
 G.score = (b, t, page) => {
   const bi = G.blockInfo(b), ti = G.tplInfo(t), s = G.src(b), why = [], bad = [];
@@ -208,7 +211,8 @@ G.score = (b, t, page) => {
   /* шаги с меткой — для шагов: в пунктах есть метки или блок по роли — шаги («Как попасть», «Программа»); иначе преимущества стали бы шагами */
   if (hasMarkF(t) && bi.n && !s.items.some(i => G.isMark(i.title)) && !G.roleFamily(b, page).has('Шаги')) badk('design', 'это не шаги');
   if (t.layout === 'people' && !(bi.iMeta || s.items.every(i => /^[А-ЯЁA-Z][а-яёa-z]+ [А-ЯЁA-Z][а-яёa-z]+/.test(i.title)))) badk('design', 'в пунктах нет людей');
-  if (ti.meta.some(f => f.role === 'qname') && !(bi.meta && bi.lead && !bi.n)) badk('design', 'это не цитата');
+  /* цитата: текст и автор — подписью или короткой последней строкой («Имя Фамилия, должность») */
+  if (ti.meta.some(f => f.role === 'qname') && !((bi.meta || G.quoteWho(s)) && bi.lead && !bi.n)) badk('design', 'это не цитата');
   if (t.layout === 'promo' && (bi.n || bi.meta)) badk('design', 'крупный текст без пунктов');
   if (ti.iTitle && ti.iTitle.role === 'num2' && bi.n && s.items.filter(i => /\d/.test(i.title)).length < bi.n / 2) badk('design', 'в пунктах нет чисел');
   /* вопросы — в аккордеон; карточками и шагами их не раскладываем */
@@ -408,7 +412,7 @@ G.checks = page0 => {
       /* Р7: текст, которому нет места в шаблоне, — ошибка, а не тишина */
       const lostX = G.leftovers(b, G.tplFor(b, t), G.values(b, page) || {top: {}, items: []});
       if (lostX.length) { const s0 = G.src(b), split = (s0.paras.length && s0.items.length && !G.tplInfo(t).text.length) || (s0.cta.length && !G.tplInfo(t).btn && lostX.some(x => s0.cta.includes(x)));
-        add('error', `«${name}»: не встало в шаблон «${t.name}» — ${lostX.slice(0, 2).map(x => `«${G.cut(x, 40)}»`).join(', ')}${lostX.length > 2 ? ` и ещё ${lostX.length - 2}` : ''}.${split ? ' «Поправить» вынесет это в отдельный блок.' : ' Выберите другой шаблон или перенесите текст.'}`, b, split ? {splitLead: true} : null); }
+        add('error', `«${name}»: не встало в шаблон «${t.name}» — ${lostX.slice(0, 2).map(x => `«${G.cut(x, 40)}»`).join(', ')}${lostX.length > 2 ? ` и ещё ${lostX.length - 2}` : ''}. Выберите другой шаблон или поправьте текст.`, b); }
       if (best.tier >= 2) { const what = [...best.bad, ...best.why.filter(w => !/^(всё на месте|компонент|рекомендован)/.test(w))].slice(0, 2).join(', ');
         add(best.tier >= 3 ? 'warn' : 'info', `«${name}» в шаблоне «${t.name}»: ${G.TIERS[best.tier].toLowerCase()}${what ? ' — ' + what : ''}.`, b); }
       const ov = G.overflow(b, page);
@@ -474,7 +478,7 @@ G.formFamily = b => { const s = G.src(b), it = s.items, bi = G.blockInfo(b), o =
   if (it.length >= 2 && it.every(x => /^\d{1,2}[:.]\d{2}/.test(x.title || x.text))) o.push('Шаги');
   if (it.length >= 2 && it.every(x => /\d/.test(x.title || '')) && !it.every(x => G.isMark(x.title))) o.push('Цифры');
   if (s.images.length >= 2 && !it.length) o.push('Галерея');
-  if (!it.length && /^[«"„“]/.test(s.lead || '') && s.meta.length) o.push('Цитата');
+  if (!it.length && /^[«"„“]/.test(s.lead || '') && (s.meta.length || G.quoteWho(s))) o.push('Цитата');
   return o; };
 G.roleFamily = (b, page) => { const role = G.roleOf(G.scenario(page.scenario), b.role), out = new Set();
   for (const t of G.refTpls([].concat(role.prefer || [], role.templates || role.tpl || []))) if (G.typeOf(t)) out.add(G.typeOf(t));

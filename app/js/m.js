@@ -276,7 +276,7 @@ const go = async (view, id) => {
 const TABS = [['article', 'Статьи'], ['course', 'Курсы'], ['event', 'События'], ['sale', 'Продукты'], ['promo', 'Промо']];
 const cover = p => { const b = p.blocks.find(x => x.role === 'hero') || p.blocks[0];
   if (!b) return `<div class="tl-empty">${e((p.text || p.name).slice(0, 60))}</div>`;
-  return `<div class="tl-pv">${blockHTML(b, p)}</div>`; };
+  return `<div class="tl-pv">${blockHTML(b, p, undefined, true)}</div>`; };
 const seed = async () => {
   if (G.ls.get('seeded', false)) return; G.ls.set('seeded', true);
   for (const x of G.examples) { const p = G.fromExample(x); p.name = p.name.replace(/\s*\([^)]*\)\s*$/, ''); if (!p.blocks.length && p.text) G.assemble(p);
@@ -483,7 +483,7 @@ const bindAdd = main => main.querySelectorAll('[data-add]').forEach(c => c.oncli
 const GOAL = {event: 'event', article: 'info', course: 'course', sale: 'sale', product: 'sale'};
 const naviPayload = p => { const s0 = G.scenario(p.scenario), goal = GOAL[s0.id] || (s0.kind === 'article' ? 'info' : 'event');
   const hero = p.blocks.find(b => b.role === 'hero'), hs = hero ? G.src(hero) : {};
-  const blocks = p.blocks.filter(b => b.role !== 'unparsed' && !G.isEmpty(b)).map(b => { const t = G.tpl(b.tpl), s = G.src(b); return {kind: b.role === 'hero' ? 'hero' : G.isCta(b) ? 'cta' : 'grid', navi: false, title: s.level === 'h3' || s.level === 'h1' ? '' : s.title || '', html: `<section class="blk">${blockHTML(b, p)}</section>`}; });
+  const blocks = p.blocks.filter(b => b.role !== 'unparsed' && !G.isEmpty(b)).map(b => { const t = G.tpl(b.tpl), s = G.src(b); return {kind: b.role === 'hero' ? 'hero' : G.isCta(b) ? 'cta' : 'grid', navi: false, title: s.level === 'h3' || s.level === 'h1' ? '' : s.title || '', html: `<section class="blk">${blockHTML(b, p, undefined, true)}</section>`}; });
   const cta = p.blocks.find(b => G.isCta(b)), cs = cta ? G.src(cta) : {};
   return {type: 'gridi:page', cat: {id: 'g-' + p.id, name: hs.title || p.name, goal, lead: hs.lead || '', meta: (hs.meta || [])[0] || ''},
     fill: {overlay: true, name: hs.title || p.name, goal, blocks, program: [], programTitle: '',
@@ -768,8 +768,9 @@ const blockHTML0 = (b, p, t, bare) => {
   if (!b.text.trim()) { const gb = G.ghostBlock(b, p), gt = t || (G.rank(gb, p)[0] || {}).t; return gt ? `<div class="wf-page wf-ghost">${G.wireBlock(gt, G.autoFill(gb, gt, p), {})}</div>` : `<div class="wf-page">${empty('Пустой блок', 'Добавьте текст — шаблон подберётся сам.')}</div>`; }
   if (!t) return `<div class="wf-page">${empty('Шаблон не подобран', 'Под такой текст шаблона нет. Измените текст или выберите шаблон вручную.')}</div>`;
   const plan = rowsPlan(b, t);
-  /* что не встало в поля шаблона — не пропадает: серой полосой под блоком, с «Вынести в отдельный блок» */
-  const lostHTML = v => { const L = G.leftovers(b, t, v || {}); return L.length ? `<div class="wf-lost"><b>Не встало в шаблон</b>${L.map(x => `<p>${e(x)}</p>`).join('')}<button class="pill sm" data-lost="${e(b.id)}">Вынести в отдельный блок</button></div>` : ''; };
+  /* текст без поля в шаблоне — подписью под блоком в редакторе (см. lostHTML) */
+  /* что не встало в поля шаблона — подписью под блоком только в редакторе; в превью и выгрузку не идёт */
+  const lostHTML = v => { const L = G.leftovers(b, t, v || {}); return L.length ? `<div class="wf-lost"><b>Не встало в шаблон — выберите другой шаблон или поправьте текст</b>${L.map(x => `<p>${e(x)}</p>`).join('')}</div>` : ''; };
   if (!plan) { const v = t && (t.id === b.tpl ? G.values(b, p) : G.autoFill(b, t, p)); return `<div class="wf-page">${G.wireBlock(t, v, G.wireImgs(b, t))}</div>${!bare && t.id === b.tpl ? lostHTML(v) : ''}`; }
   const all = G.autoFill(b, {...t, items: {...t.items, n: G.src(b).items.length}}, p), imgs = G.wireImgs(b, t); let at = 0;
   return plan.map((k, i) => { const tt = sibling(t, k), v = {...all, top: i ? {} : all.top, head: i ? undefined : all.head, items: all.items.slice(at, at + k)};
@@ -784,9 +785,8 @@ const canvas = () => {
   main.querySelectorAll('.cb').forEach(x => x.onclick = ev => { ev.stopPropagation(); if (A.sel) { unselect(); return; } select(x.dataset.id); });
   /* клик мимо блока снимает выбор */
   main.onclick = ev => { if (A.sel && !ev.target.closest('.cb,.add,.sel-float')) unselect(); };
-  bindAdd(main); bindTips(main); bindLost(main);
+  bindAdd(main); bindTips(main);
 };
-const bindLost = root => root.querySelectorAll('[data-lost]').forEach(x => x.onclick = ev => { ev.stopPropagation(); const n0 = A.page.blocks.length; G.fixByCode(A.page); G.autoPick(A.page); save(); editor(); toast(A.page.blocks.length > n0 ? 'Текст вынесен в отдельный блок' : 'Не получилось вынести — поправьте текст или выберите другой шаблон'); });
 let cat = null;
 const BK = () => A.mode === 'note' ? '.nb' : '.cb';
 const select = id => { A.sel = id; document.body.classList.add('picking');
@@ -809,7 +809,7 @@ const placeSel = () => { if (!selEl || !selEl.isConnected || !A.sel) return; con
 const unselect = () => { A.sel = null; if (selEl) { selEl.remove(); selEl = null; } document.body.classList.remove('picking'); const ea = $app.querySelector('#eAct'); if (ea) ea.innerHTML = ''; $app.querySelectorAll('.cb.sel,.nb.sel').forEach(x => x.classList.remove('sel')); if (cat) { const h = cat; cat = null; h.close(true); } if (A.view === 'edit' && A.page && A.page.blocks.length) island(); };
 const redrawBlock = b => { if (A.mode === 'note') { const id = A.sel; notes(); if (id) select(id); const bd = $app.querySelector('#eOut .badge'), r = report(A.page); if (bd) { bd.textContent = r.count; bd.hidden = !r.count; bd.className = 'badge ' + r.grade.level; } return; } const el = $app.querySelector(`.cb[data-id="${b.id}"]`); if (!el) return; const r = report(A.page);
   el.innerHTML = bn(b, A.page.blocks.indexOf(b)) + blockHTML(b, A.page); el.classList.toggle('warn', !!r.byBlock[b.id]);
-  const nx = el.nextElementSibling; if (nx && nx.classList.contains('tips')) nx.remove(); el.insertAdjacentHTML('afterend', tipPlate(b, A.page)); bindTips(el.parentElement); bindLost(el);
+  const nx = el.nextElementSibling; if (nx && nx.classList.contains('tips')) nx.remove(); el.insertAdjacentHTML('afterend', tipPlate(b, A.page)); bindTips(el.parentElement);
   const bd = $app.querySelector('#eOut .badge'); if (bd) { bd.textContent = r.count; bd.hidden = !r.count; bd.className = 'badge ' + r.grade.level; }
   if (A.sel === b.id) selBar(); };
 
