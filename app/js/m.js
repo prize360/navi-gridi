@@ -538,7 +538,7 @@ const pageSettings = () => {
 const draft = () => {
   const p = A.page, main = $app.querySelector('#eMain'), L = lines(p.text);
   main.innerHTML = `<div class="note draft-note"><div class="scmemo" id="dMemo"></div><p class="draft-hint">Вставьте текст из документа или пишите здесь — заголовки, списки и ссылки разметятся сами. Нажмите на блок в памятке — его заголовок встанет в текст.</p>
-    <div class="ed draft-ed" contenteditable="true" spellcheck="true" data-id="__draft" data-ph="Вставьте или напишите текст">${(L.length ? L : [{k: 'p', t: ''}]).map(l => lineHTML(l.k, l.t)).join('')}</div></div>`;
+    <div class="draft-wrap"><div class="draft-seps" aria-hidden="true"></div><div class="ed draft-ed" contenteditable="true" spellcheck="true" data-id="__draft" data-ph="Вставьте или напишите текст">${(L.length ? L : [{k: 'p', t: ''}]).map(l => lineHTML(l.k, l.t)).join('')}</div></div></div>`;
   /* сценарий — памятка: какие блоки обычно есть на такой странице; обязательные — жирным. Порядок и названия — подсказка, Гриди разберёт сам */
   const memo = () => { const box = main.querySelector('#dMemo'), s0 = sc(), all = G.lib.all('scenarios');
     box.innerHTML = `<div class="memo-sc">${all.map(x => `<button class="chip sm ${x.id === s0.id ? 'on' : ''}" data-msc="${e(x.id)}">${e(x.name)}</button>`).join('')}</div>
@@ -549,7 +549,22 @@ const draft = () => {
   const ta = main.querySelector('.draft-ed'); bindEd(ta); fmtBar();
   const read = () => tidy([...ta.children].map(d => md(d.dataset.k, d.textContent.replace(/ /g, ' ').trim())));
   const empty0 = () => ta.classList.toggle('is-empty', !ta.textContent.trim() && ta.children.length <= 1);
-  ta.addEventListener('input', () => { p.text = read(); save(); empty0(); }); empty0();
+  /* разделители блоков — как в режиме «Текст»: Гриди делит текст по разметке на лету, без модели.
+     Строка, с которой начинается блок, получает отступ; подпись «N · роль» лежит слоем поверх и не редактируется */
+  const seps = () => { const box = main.querySelector('.draft-seps'); if (!box) return;
+    const els = [...ta.children], full = els.filter(d => d.textContent.trim());
+    els.forEach(d => delete d.dataset.blk);
+    let marks = [];
+    if (full.length) { const tmp = G.newPage('', p.scenario, read()); try { G.assemble(tmp); } catch (err) { tmp.blocks = []; }
+      let k = 0; const cnt = tmp.blocks.map(b => b.text.split('\n').filter(x => x.trim()).length);
+      if (cnt.reduce((a, x) => a + x, 0) === full.length) tmp.blocks.forEach((b, i) => { marks.push({el: full[k], n: i + 1, name: G.roleOf(sc(), b.role).name.split(':')[0]}); k += cnt[i]; });
+      else marks = full.filter(d => /^h[12]$/.test(d.dataset.k)).map((el, i) => ({el, n: i + 1, name: el.dataset.k === 'h1' ? 'Первый экран' : 'Блок'})); }
+    marks.forEach(m => { m.el.dataset.blk = '1'; });
+    if (!box.isConnected) return; const W = box.parentElement.getBoundingClientRect().top;
+    box.innerHTML = marks.map(m => `<div class="nb-line dsep" style="top:${Math.round(m.el.getBoundingClientRect().top - W - 30)}px"><b class="bn">${m.n}</b><span>${e(m.name)}</span></div>`).join(''); };
+  let sepT = 0; const sepsSoon = () => { clearTimeout(sepT); sepT = setTimeout(seps, 250); };
+  ta.addEventListener('input', () => { p.text = read(); save(); empty0(); sepsSoon(); }); empty0();
+  addEventListener('resize', sepsSoon); requestAnimationFrame(seps);
   /* блок из памятки — заголовок в конец текста и пустая строка под ним, курсор туда: пишите с нуля в том же редакторе.
      Первый экран — пустой H1, целевое действие — заголовок и кнопка сценария */
   const addHead = id => { const r = G.roleOf(sc(), id), ex = (String(r.example || '').match(/^\[h2\]\s*(.+)$/m) || [])[1], name = ex || r.name.split(':')[0];
@@ -558,10 +573,10 @@ const draft = () => {
     let focus;
     if (id === 'hero') focus = add('h1', '');
     else { add('h2', name); if (id === 'cta' && sc().button) add('btn', sc().button); focus = add('p', ''); }
-    p.text = read(); save(); empty0();
+    p.text = read(); save(); empty0(); seps();
     const rg = document.createRange(); rg.selectNodeContents(focus); rg.collapse(true); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(rg); ta.focus(); focus.scrollIntoView({block: 'center'}); };
   /* вставка: построчно, с разметкой; после неё — сохранить текст (paste в редакторе строк не всегда даёт input) */
-  ta.addEventListener('paste', () => setTimeout(() => { p.text = read(); save(); empty0(); }, 0));
+  ta.addEventListener('paste', () => setTimeout(() => { p.text = read(); save(); empty0(); seps(); }, 0));
   /* одна кнопка «Собрать»: разбор, шаблоны, укладка. Галочка — не переписывать текст: укладка не нужна */
   const dock = $app.querySelector('#eDock');
   dock.innerHTML = `<div class="build-bar"><label class="chk"><input type="checkbox" id="dKeep" ${p.verbatim ? 'checked' : ''}><span>Сохранить текст как есть</span></label><button class="pill grad wide" id="dGo">Собрать</button></div>`;
@@ -681,7 +696,9 @@ const bindEd = ed => {
   ed.addEventListener('paste', ev => {
     ev.preventDefault(); const cd = ev.clipboardData || window.clipboardData, html = cd.getData('text/html'); const txt = (html && /<(h[1-6]|li|table|a\s)/i.test(html) && G.htmlToMarkup(html)) || cd.getData('text/plain') || '';
     const ls = txt.split(/\r?\n/).map(x => x.trim()).filter(Boolean); if (!ls.length) return;
-    document.execCommand('insertText', false, ls[0]);
+    /* первая строка в пустую строку — с её разметкой: «[h1] Заголовок» становится заголовком, а не текстом со скобками */
+    const c0 = curLine(), x0 = parseLine(ls[0]);
+    if (c0 && !c0.textContent.trim() && x0.k !== 'p') { setKind(c0, x0.k); document.execCommand('insertText', false, x0.t); } else document.execCommand('insertText', false, ls[0]);
     let at = curLine(); ls.slice(1).forEach(l => { const x = parseLine(l), nl = mkLine(x.k, x.t); at.after(nl); at = nl; });
     if (ls.length > 1) caretTo(at, at.textContent.length);
     sync(ed);
@@ -842,6 +859,7 @@ const runPrompt = async (b, id) => { const p = A.page, P = G.prompt(id); let val
     const n = await G.runAdapt(p, P.id, [b.id], vals);
     if (free) { G.adaptable = adp; delete G._tplIndex.__free; b.tpl = keep.tpl; b.tplLock = keep.lock; }
     if (n) { repick(b); save(); A.mode === 'note' ? (notes(), select(b.id)) : redrawBlock(b); toast(`«${P.name}»: текст блока обновлён — и в заметке тоже`); }
+    else toast(`«${P.name}»: модель не вернула изменений для этого блока — попробуйте ещё раз или другую модель`);
   } catch (err) { if (err.message !== 'cancel') toast(err.message); }
   finally { G.adaptable = adp; if (G._tplIndex) delete G._tplIndex.__free; if (b.tpl === '__free') { b.tpl = keep.tpl; b.tplLock = keep.lock; } } };
 /* панель выделенного блока. Текст — смысл и структура, Шаблоны — дизайн; каждое действие в одном месте, «Ещё» — что не влезло */
@@ -881,15 +899,20 @@ const aiSheet = b => {
   const s = sheet(`<div class="sh-h"><div><h2>Улучшить с ИИ</h2><p class="sub">${p.blocks.indexOf(b) + 1}. ${e(roleName(b))}</p></div><button class="ib" data-close aria-label="Закрыть">${I.x}</button></div>
     <div class="sh-b"><div class="list">${list.map(([id, n, d, cls]) => `<button class="row ${cls || ''}" data-p="${e(id)}"><b>${e(n)}</b>${d ? `<small>${e(d)}</small>` : ''}</button>`).join('')}</div>
     <p class="hint">Свои промты — в библиотеке, раздел «Промты».</p></div>`);
-  s.$$('[data-p]').forEach(x => x.onclick = () => { s.close(true); runPrompt(b, x.dataset.p); });
+  /* любая ошибка — сообщением, а не молча */
+  s.$$('[data-p]').forEach(x => x.onclick = () => { s.close(true); runPrompt(b, x.dataset.p).catch(err => { console.error(err); if (err.message !== 'cancel') toast('Не получилось: ' + err.message); }); });
 };
 /* роль блока в режиме текста: что это за часть страницы — от неё зависят подходящие шаблоны */
 /* роли для выбора: сначала роли сценария, потом общие роли того же вида страницы */
 const roleList = () => G.allRoles ? G.allRoles(sc()) : (sc().roles || []);
 const setRole = (b, r) => { if (b.role === r) return false; b.role = r; b.tpl = null; b.tplLock = false; b.values = null; repick(b); save(); return true; };
-const roleSheet = b => { const p = A.page, roles = roleList();
-  const s = sheet(`<div class="sh-h"><div><h2>Роль блока</h2><p class="sub">От роли зависят подходящие шаблоны</p></div><button class="ib round ok" data-close aria-label="Готово">${I.check}</button></div>
-    <div class="list">${roles.map(r => `<button class="row ${r.id === b.role ? 'on' : ''}" data-r="${e(r.id)}">${e(r.name.split(':')[0])}${r.id === b.role ? ` ${I.check}` : ''}</button>`).join('')}</div>`);
+/* роль — что это за часть страницы. Сначала роли сценария, остальные общие — свёрнуты в «Другие» */
+const roleSheet = b => { const p = A.page, roles = roleList(), own = (sc().roles || []).length;
+  const row = r => `<button class="row rr ${r.id === b.role ? 'on' : ''}" data-r="${e(r.id)}"><span><b>${e(r.name.split(':')[0])}</b>${r.meaning ? `<small>${e(r.meaning)}</small>` : ''}</span>${r.id === b.role ? I.check : ''}</button>`;
+  const more = roles.slice(own), moreOn = more.some(r => r.id === b.role);
+  const s = sheet(`<div class="sh-h"><div><h2>Роль блока</h2><p class="sub">Что это за часть страницы. От роли зависят шаблоны и проверка «чего не хватает»</p></div><button class="ib round ok" data-close aria-label="Готово">${I.check}</button></div>
+    <div class="sh-b"><p class="lbl">Обычно на странице «${e(sc().name)}»</p><div class="list">${roles.slice(0, own).map(row).join('')}</div>
+    ${more.length ? `<details class="more-roles" ${moreOn ? 'open' : ''}><summary class="lbl">Другие · ${more.length}</summary><div class="list">${more.map(row).join('')}</div></details>` : ''}</div>`, {cls: 'tall'});
   s.$$('[data-r]').forEach(x => x.onclick = () => { setRole(b, x.dataset.r); s.close(); A.mode === 'note' ? notes() : canvas(); select(b.id); }); };
 /* каталог шаблонов: категории по типу, сначала подходящие, у каждого — почему не подходит */
 const catalog = () => {

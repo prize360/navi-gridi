@@ -597,3 +597,20 @@ body.picking .tips{opacity:.4}
 .memo-l i{font-style:normal}
 .rw-q{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
 #rwSc{margin-bottom:12px}
+.more-roles summary{cursor:pointer;list-style:none;margin-top:16px}
+.more-roles summary::before{content:'+ ';}
+.more-roles[open] summary::before{content:'− ';}
+/* новая страница: тот же вид, что «Текст» — разделители блоков по разметке поверх редактора */
+.draft-wrap{position:relative}
+.draft-seps{position:absolute;inset:0;pointer-events:none;z-index:1}
+.dsep{position:absolute;left:0;margin:0}
+.draft-ed .ln[data-blk]{margin-top:34px}
+.draft-ed .ln[data-blk]:first-child{margin-top:30px}
+.draft-note{padding-left:16px;padding-right:16px}
+.draft-wrap{padding-left:36px}
+.draft-wrap .dsep{width:100%}
+.build-bar .chk{background:var(--bg);padding:6px 12px;border-radius:16px}
+.row.rr{display:flex;flex-direction:row;align-items:center;justify-content:space-between;gap:10px;text-align:left;width:100%}
+.row.rr>span{display:flex;flex-direction:column;align-items:flex-start;gap:2px;flex:1;min-width:0}
+.row.rr small{color:var(--mute);font-size:13px;font-weight:400;line-height:1.35}
+.row.rr svg{flex:none;width:18px;height:18px}
