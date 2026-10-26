@@ -39,6 +39,7 @@ const field0 = (f, v, opts = {}) => {
     case 'text': case 'body': return `<div class="wf-text">${paras(x)}</div>`;
     case 'btn': return `<span class="wf-btn pv-btn">${e(x)}</span>`;
     case 'badge': return `<span class="wf-badge">${e(x)}</span>`;
+    case 'mark': return `<b class="wf-mark">${e(x)}</b>`;
     case 'meta': return `<span class="wf-meta">${e(x)}</span>`;
     case 'qname': return `<b class="wf-qname">${e(x)}</b>`;
     case 'qcap': case 'cap': return `<span class="wf-meta">${e(x)}</span>`;
@@ -63,7 +64,9 @@ const topHTML = (t, v, roles) => {
 };
 const itemHTML = (t, it, i, imgs) => {
   const per = t.media && t.media.per;
-  return `<div class="wf-item">${per ? media(t, imgs['i' + i], {key: 'i' + i, small: t.media.size === 'S'}) : ''}<div class="wf-item-body">${t.items.fields.map(f => field(f, it[f.k], {path: `items.${i}.${f.k}`})).join('')}</div></div>`;
+  /* шаг с меткой: текст по желанию — пустой не показывается, если у шага есть заголовок */
+  const opt = f => f.role === 'text' && t.items.fields.some(x => x.role === 'mark') && t.items.fields.some(x => x.role === 'title' && String(it[x.k] || '').trim());
+  return `<div class="wf-item">${per ? media(t, imgs['i' + i], {key: 'i' + i, small: t.media.size === 'S'}) : ''}<div class="wf-item-body">${t.items.fields.map(f => field(f, it[f.k], {path: `items.${i}.${f.k}`, skipEmpty: opt(f)})).join('')}</div></div>`;
 };
 const itemsHTML = (t, v, imgs, cls = '') => t.items ? `<div class="wf-items ${cls}" style="--cols:${t.cols || Math.min(3, (v.items || []).length || 1)}">${(() => { const its = [...(v.items || [])], n = t.items.any ? 0 : (t.items.n || 0); const extra = Math.max(0, n - its.length); return its.map((it, i) => itemHTML(t, it, i, imgs)).join('') + Array.from({length: extra}, (_, j) => `<div class="wf-item wf-item-miss"><div class="wf-item-body">${t.items.fields.filter(f => f.role !== 'num').map(f => empty(f).replace('<span', `<span data-path="items.${its.length + j}.${f.k}"`)).join('')}</div></div>`).join(''); })()}</div>` : '';
 
@@ -140,7 +143,7 @@ G.WIRE_CSS = `
 .wf-carousel{grid-auto-flow:column;grid-template-columns:none;grid-auto-columns:calc(33% - 10px);overflow:hidden}
 .wf-list{grid-template-columns:1fr}.wf-list>.wf-item{border-top:1px solid var(--wf-line);padding-top:12px}
 .wf-rows{grid-template-columns:1fr;gap:0}.wf-rows>.wf-item{flex-direction:row;border-top:1px solid var(--wf-line);padding:14px 0}.wf-rows .wf-item-body{display:grid;grid-template-columns:120px 1fr;gap:4px 16px;width:100%}.wf-rows .wf-item-body>:nth-child(n+3){grid-column:2}
-.wf-olist .wf-item-body{grid-template-columns:1fr}.wf-num{font-weight:700;font-size:20px;color:var(--wf-mute)}
+.wf-olist .wf-item-body{grid-template-columns:1fr}.wf-num{font-weight:700;font-size:20px;color:var(--wf-mute)}.wf-mark{display:block;font-weight:700;font-size:18px;line-height:1.25}
 .wf-faq details{border-top:1px solid var(--wf-line);padding:14px 0}.wf-faq summary{font-weight:600;cursor:pointer}.wf-faq details .wf-text{padding-top:8px}
 .wf-tablewrap{overflow:auto}.wf-table{border-collapse:collapse;width:100%;font-size:14px}.wf-table th,.wf-table td{border-bottom:1px solid var(--wf-line);padding:8px 10px;text-align:left;vertical-align:top}.wf-table th{font-weight:600;background:var(--wf-fill)}
 .wf-navihero{display:flex;flex-direction:column;gap:14px;padding:12px 0}

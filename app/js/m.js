@@ -325,7 +325,8 @@ const MEMO = [
   ['[h1] Заголовок', 'Заголовок страницы — один, в начале'],
   ['[h2] Заголовок', 'Новый раздел страницы'],
   ['[h3] Заголовок', 'Карточка: абзацы под ним — её текст'],
-  ['- Заголовок — текст', 'Пункт. Тире во всех пунктах раздела — у пунктов заголовок и текст'],
+  ['- Заголовок — текст', 'Пункт. Карточки, шаги и списки — всё пункты: Гриди сам разложит их по шаблону'],
+  ['- 10:00 — Регистрация', 'Пункт с меткой: время, дата или «Этап 1» встанут в метку шага. Без метки шаги пронумеруются сами'],
   ['@ 12 ноября · Москва', 'Подпись к строке над ней: дата, место, должность'],
   ['[кнопка] Текст | ссылка', 'Кнопка. Если кнопка у каждого пункта — это кнопки карточек'],
   ['[картинка] Подпись', 'Место для картинки'],
@@ -357,8 +358,11 @@ G.guidePage = () => G.unpack({page: {name: 'Как работает Гриди',
 const openGuide = () => { G.ls.set('guideSeen', 1); document.querySelector('.hello')?.remove(); preview(G.guidePage()); };
 
 /* настройки: модель и импорт */
+/* что Гриди понял из строки Krea app */
+const kreaNote = raw => { const a = G.parseKrea(raw); if (!a) return 'Не задан — у картинок будет только «Текст для Krea»';
+  return [a.api ? `API: app ${a.id.slice(0, 8)}…, поле «${a.input}»` : a.id ? 'Нет имени поля текста — вставьте пример запроса целиком' : '', a.url ? 'ссылка для ручного режима' : ''].filter(Boolean).join(' · ') || 'Не похоже на ссылку Krea'; };
 const settings = () => {
-  const st = G.llmSettings();
+  const st = G.llmSettings(), ks = G.kreaSettings();
   const s = sheet(`<div class="sh-h"><h2>Настройки</h2><button class="ib" data-close aria-label="Закрыть">${I.x}</button></div>
     <div class="sh-b">
       <p class="lbl">Модель</p>
@@ -369,6 +373,11 @@ const settings = () => {
         <label class="lbl" for="sModel">Модель</label><input class="in" id="sModel" value="${e(st.model)}">
         <label class="lbl" for="sKey">Ключ — хранится только в этом браузере</label><input class="in" id="sKey" type="password" value="${e(st.key)}" autocomplete="off">
       </div>
+      <p class="lbl">Картинки — Krea</p>
+      <div class="seg wide" id="sKMode"><button data-v="manual" class="${ks.mode !== 'api' ? 'on' : ''}">Вручную</button><button data-v="api" class="${ks.mode === 'api' ? 'on' : ''}">Свой ключ</button></div>
+      <p class="hint">Вручную — Гриди скопирует текст для картинки и откроет app. Свой ключ — Гриди сам запустит app и положит картинку в блок.</p>
+      <div id="sKApi" ${ks.mode === 'api' ? '' : 'hidden'}><label class="lbl" for="sKKey">Ключ API Krea — хранится только в этом браузере</label><input class="in" id="sKKey" type="password" value="${e(ks.key)}" autocomplete="off"></div>
+      ${(G.lib.settings().krea || []).map(k => `<label class="lbl" for="sK${e(k.size)}">${e(k.name)} · ${e(k.size)}</label><textarea class="ta krea-in" id="sK${e(k.size)}" data-kr="${e(k.size)}" rows="2" placeholder="Ссылка на app или пример запроса со страницы API app">${e(k.url || '')}</textarea><p class="hint krea-st" data-krs="${e(k.size)}"></p>`).join('')}
       <p class="lbl">Ещё</p>
       <div class="list">
         <a class="row ic" href="#/lib/templates">${I.grid}<span><b>Библиотека</b><small>Шаблоны, сценарии, промты и иконки</small></span></a>
@@ -382,7 +391,13 @@ const settings = () => {
     <div class="sh-f"><button class="pill pri wide" id="sOk">Сохранить</button></div>`, {cls: 'tall'});
   let mode = st.mode === 'api' ? 'api' : 'manual';
   s.$$('#sMode button').forEach(b => b.onclick = () => { mode = b.dataset.v; s.$$('#sMode button').forEach(x => x.classList.toggle('on', x === b)); s.$('#sApi').hidden = mode !== 'api'; });
-  s.$('#sOk').onclick = () => { G.ls.set('llm', {mode, base: s.$('#sBase').value.trim(), model: s.$('#sModel').value.trim(), key: s.$('#sKey').value.trim()}); G._modelOkAt = 0; s.close(); toast('Сохранено'); };
+  let kmode = ks.mode;
+  s.$$('#sKMode button').forEach(b => b.onclick = () => { kmode = b.dataset.v; s.$$('#sKMode button').forEach(x => x.classList.toggle('on', x === b)); s.$('#sKApi').hidden = kmode !== 'api'; });
+  s.$$('[data-kr]').forEach(x => { const st0 = s.$(`[data-krs="${x.dataset.kr}"]`), upd = () => { st0.textContent = kreaNote(x.value); }; upd(); x.oninput = upd; });
+  s.$('#sOk').onclick = () => { G.ls.set('llm', {mode, base: s.$('#sBase').value.trim(), model: s.$('#sModel').value.trim(), key: s.$('#sKey').value.trim()}); G._modelOkAt = 0;
+    G.ls.set('krea', {mode: kmode, key: s.$('#sKKey').value.trim()});
+    const urls = {}; s.$$('[data-kr]').forEach(x => { if (x.value.trim()) urls[x.dataset.kr] = x.value.trim(); }); G.ls.set('settings', {...G.ls.get('settings', {}), kreaUrls: urls});
+    s.close(); toast('Сохранено'); };
   s.$('#sPilot').onclick = async () => { try { await G.pilotExport(false); toast('Архив итогов скачан'); } catch (err) { toast(err.message); } };
   s.$('#sGuide').onclick = () => { s.close(true); openGuide(); };
   s.$('#sMemo').onclick = () => { s.close(true); memo(); };
@@ -503,7 +518,7 @@ const pageSettings = () => {
    вид строки правится той же панелью. Памятка по разметке не нужна — неверную разметку поправит модель при сборке */
 const draft = () => {
   const p = A.page, main = $app.querySelector('#eMain'), L = lines(p.text);
-  main.innerHTML = `<div class="note draft-note"><div class="memo" id="dMemo"></div><p class="draft-hint">Вставьте текст из документа — заголовки, списки и ссылки разметятся сами. Размечать не обязательно. Или <button class="link" id="dBlank">начните с чистого листа</button>.</p>
+  main.innerHTML = `<div class="note draft-note"><div class="scmemo" id="dMemo"></div><p class="draft-hint">Вставьте текст из документа — заголовки, списки и ссылки разметятся сами. Размечать не обязательно. Или <button class="link" id="dBlank">начните с чистого листа</button>.</p>
     <div class="ed draft-ed" contenteditable="true" spellcheck="true" data-id="__draft" data-ph="Вставьте или напишите текст">${(L.length ? L : [{k: 'p', t: ''}]).map(l => lineHTML(l.k, l.t)).join('')}</div></div>`;
   /* сценарий — памятка: какие блоки обычно есть на такой странице; обязательные — жирным. Порядок и названия — подсказка, Гриди разберёт сам */
   const memo = () => { const box = main.querySelector('#dMemo'), s0 = sc(), all = G.lib.all('scenarios');
@@ -908,18 +923,26 @@ const pickIcon = (b, key, done) => {
   bind();
 };
 const imageSheet = b => {
-  const p = A.page, slots = G.imageSlots(b, p);
+  const p = A.page, slots = G.imageSlots(b, p), kApi = G.kreaSettings().mode === 'api', ka = o => G.parseKrea(o.krea && o.krea.url);
   if (!slots.length && iconSlots(b).length) return iconSheet(b);
   if (!slots.length) { const s0 = sheet(`<div class="sh-h"><h2>Картинки</h2><button class="ib round" data-close aria-label="Закрыть">${I.x}</button></div><div class="sh-b">${empty('В этом шаблоне нет картинок', 'Выберите шаблон с картинкой — она появится здесь.', [['tpl', 'Шаблоны', true]])}</div>`); s0.$('[data-es]').onclick = () => { s0.close(true); catalog(); }; return; }
   const s = sheet(`<div class="sh-h"><h2>Картинки</h2><button class="ib round" data-close aria-label="Закрыть">${I.x}</button></div>
     <div class="sh-b"><div class="imgs">${slots.map(o => `<div class="im"><div class="im-pv" style="aspect-ratio:${o.ratio.replace(':', '/')}">${o.data ? `<img src="${o.data}" alt="">` : `<span class="mono">${e(o.ratio)}${o.size ? ' · ' + e(o.size) : ''}</span>`}</div>
       <div class="im-b"><b>${o.n ? 'Элемент ' + o.n : 'Основная'}</b><small>${e(o.alt || '')}</small>
-      <div class="chips"><label class="chip">Загрузить<input type="file" accept="image/*" data-up="${e(o.key)}" hidden></label><button class="chip" data-krea="${e(o.key)}">Текст для Krea</button>${o.krea && o.krea.url ? `<a class="chip" href="${e(o.krea.url)}" target="_blank" rel="noopener">Krea</a>` : ''}${o.data ? `<button class="chip" data-rm="${e(o.key)}">Убрать</button>` : ''}</div></div></div>`).join('')}</div></div>`);
+      <div class="chips"><label class="chip">Загрузить<input type="file" accept="image/*" data-up="${e(o.key)}" hidden></label>${kApi && ka(o) && ka(o).api ? `<button class="chip pri" data-gen="${e(o.key)}">${I.ai} Сгенерировать</button>` : ''}<button class="chip" data-krea="${e(o.key)}">Текст для Krea</button>${ka(o) && ka(o).url ? `<a class="chip" href="${e(ka(o).url)}" target="_blank" rel="noopener">Krea</a>` : ''}${o.data ? `<button class="chip" data-rm="${e(o.key)}">Убрать</button>` : ''}</div></div></div>`).join('')}</div></div>`);
   s.$$('[data-up]').forEach(x => x.onchange = async () => { const f = x.files[0]; if (!f) return; if (f.size > 25e6) return toast('Картинка больше 25 МБ — выберите поменьше.');
     const o = slots.find(y => y.key === x.dataset.up);
     try { const r = await webImage(f, o.ratio, o.size, o.kind); b.images = b.images || {}; b.images[x.dataset.up] = {...(b.images[x.dataset.up] || {}), data: r.data};
       save(); redrawBlock(b); s.close(true); imageSheet(b); toast(`Картинка ${r.w}×${r.h}, ${r.type}, ${Math.round(r.bytes / 1024)} КБ${r.cropped ? ' — обрезана под ' + o.ratio : ''}`); }
     catch (err) { toast('Не удалось открыть картинку: ' + err.message); } });
+  /* свой ключ Krea: app запускается из Гриди, картинка обрезается под слот и встаёт в блок */
+  s.$$('[data-gen]').forEach(x => x.onclick = async () => { const o = slots.find(y => y.key === x.dataset.gen); if (x.disabled) return; x.disabled = true;
+    const lab = x.innerHTML, st = (t) => { x.innerHTML = `${I.ai} ${t}`; };
+    try { st('Запускаю…');
+      const url = await G.kreaRun(ka(o), o.text || o.alt || '', {onStatus: (status, pos, sec) => st(status === 'completed' ? 'Готово' : pos ? `В очереди: ${pos}` : `Генерирую · ${sec} с`)});
+      st('Забираю…'); const f = await G.kreaFile(url), r = await webImage(f, o.ratio, o.size, o.kind);
+      b.images = b.images || {}; b.images[o.key] = {...(b.images[o.key] || {}), data: r.data, krea: url}; save(); redrawBlock(b); s.close(true); imageSheet(b); toast(`Картинка из Krea: ${r.w}×${r.h}${r.cropped ? ', обрезана под ' + o.ratio : ''}`);
+    } catch (err) { x.disabled = false; x.innerHTML = lab; toast(err.message); if (err.url) window.open(err.url, '_blank', 'noopener'); } });
   s.$$('[data-krea]').forEach(x => x.onclick = async () => { const o = slots.find(y => y.key === x.dataset.krea); await G.copy(o.text || o.alt || ''); toast('Текст для Krea скопирован'); });
   s.$$('[data-rm]').forEach(x => x.onclick = () => { delete (b.images || {})[x.dataset.rm]; save(); redrawBlock(b); s.close(true); imageSheet(b); });
 };
@@ -976,6 +999,7 @@ const exportView = () => {
         <p class="lbl">Передать</p>
         <div class="list"><button class="row" id="xLink"><b>Ссылка на превью</b><small>Откроется страница как у читателя и кнопка «Открыть в Гриди». Со сценарием, шаблонами и иконками; картинки — только в архиве</small></button>
           <button class="row" id="xShare"><b>Текстом в чат</b><small>Чтобы править текст в чате. Вставка в Гриди собирает ту же страницу; свой сценарий и шаблоны — только по ссылке</small></button>
+          <button class="row" id="xPdf"><b>PDF на согласование</b><small>Схема страницы в новой вкладке — сохраните её в PDF через печать</small></button>
           <button class="row" id="xZip"><b>Архив для вёрстки</b><small>Текст по полям, схема, картинки, ТЗ на картинки с именами слотов</small></button></div>
       </main>
       ${canAll ? `<div class="dock"><div class="fixall"><p class="hint">${e([plan.model.length ? 'Модель поправит: ' + plan.model.join(', ') : '', plan.code ? 'Гриди сам поправит: ' + G.num(plan.code, 'ошибку', 'ошибки', 'ошибок') + ' разметки' : '', (() => { const no = [...plan.no.filter(x => x !== 'остальное — вручную'), ...(g.data.some(x => /без ссылки/.test(x.text)) ? ['ссылки у кнопок'] : []), ...(g.data.some(x => /нет (картинки|фото|иконки)/.test(x.text)) ? ['картинки и иконки'] : []), ...(g.data.some(x => /нужно от автора/.test(x.text)) ? ['пометки «нужно от автора»'] : []), ...(g.des.length ? ['дизайн шаблонов'] : [])]; return no.length ? 'Вручную останутся: ' + [...new Set(no)].join(', ') : ''; })()].filter(Boolean).join('. '))}</p><button class="pill grad wide" id="xFix">Поправить всё</button></div></div>` : ''}`;
@@ -990,6 +1014,7 @@ const exportView = () => {
         if (u.length <= G.LINK_MAX) { await G.copy(u); toast(`Ссылка скопирована · ${(u.length / 1000).toFixed(1)} тыс. знаков`); }
         else toast(`Страница длинная: ссылка ${(u.length / 1000).toFixed(1)} тыс. знаков, в сообщение влезает до 4. Передайте архив`); } catch (err) { toast(err.message); } };
     el.querySelector('#xShare').onclick = async () => { const t = shareText(p); if (navigator.share && /Mobi|Android|iPhone/i.test(navigator.userAgent)) { try { await navigator.share({title: p.name, text: t}); return; } catch (err) { if (err.name === 'AbortError') return; } } await G.copy(t); toast('Текст страницы скопирован — вставьте в чат'); };
+    el.querySelector('#xPdf').onclick = () => { G.openWire(p, true); };
     el.querySelector('#xZip').onclick = async () => { try { await G.doExport(p); } catch (err) { toast(err.message); } };
     const fx = el.querySelector('#xFix'); if (fx) fx.onclick = async () => {
       try { const adds = R.page.filter(x => g.pageFix(x.c) === 'add'); adds.forEach(x => p.blocks.push(G.newBlock(x.c.fix.addRole, '')));

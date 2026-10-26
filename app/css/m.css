@@ -579,10 +579,15 @@ body.picking .tips{opacity:.4}
 .cat-roles .chip.on{background:var(--acc);color:var(--ink)}
 .tc-v.ok{color:var(--acc-ink)}
 /* памятка сценария над редактором текста */
-.memo{margin:0 0 14px}
+.scmemo{margin:0 0 14px}
 .memo-sc{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;margin:0 0 8px}
 .memo-sc .chip{flex:none;background:var(--card)}
 .memo-sc .chip.on{background:var(--ink);color:#fff}
 .memo-l{margin:0;font-size:13px;line-height:1.5;color:var(--mute)}
 .memo-l span{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.04em;margin-right:4px}
 .memo-l b{color:var(--ink);font-weight:600}
+.chip.pri{background:var(--ink);color:#fff}
+.chip.pri svg{width:15px;height:15px}
+.chip[disabled]{opacity:.7}
+.krea-in{min-height:52px;font-size:13px;font-family:var(--mono)}
+.krea-st{margin:4px 0 10px}

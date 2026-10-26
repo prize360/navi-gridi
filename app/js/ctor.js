@@ -47,9 +47,10 @@ const TYPES = {
   'Шаги': {params: [P.count(2, 8), {k: 'mark', label: 'Метка шага', opts: ['номер', 'время', 'дата']}, P.media(['нет', 'I', 'S']), RATIO, P.bool('title', 'Заголовок шага'), P.bool('text', 'Текст')],
     def: {n: '4', mark: 'номер', media: 'нет', ratio: '1:1', title: 'да', text: 'да'},
     build: p => ({layout: p.mark === 'время' ? 'program' : p.mark === 'дата' ? 'timeline' : 'grid', cols: Math.min(+p.n, 4), media: med(p, true),
-      items: {n: +p.n, style: 'steps', fields: [p.mark === 'номер' ? F('num', 'Номер', 0, 'num') : F('m', p.mark === 'время' ? 'Время' : 'Дата', 12, p.mark === 'время' ? 'title' : 'meta'),
-        p.title === 'да' && F('h', p.mark === 'время' ? 'Тема' : 'Заголовок', p.mark === 'время' ? 140 : 40, p.mark === 'время' ? 'text' : 'title'),
-        p.text === 'да' && F('t', p.mark === 'время' ? 'Описание' : 'Текст', 140, p.mark === 'время' ? 'meta' : 'text')].filter(Boolean)}})},
+      /* метка шага — короткий текст: время, дата или «Шаг 1»; нет в пункте — Гриди ставит «Шаг N» */
+      items: {n: +p.n, style: 'steps', fields: [p.mark === 'номер' ? F('num', 'Номер', 0, 'num') : F('m', 'Метка', 12, 'mark'),
+        p.title === 'да' && F('h', 'Заголовок', p.mark === 'время' ? 140 : 40, 'title'),
+        p.text === 'да' && F('t', 'Текст', 140, 'text')].filter(Boolean)}})},
   'Люди': {params: [P.count(2, 8), P.bool('role', 'Должность'), P.bool('text', 'Описание')], def: {n: '3', role: 'да', text: 'да'},
     build: p => ({layout: 'people', cols: Math.min(+p.n, 4), media: {kind: 'photo', per: true},
       items: {n: +p.n, fields: [F('name', 'Имя', 25, 'title'), p.role === 'да' && F('h', 'Должность', 40, 'meta'), p.text === 'да' && F('t', 'Описание', 80, 'text')].filter(Boolean)}})},
@@ -124,7 +125,7 @@ G.ctorEditor = (box, o, onSave) => {
       ${legacy ? '' : `<div class="card"><h3>Параметры</h3>${T.params.filter(q => !q.when || q.when(p)).map(q => `<div class="fld"><span class="lbl">${e(q.label)}</span><div class="seg" data-p="${q.k}">${q.opts.map(v => `<button data-v="${e(v)}" aria-pressed="${String(p[q.k]) === v}">${e(v)}</button>`).join('')}</div></div>`).join('')}</div>
       <div class="card"><h3>Лимиты знаков</h3>${lim.map(x => `<div class="row" style="margin-bottom:6px"><span class="grow">${e(x.label)}</span><input class="in" type="number" data-lim="${x.k}" value="${x.max}" style="width:100px"></div>`).join('')}</div>`}
       ${(legacy ? o.media : t.media) && (legacy ? o.media : t.media).kind !== 'icon' ? `<div class="card"><h3>Картинки — Krea</h3><p class="hint" style="margin:-4px 0 12px">Для картинок этого шаблона. Пусто — берётся Krea app из настроек по размеру.</p>
-        <div class="fld"><label class="lbl" for="kUrl">Krea app</label><input class="in" id="kUrl" value="${e(meta.krea.url || '')}" placeholder="https://www.krea.ai/…"></div>
+        <div class="fld"><label class="lbl" for="kUrl">Krea app — ссылка или пример запроса со страницы API</label><textarea class="ta" id="kUrl" rows="2" placeholder="https://www.krea.ai/… или curl … /node-apps/…/execute">${e(meta.krea.url || '')}</textarea></div>
         <div class="fld" style="margin:0"><label class="lbl" for="kPr">Стиль и указания для генерации</label><textarea class="ta" id="kPr" rows="3" placeholder="Например: плоская иллюстрация, фон #F4F4F1, без текста на картинке">${e(meta.krea.prompt || '')}</textarea><span class="hint">Встанет перед текстом блока в «Текст для Krea».</span></div></div>` : ''}
       <div class="card"><h3>Статус</h3>
         <div class="seg" id="cProdSeg"><button data-v="1" aria-pressed="${meta.prod}">В админке</button><button data-v="0" aria-pressed="${!meta.prod}">Нужен дизайн</button></div>

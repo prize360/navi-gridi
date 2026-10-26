@@ -13,7 +13,7 @@ const dataBlob = d => { const [h, b] = d.split(','); const bin = atob(b); const 
 G.imageSlots = (b, page) => {
   const t = G.tpl(b.tpl); if (!t || !t.media || ['icon'].includes(t.media.kind)) return [];
   const v = G.values(b, page) || {top: {}, items: []}, s = G.src(b), out = [];
-  const textOf = o => Object.entries(o || {}).filter(([k, x]) => { const f = [...(t.fields || []), ...((t.items && t.items.fields) || [])].find(f => f.k === k); return f && !['btn', 'num', 'badge'].includes(f.role) && String(x || '').trim(); }).map(([, x]) => x).join('. ');
+  const textOf = o => Object.entries(o || {}).filter(([k, x]) => { const f = [...(t.fields || []), ...((t.items && t.items.fields) || [])].find(f => f.k === k); return f && !['btn', 'num', 'badge', 'mark'].includes(f.role) && String(x || '').trim(); }).map(([, x]) => x).join('. ');
   const titleOf = o => { const f = [...(t.fields || []), ...((t.items && t.items.fields) || [])].find(f => ['title', 'qname', 'cap', 'itemFull', 'num2'].includes(f.role) && o && o[f.k]); return f ? o[f.k] : ''; };
   const size = t.media.size || '';
   if (t.media.per && t.items) (v.items || []).forEach((it, i) => out.push({key: 'i' + i, n: i + 1, ratio: t.media.ratio || '1:1', kind: t.media.kind, size, text: textOf(it) || s.images[i] || '', alt: titleOf(it) || s.images[i] || titleOf(v.top) || ''}));
@@ -66,7 +66,7 @@ G.exportParts = page => {
     const o = [`# Графика: ${page.name}`, '', 'Картинка — в Krea app своего размера, на вход текст из блока. Готовую загрузите в Гриди на слот или передайте файлом с этим именем.', ''];
     for (const r of rows) for (const im of r.imgs) {
       o.push(`## ${r.i}. ${r.role}${im.n ? ', элемент ' + im.n : ''}`, `- Шаблон: ${r.t.name}`, `- Соотношение: ${im.ratio}${im.size ? ', размер ' + im.size : ''}${im.kind === 'photo' ? ', фото/аватар' : ''}`,
-        `- Krea app: ${im.krea && im.krea.url ? im.krea.url : '—'}`, `- Текст для генерации: ${im.text || '—'}`, `- Файл: ${fileOf(r, im) || `images/${String(r.i).padStart(2, '0')}-${im.key}.png`}`, `- alt: ${im.alt || '—'}`, '');
+        `- Krea app: ${(() => { const a = im.krea && G.parseKrea(im.krea.url); return !a ? '—' : a.url || (a.id ? 'API app ' + a.id : a.raw); })()}`, `- Текст для генерации: ${im.text || '—'}`, `- Файл: ${fileOf(r, im) || `images/${String(r.i).padStart(2, '0')}-${im.key}.png`}`, `- alt: ${im.alt || '—'}`, '');
     }
     /* иконки: выбранные или подобранные — названия из SDDS Icons */
     const ic = rows.filter(r => r.t && r.t.media && r.t.media.kind === 'icon');
@@ -123,7 +123,7 @@ G.doExport = async page => {
   files.forEach(f => dir.file(f.path, f.data));
   G.download(`${P.name}.zip`, await z.generateAsync({type: 'blob'}));
 };
-G.openWire = page => { const w = window.open('', '_blank'); if (!w) { G.download(slug(page.name) + '-wireframe.html', G.exportParts(page).wire(), 'text/html;charset=utf-8'); return; } w.document.write(G.exportParts(page).wire()); w.document.close(); };
+G.openWire = (page, print) => { const w = window.open('', '_blank'); if (!w) { G.download(slug(page.name) + '-wireframe.html', G.exportParts(page).wire(), 'text/html;charset=utf-8'); return; } w.document.write(G.exportParts(page).wire()); w.document.close(); if (print) w.setTimeout(() => w.print(), 600); };
 /* итоги пилота: что человек сделал в Гриди за время пилота — без ключа и картинок */
 G.pilotExport = async withTexts => {
   if (!window.JSZip) { G.ui.toast('Не загрузилась библиотека архивов — проверьте интернет.'); return; }
@@ -228,4 +228,49 @@ G.importProject = async file => {
   if (!G.scenario(p.scenario) || !G.lib.get('scenarios', p.scenario)) p.scenario = (G.lib.all('scenarios')[0] || {}).id;
   await G.store.put(p); if (n) G.ui.toast(`Макет открыт как у автора. ${n === 1 ? 'Один шаблон автора отличается от вашего — он сохранён только для этого макета и в библиотеку не добавлен' : G.num(n, 'шаблон', 'шаблона', 'шаблонов') + ' автора отличаются от ваших — они сохранены только для этого макета и в библиотеку не добавлены'}.`); return p;
 };
+})();
+
+/* ---------- Krea: картинки по слотам ----------
+   Вручную — «Текст для Krea» и ссылка на app. Свой ключ — Гриди сам запускает node app через API Krea:
+   POST /node-apps/{id}/execute → job_id, затем GET /jobs/{id} каждые 5 с до completed; картинка — первая ссылка в result.
+   App задаётся ссылкой или примером запроса со страницы API app (cURL): из него берутся id и имя поля текста. */
+(() => {
+const G = window.Gridi;
+G.KREA_API = 'https://api.krea.ai';
+G.kreaSettings = () => { const k = G.ls.get('krea', {}); return {mode: k.mode === 'api' ? 'api' : 'manual', key: k.key || ''}; };
+/* строка из настроек → {url — открыть в браузере, id и input — для API}. Понимает ссылку на app, адрес execute и пример cURL/JS/Python */
+G.parseKrea = raw => { const s = String(raw || '').trim(); if (!s) return null;
+  const id = (s.match(/node-apps\/([0-9a-f-]{36})/i) || [])[1] || '';
+  const input = (s.match(/["']([0-9a-z]{6,}-[A-Za-z]\w*)["']\s*:/) || [])[1] || '';
+  const url = (s.match(/https:\/\/(?:www\.)?krea\.ai\/(?!api)[^\s"'<>]+/i) || [])[0] || (id ? '' : /^https?:\/\//.test(s) ? s.split(/\s/)[0] : '');
+  return {raw: s, url, id, input, api: !!(id && input)}; };
+const call = async (path, opt = {}) => { const st = G.kreaSettings();
+  if (!st.key) throw new Error('Нет ключа Krea — впишите его в «Настройках» или работайте вручную');
+  let r; try { r = await fetch(G.KREA_API + path, {...opt, headers: {Authorization: 'Bearer ' + st.key, ...(opt.body ? {'Content-Type': 'application/json'} : {}), ...(opt.headers || {})}}); }
+  catch (err) { if (err.name === 'AbortError') throw err; throw new Error('Krea не отвечает на запросы со страницы — работайте вручную: «Текст для Krea» и кнопка Krea'); }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error({400: 'Krea: неверный запрос — проверьте имя поля текста в настройках', 401: 'Krea: ключ не подошёл', 404: 'Krea: app не найден — проверьте ссылку в настройках'}[r.status] || `Krea: ошибка ${r.status}`);
+  return j; };
+/* первая ссылка на картинку в ответе: result.urls или любое поле глубже */
+const firstUrl = o => { if (!o) return ''; if (typeof o === 'string') return /^https?:\/\//.test(o) ? o : '';
+  const vals = Array.isArray(o) ? o : Object.values(o); for (const v of vals) { const u = firstUrl(v); if (u) return u; } return ''; };
+G.kreaRun = async (app, text, {signal, onStatus} = {}) => {
+  const a = typeof app === 'string' ? G.parseKrea(app) : app;
+  if (!a || !a.api) throw new Error('Для запуска через API вставьте в настройках пример запроса со страницы API app — из него Гриди возьмёт id и поле текста');
+  const job = await call(`/node-apps/${a.id}/execute`, {method: 'POST', body: JSON.stringify({[a.input]: String(text || '')}), signal});
+  const id = job.job_id; if (!id) throw new Error('Krea не вернула номер задачи');
+  const t0 = Date.now();
+  for (;;) {
+    if (signal && signal.aborted) { call(`/jobs/${id}`, {method: 'DELETE'}).catch(() => {}); throw Object.assign(new Error('cancel'), {name: 'AbortError'}); }
+    const j = await call(`/jobs/${id}`, {signal});
+    if (onStatus) onStatus(j.status, j.position, Math.round((Date.now() - t0) / 1000));
+    if (j.status === 'completed') { const u = firstUrl(j.result); if (!u) throw new Error('Krea закончила, но картинки в ответе нет'); return u; }
+    if (j.status === 'failed' || j.status === 'cancelled') throw new Error(j.status === 'failed' ? 'Krea: генерация не удалась' : 'Krea: задача отменена');
+    if (Date.now() - t0 > 10 * 60e3) throw new Error('Krea не успела за 10 минут — попробуйте позже');
+    await new Promise(res => setTimeout(res, 5000));
+  }
+};
+/* готовая картинка → файл для обрезки под слот; если хранилище Krea не отдаёт файл странице — ссылка, чтобы скачать вручную */
+G.kreaFile = async url => { try { const r = await fetch(url); if (!r.ok) throw 0; const bl = await r.blob(); return new File([bl], 'krea.' + ((bl.type.split('/')[1] || 'png').replace('jpeg', 'jpg')), {type: bl.type}); }
+  catch (e) { const err = new Error('Картинка готова, но браузер не может её забрать — откройте и загрузите вручную'); err.url = url; throw err; } };
 })();

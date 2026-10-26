@@ -111,6 +111,15 @@ G.pool = (b, page) => {
 /* ---------- балл: 100 минус штрафы ----------
    Грида статична: пустое поле шаблона — плохо, текст без поля — нельзя,
    длиннее лимита — обрежется. Медиа не учитывается. */
+/* пункт — один формат для карточек, шагов, списков: метка (время, дата, «Шаг 1»), заголовок, текст, подпись, кнопка.
+   Метка — короткая строка в начале пункта; если её нет, у шаблона с меткой Гриди ставит «Шаг N» */
+G.MARK_RE = /^(?:\d{1,2}[:.]\d{2}(?:\s*[–—-]\s*\d{1,2}[:.]\d{2})?|\d{1,2}(?:\s*[–—-]\s*\d{1,2})?\s+(?:январ|феврал|март|апрел|ма[яй]|июн|июл|август|сентябр|октябр|ноябр|декабр)[а-яё]*|\d{1,2}\.\d{1,2}(?:\.\d{2,4})?|(?:шаг|этап|день|неделя|урок|модуль|часть|неделя)\s*\d+|\d+\s*(?:мин|ч|час)[а-яё.]*)$/i;
+G.isMark = x => G.MARK_RE.test(String(x || '').trim());
+G.autoMark = i => 'Шаг ' + (i + 1);
+G.itemParts = it => { it = it || {};
+  if (it.title && G.isMark(it.title)) return {mark: it.title, title: it.text || '', text: it.meta || '', meta: '', cta: it.cta || '', markUsed: true};
+  return {mark: '', title: it.title || '', text: it.text || '', meta: it.meta || '', cta: it.cta || ''}; };
+const hasMarkF = t => !!(t && t.items && t.items.fields.some(f => f.role === 'mark'));
 G.score = (b, t, page) => {
   const bi = G.blockInfo(b), ti = G.tplInfo(t), s = G.src(b), why = [], bad = [];
   const sc = G.scenario(page.scenario), role = G.roleOf(sc, b.role), cta = isCtaRole(b.role);
@@ -165,15 +174,17 @@ G.score = (b, t, page) => {
       else if (bi.n < ti.n) pen('count', 20 * (ti.n - bi.n), `пустых элементов: ${ti.n - bi.n}`);
     }
     if (t.items) {
-      const rf = t.items.fields;
-      const need = {title: s.items.some(i => i.title), text: s.items.some(i => i.text), meta: s.items.some(i => i.meta), btn: s.items.some(i => i.cta)};
+      const iT = (t.items.fields.find(f => f.role === 'title') || {}).max || 140;
+      const rf = t.items.fields, its = hasMarkF(t) ? s.items.map(G.itemParts).map(i => !i.title && i.text && G.len(i.text) <= iT ? {...i, title: i.text, text: ''} : i) : s.items;
+      const need = {title: its.some(i => i.title), text: its.some(i => i.text), meta: its.some(i => i.meta), btn: its.some(i => i.cta)};
       const hasR = rr => rf.some(f => rr.includes(f.role));
       if (need.btn && !hasR(['btn'])) badk('design', 'у пунктов кнопки, в шаблоне нет');
       if (!need.btn && hasR(['btn'])) pen('design', 15, 'пустые кнопки у элементов');
       if (!need.meta && hasR(['meta'])) pen('fields', 15, 'пустые должности');
-      if (!need.text && hasR(['text']) && hasR(['title', 'num2'])) pen('fields', 15, 'пустой текст у элементов');
-      if (need.title && hasR(['title'])) { const k = s.items.filter(i => !i.title).length; if (k) pen('fields', 10 * k, `пустых заголовков у элементов: ${k}`); }
-      if (need.text && hasR(['text'])) { const k = s.items.filter(i => !i.text).length; if (k) pen('fields', 10 * k, `пустых текстов у элементов: ${k}`); }
+      /* у шага с меткой текст — по желанию: шаг может быть одной строкой */
+      if (!need.text && hasR(['text']) && hasR(['title', 'num2']) && !hasMarkF(t)) pen('fields', 15, 'пустой текст у элементов');
+      if (need.title && hasR(['title'])) { const k = its.filter(i => !i.title).length; if (k) pen('fields', 10 * k, `пустых заголовков у элементов: ${k}`); }
+      if (need.text && hasR(['text'])) { const k = its.filter(i => !i.text).length; if (k) pen('fields', 10 * k, `пустых текстов у элементов: ${k}`); }
     }
   } else if (t.items && !ti.form) badk('design', `ждёт ${ti.n} элементов`);
   if (bi.img && !ti.media) why.push('картинке нет места');
@@ -188,9 +199,10 @@ G.score = (b, t, page) => {
   const lost = v ? G.leftovers(b, t, v) : [];
   if (lost.length) badk('design', 'не встало в шаблон: ' + lost.map(x => `«${G.cut(x, 40)}»`).join(', '));
   /* смысловые проверки */
-  if (bi.n && s.items.every(i => /^\d{1,2}[:.]\d{2}/.test(i.title)) && t.layout !== 'program') badk('design', 'времени некуда');
+  /* метки (время, дата) без своего поля остаются заголовками пунктов: текст не теряется, шаблон годится */
+  /* шаги с меткой — для шагов: в пунктах есть метки или блок по роли — шаги («Как попасть», «Программа»); иначе преимущества стали бы шагами */
+  if (hasMarkF(t) && bi.n && !s.items.some(i => G.isMark(i.title)) && !G.roleFamily(b, page).has('Шаги')) badk('design', 'это не шаги');
   if (t.layout === 'people' && !(bi.iMeta || s.items.every(i => /^[А-ЯЁA-Z][а-яёa-z]+ [А-ЯЁA-Z][а-яёa-z]+/.test(i.title)))) badk('design', 'в пунктах нет людей');
-  if (t.layout === 'program' && !s.items.every(i => /^\d{1,2}[:.]\d{2}|\d+\s*(мин|ч)/i.test(i.title))) badk('design', 'в пунктах нет времени');
   if (ti.meta.some(f => f.role === 'qname') && !(bi.meta && bi.lead && !bi.n)) badk('design', 'это не цитата');
   if (t.layout === 'promo' && (bi.n || bi.meta)) badk('design', 'крупный текст без пунктов');
   if (ti.iTitle && ti.iTitle.role === 'num2' && bi.n && s.items.filter(i => /\d/.test(i.title)).length < bi.n / 2) badk('design', 'в пунктах нет чисел');
@@ -267,10 +279,15 @@ const autoFill0 = (b, t, page) => {
     const ti = G.tplInfo(t);
     const n = t.items.any ? Math.max(s.items.length, 1) : t.items.n;
     const src = ti.gallery && s.images.length ? s.images.map(c => ({title: '', text: c})) : s.items;
+    const mk = hasMarkF(t);
     for (let i = 0; i < n; i++) {
-      const it = src[i] || {}, o = {};
+      /* у шаблона с меткой пункт раскладывается как «метка — заголовок, текст»; метки нет — «Шаг N» */
+      const raw = src[i] || {}, it = mk && !ti.gallery ? {...G.itemParts(raw)} : raw, o = {};
+      /* пункт одной строкой, без заголовка: в шаге с меткой он и есть заголовок, если влезает */
+      if (mk && !it.title && it.text && ti.iTitle && G.len(it.text) <= (ti.iTitle.max || 140)) { it.title = it.text; it.text = ''; }
       for (const f of t.items.fields) {
         if (f.role === 'num') o[f.k] = String(i + 1);
+        else if (f.role === 'mark') o[f.k] = it.mark || (src[i] ? G.autoMark(i) : '');
         else if (f.role === 'title' || f.role === 'num2') o[f.k] = it.title || '';
         else if (f.role === 'itemFull') o[f.k] = it.title && it.text ? it.title + ' — ' + it.text : it.title || it.text || '';
         else if (f.role === 'meta') o[f.k] = it.meta || '';
@@ -281,7 +298,7 @@ const autoFill0 = (b, t, page) => {
       if (it.meta && !t.items.fields.some(f => f.role === 'meta')) { const tf = t.items.fields.find(f => ['text', 'itemFull'].includes(f.role)); if (tf) o[tf.k] = [o[tf.k], it.meta].filter(Boolean).join('\n'); }
       /* что из пункта не встало ни в одно поле — в пустые поля по порядку: текст не теряется */
       const used = new Set(Object.values(o).filter(Boolean)), left = [it.title, it.text, it.meta].filter(x => x && ![...used].some(u => u.includes(x)));
-      for (const f of t.items.fields) if (!o[f.k] && left.length && !['num', 'btn'].includes(f.role)) o[f.k] = left.shift();
+      for (const f of t.items.fields) if (!o[f.k] && left.length && !['num', 'btn', 'mark'].includes(f.role)) o[f.k] = left.shift();
       items.push(o);
     }
   }
@@ -307,9 +324,12 @@ G.valuesToMarkup = (b, t, v) => {
   top.filter(f => ['badge', 'meta', 'qname', 'qcap'].includes(f.role) && has(get(f))).forEach(f => out.push('@ ' + get(f)));
   top.filter(f => ['lead', 'text', 'body', 'cap', 'table', 'num2'].includes(f.role) && has(get(f))).forEach(f => out.push(String(get(f))));
   if (b.images && b.images.main && has(b.images.main.alt)) out.push('[картинка] ' + b.images.main.alt);
-  if (t.items) (v.items || []).forEach(it => {
+  if (t.items) (v.items || []).forEach((it, i) => {
     const F = t.items.fields, val = r => { const f = F.find(x => r.includes(x.role) && has(it[x.k])); return f ? String(it[f.k]) : ''; };
-    const ti = val(['title', 'num2']), tx = val(['text', 'itemFull']), me = val(['meta', 'cap']), bt = val(['btn']);
+    /* метка «Шаг N», поставленная Гриди, в текст не пишется: в тексте только то, что написал автор */
+    const mk = val(['mark']), mark = mk && mk !== G.autoMark(i) ? mk : '';
+    let ti = val(['title', 'num2']), tx = val(['text', 'itemFull']), me = val(['meta', 'cap']); const bt = val(['btn']);
+    if (mark) { me = [tx, me].filter(Boolean).join(' · '); tx = ti; ti = mark; }
     if (ti || tx) out.push('- ' + [ti, tx].filter(Boolean).join(' — '));
     if (me) out.push((ti || tx ? '@ ' : '- ') + me);
     if (bt) out.push('[кнопка] ' + bt);
