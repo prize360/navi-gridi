@@ -23,7 +23,7 @@ G.imageSlots = (b, page) => {
 };
 
 /* «Не разобрано» (служебное) на страницу и в вёрстку не идёт */
-const blockRows = (page) => page.blocks.filter(b => b.role !== 'unparsed').map((b, i) => {
+const blockRows = (page) => page.blocks.filter(b => b.role !== 'unparsed' && !G.isEmpty(b)).map((b, i) => {
   const t = G.tpl(b.tpl), v = G.values(b, page) || {top: {}, items: []}, sc = G.scenario(page.scenario);
   return {i: i + 1, b, t, v, role: G.roleOf(sc, b.role).name, imgs: G.imageSlots(b, page)};
 });
@@ -158,7 +158,7 @@ const clean = o => { const c = {...o}; delete c._local; delete c._base; delete c
 G.pagePack = (page, {full = false} = {}) => {
   const sc = G.lib.get('scenarios', page.scenario), ids = [...new Set(page.blocks.map(b => b.tpl).filter(Boolean))];
   const tpls = ids.map(id => G.tpl(id)).filter(t => t && !t.component && (full || t._local || t.imported)).map(clean);
-  const blocks = page.blocks.map(b => { const o = {role: b.role, text: b.text}; if (b.tpl) o.tpl = b.tpl; if (b.tplLock) o.lock = 1;
+  const blocks = page.blocks.filter(b => !G.isEmpty(b)).map(b => { const o = {role: b.role, text: b.text}; if (b.tpl) o.tpl = b.tpl; if (b.tplLock) o.lock = 1;
     const ic = {}; Object.entries(b.images || {}).forEach(([k, v]) => { if (v && v.icon) ic[k] = {icon: v.icon}; if (full && v && v.data) ic[k] = {...(ic[k] || {}), data: v.data, alt: v.alt}; }); if (Object.keys(ic).length) o.images = ic; return o; });
   return {gridi: 2, library: G.lib.version(), scenario: sc && (full || sc._local) ? clean(sc) : null, templates: tpls, page: {name: page.name, scenario: page.scenario, blocks}};
 };

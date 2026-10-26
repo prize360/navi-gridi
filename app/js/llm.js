@@ -174,6 +174,7 @@ G.applyParse = (page, json) => {
         if (T.has(i) && raw.length <= 120) { const h = heads ? 'h3' : role === 'hero' ? 'h1' : 'h2'; heads++; return mark(`[${h}] ${raw}`); }
         if (SP.has(i)) { const pre = SP.get(i); return mark('- ' + pre + ' — ' + raw.slice(pre.length).replace(/^[\s—–:.-]+/, '')); }
         if (I.has(i) && raw.length <= 300) return mark('- ' + raw);
+        /* подпись, которую отметила модель: под пунктом — продолжение пункта через « — », иначе абзац (G.dropMeta ниже) */
         if (M.has(i) && raw.length <= 120) return mark('@ ' + raw);
         return l; }).join('\n');
       const tx = text;
@@ -181,10 +182,12 @@ G.applyParse = (page, json) => {
       return b;
     });
     /* первый экран один: соседние блоки с этой ролью — один блок, строки без разметки под заголовком — подписи */
-    for (let i = blocks.length - 1; i > 0; i--) if (blocks[i].role === 'hero' && blocks[i - 1].role === 'hero') { blocks[i - 1].text += '\n' + blocks[i].text.split('\n').map(l => MARK.test(l) || l.length > 80 ? l : '@ ' + l).join('\n'); blocks[i - 1].tips = [...(blocks[i - 1].tips || []), ...(blocks[i].tips || [])]; blocks.splice(i, 1); }
+    for (let i = blocks.length - 1; i > 0; i--) if (blocks[i].role === 'hero' && blocks[i - 1].role === 'hero') { blocks[i - 1].text += '\n' + blocks[i].text.split('\n').map(l => l).join('\n'); blocks[i - 1].tips = [...(blocks[i - 1].tips || []), ...(blocks[i].tips || [])]; blocks.splice(i, 1); }
     page.blocks = blocks; page.story = (json.story || []).filter(Boolean).map(String); page.parsedBy = 'model';
   }
   page.markFixes = page.parsedBy === 'model' ? fixes : [];
+  /* подписи «@» в тексте не остаются: под пунктом — продолжение пункта, иначе абзац */
+  page.blocks.forEach(b => { if (/^\s*@/m.test(b.text)) b.text = G.dropMeta(b.text); });
   /* текст длиннее лимита разбора — хвост по разметке */
   if (rest) { const tail = G.newPage('', page.scenario, rest); G.assemble(tail); page.blocks.push(...tail.blocks); }
   page.blocks.forEach(b => { const s0 = G.src(b); if (s0.table && !s0.items.length && !b.tplLock && b.role !== 'unparsed') { b.tpl = 'table'; b.tplLock = true; } });
@@ -206,7 +209,7 @@ G.assemble = page => {
       if (isH1) { start('hero', l); mode = 'hero'; continue; }
       if (mode === 'hero' && (isMeta)) { cur.lines.push(l); continue; }
       /* короткие строки сразу под заголовком (автор, дата, рубрика) — подписи первого экрана */
-      if (mode === 'hero' && cur.lines.length < 4 && !/^\[|^(?:[-–•*]|\d+[.)])\s/.test(l) && l.length <= 80 && !/[.!?…]$/.test(l)) { cur.lines.push('@ ' + l); continue; }
+      if (mode === 'hero' && cur.lines.length < 4 && !/^\[|^(?:[-–•*]|\d+[.)])\s/.test(l) && l.length <= 80 && !/[.!?…]$/.test(l)) { cur.lines.push(l); continue; }
       /* раздел: заголовок, открывающий блок, — H2 (H3 исходника тоже: в гриде это самостоятельный блок) */
       if (isH2) { start('content', l.replace(/^\[h3\]/i, '[h2]')); if (/^\[h3\]/i.test(l)) h3s.add(blocks.length); mode = 'text'; continue; }
       if (isImg) { if (mode !== 'img') { start('vrez'); mode = 'img'; } cur.lines.push(l); continue; }

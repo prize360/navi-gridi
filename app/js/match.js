@@ -82,7 +82,8 @@ G.leftovers = (b, t, v) => {
   if (s.title && !has(s.title)) out.push(s.title);
   s.meta.forEach(m => { if (!has(m) && !m.split(/\s*[,—–]\s*/).every(has)) out.push(m); });
   s.paras.forEach(p => { if (!has(p)) out.push(p); });
-  s.items.forEach(i => [i.title, i.text, i.meta, i.cta].forEach(x => { if (x && !has(x) && !String(x).split('\n').every(has)) out.push(x); }));
+  /* пункт мог разойтись по слотам через « — »: должность и тема, тема и описание шага */
+  s.items.forEach(i => [i.title, i.text, i.meta, i.cta].forEach(x => { if (x && !has(x) && !String(x).split(/\n|\s+—\s+/).every(has)) out.push(x); }));
   s.cta.forEach(c => { if (!has(c)) out.push(c); });
   return out;
 };
@@ -117,7 +118,9 @@ G.MARK_RE = /^(?:\d{1,2}[:.]\d{2}(?:\s*[–—-]\s*\d{1,2}[:.]\d{2})?|\d{1,2}(?:
 G.isMark = x => G.MARK_RE.test(String(x || '').trim());
 G.autoMark = i => 'Шаг ' + (i + 1);
 G.itemParts = it => { it = it || {};
-  if (it.title && G.isMark(it.title)) return {mark: it.title, title: it.text || '', text: it.meta || '', meta: '', cta: it.cta || '', markUsed: true};
+  if (it.title && G.isMark(it.title)) { let title = it.text || '', text = it.meta || '';
+    if (!text && / — /.test(title)) { const k = title.indexOf(' — '); text = title.slice(k + 3).trim(); title = title.slice(0, k).trim(); }
+    return {mark: it.title, title, text, meta: '', cta: it.cta || '', markUsed: true}; }
   return {mark: '', title: it.title || '', text: it.text || '', meta: it.meta || '', cta: it.cta || ''}; };
 const hasMarkF = t => !!(t && t.items && t.items.fields.some(f => f.role === 'mark'));
 G.score = (b, t, page) => {
@@ -147,7 +150,8 @@ G.score = (b, t, page) => {
   /* метаданные */
   const metaF = has(['badge', 'meta', 'qname', 'qcap']);
   if (s.meta.length && !metaF.length && !ti.iMeta) badk('design', 'метаданным нет поля');
-  if (!s.meta.length) metaF.forEach(f => pen('fields', 20, `пустое поле «${f.label}»`));
+  const v0 = G.autoFill(b, t, page);
+  metaF.forEach(f => { if (!v0 || !String(v0.top[f.k] || '').trim()) pen('fields', 20, `пустое поле «${f.label}»`); });
   /* кнопки блока */
   const btnF = ti.btn, btnB = s.cta.length || (cta && (ti.btn || ti.form) ? 1 : 0);
   if (btnB > btnF && !ti.form) badk('design', btnF ? 'кнопок больше, чем полей' : 'в тексте кнопка, в шаблоне её нет');
@@ -180,6 +184,7 @@ G.score = (b, t, page) => {
       const hasR = rr => rf.some(f => rr.includes(f.role));
       if (need.btn && !hasR(['btn'])) badk('design', 'у пунктов кнопки, в шаблоне нет');
       if (!need.btn && hasR(['btn'])) pen('design', 15, 'пустые кнопки у элементов');
+      const metaK = (rf.find(f => f.role === 'meta') || {}).k; if (metaK && v0 && (v0.items || []).some(o => o[metaK])) need.meta = true;
       if (!need.meta && hasR(['meta'])) pen('fields', 15, 'пустые должности');
       /* у шага с меткой текст — по желанию: шаг может быть одной строкой */
       if (!need.text && hasR(['text']) && hasR(['title', 'num2']) && !hasMarkF(t)) pen('fields', 15, 'пустой текст у элементов');
@@ -259,11 +264,21 @@ const autoFill0 = (b, t, page) => {
   /* кнопки после списка разбор цепляет к последнему пункту; если у пунктов шаблона кнопок нет — это кнопки блока */
   const itemBtns = t.items && !t.items.fields.some(f => f.role === 'btn') ? s.items.map(i => i.cta).filter(Boolean) : [];
   const own = [...itemBtns, ...s.cta], btns = own.length ? own : (isCtaRole(b.role) && sc.button ? [sc.button] : []);
-  for (const f of t.fields || []) {
+  /* слоты шаблона — по порядку из абзацев блока (подписи «@» больше нет):
+     бейдж — короткая первая строка без точки, если после неё есть текст; автор цитаты — короткая последняя строка;
+     два текстовых поля — первый абзац в первое (подзаголовок), остальное — во второе */
+  const F = t.fields || [], P = [...s.paras], textFs = F.filter(f => TEXT_ROLES.includes(f.role) && f.role !== 'table');
+  const short = (x, n) => x && G.len(x) <= n && !/[.!?…]$/.test(x.trim());
+  if (!metas.length && F.some(f => f.role === 'qname') && P.length >= 2 && short(P[P.length - 1], 90)) metas.push(P.pop());
+  if (!metas.length && F.some(f => f.role === 'badge' || f.role === 'meta') && P.length >= (textFs.length ? 2 : 1) && short(P[0], 60)) metas.push(P.shift());
+  if (!s.table) lead = P.join('\n\n');
+  const leads = textFs.length >= 2 && P.length >= 2 ? [P[0], P.slice(1).join('\n\n')] : [lead];
+  let li = 0;
+  for (const f of F) {
     let v = '';
     if (f.role === 'title' && !titleUsed) { v = G.needsHead(b, t) ? '' : s.title; titleUsed = true; }
     else if (f.role === 'title') v = '';
-    else if (TEXT_ROLES.includes(f.role)) { v = lead; lead = ''; }
+    else if (TEXT_ROLES.includes(f.role)) { v = leads[li++] || ''; if (li >= leads.length) lead = ''; }
     else if (f.role === 'btn') v = btns[btn++] || '';
     else if (f.role === 'badge' || f.role === 'meta') { v = metas.splice(0, metas.length).join(' · '); }
     else if (f.role === 'qname' || f.role === 'qcap') {
@@ -282,7 +297,9 @@ const autoFill0 = (b, t, page) => {
     const mk = hasMarkF(t);
     for (let i = 0; i < n; i++) {
       /* у шаблона с меткой пункт раскладывается как «метка — заголовок, текст»; метки нет — «Шаг N» */
-      const raw = src[i] || {}, it = mk && !ti.gallery ? {...G.itemParts(raw)} : raw, o = {};
+      const raw = src[i] || {}, it = mk && !ti.gallery ? {...G.itemParts(raw)} : {...raw}, o = {};
+      /* должность и тема без подписи: «Имя — должность — тема» — второе тире делит текст пункта на подпись и текст */
+      if (!mk && !it.meta && t.items.fields.some(f => f.role === 'meta') && / — /.test(it.text || '')) { const k = it.text.indexOf(' — '); Object.assign(it, {meta: it.text.slice(0, k).trim(), text: it.text.slice(k + 3).trim()}); }
       /* пункт одной строкой, без заголовка: в шаге с меткой он и есть заголовок, если влезает */
       if (mk && !it.title && it.text && ti.iTitle && G.len(it.text) <= (ti.iTitle.max || 140)) { it.title = it.text; it.text = ''; }
       for (const f of t.items.fields) {
@@ -321,17 +338,19 @@ G.valuesToMarkup = (b, t, v) => {
   if (has(v.head)) out.push(`[${lvl}] ${v.head}`);
   const top = t.fields || [], get = f => v.top[f.k];
   top.filter(f => f.role === 'title' && has(get(f))).forEach(f => out.push(`[${b.role === 'hero' ? 'h1' : has(v.head) ? 'h3' : lvl}] ${get(f)}`));
-  top.filter(f => ['badge', 'meta', 'qname', 'qcap'].includes(f.role) && has(get(f))).forEach(f => out.push('@ ' + get(f)));
+  const qm = top.filter(f => ['qname', 'qcap'].includes(f.role) && has(get(f))).map(get).join(', ');
+  top.filter(f => ['badge', 'meta'].includes(f.role) && has(get(f))).forEach(f => out.push(String(get(f))));
   top.filter(f => ['lead', 'text', 'body', 'cap', 'table', 'num2'].includes(f.role) && has(get(f))).forEach(f => out.push(String(get(f))));
+  if (qm) out.push(qm);
   if (b.images && b.images.main && has(b.images.main.alt)) out.push('[картинка] ' + b.images.main.alt);
   if (t.items) (v.items || []).forEach((it, i) => {
     const F = t.items.fields, val = r => { const f = F.find(x => r.includes(x.role) && has(it[x.k])); return f ? String(it[f.k]) : ''; };
     /* метка «Шаг N», поставленная Гриди, в текст не пишется: в тексте только то, что написал автор */
     const mk = val(['mark']), mark = mk && mk !== G.autoMark(i) ? mk : '';
     let ti = val(['title', 'num2']), tx = val(['text', 'itemFull']), me = val(['meta', 'cap']); const bt = val(['btn']);
-    if (mark) { me = [tx, me].filter(Boolean).join(' · '); tx = ti; ti = mark; }
-    if (ti || tx) out.push('- ' + [ti, tx].filter(Boolean).join(' — '));
-    if (me) out.push((ti || tx ? '@ ' : '- ') + me);
+    /* пункт одной строкой: метка — заголовок — подпись — текст; подписи «@» нет */
+    const parts = mark ? [mark, ti, me, tx] : [ti, me, tx];
+    if (parts.some(Boolean)) out.push('- ' + parts.filter(Boolean).join(' — '));
     if (bt) out.push('[кнопка] ' + bt);
   });
   top.filter(f => f.role === 'btn' && has(get(f))).forEach((f, i) => { const u = s.urls[i]; out.push(u ? `[кнопка] ${get(f)} | ${u}` : '[кнопка] ' + get(f)); });
@@ -354,10 +373,12 @@ G.overflow = (b, page) => {
 /* ---------- проверки ---------- */
 const BAD_CTA = /^(подробнее|узнать больше|нажмите|кликните|перейти|далее|здесь|отправить|читать далее|ок|ok)$/i;
 const URGENT = /(только сегодня|успейте|успеть|последний шанс|осталось\s+\d+\s+мест|места ограничены|торопитесь|спешите)/i;
-G.checks = page => {
+G.checks = page0 => {
+  /* пустые блоки — маска сценария: на страницу не идут, проверяется только написанное */
+  const page = {...page0, blocks: page0.blocks.filter(b => !G.isEmpty(b))};
   const sc = G.scenario(page.scenario), out = [], add = (level, text, block, fix) => out.push({level, text, block, fix});
   const art = sc.kind === 'article';
-  if (!page.blocks.length) { add('error', 'На странице нет блоков. Соберите страницу из текста.'); return out; }
+  if (!page.blocks.length) { add('info', 'Страница пока пустая: напишите текст в блоки или вставьте документ.'); return out; }
   /* М1: модель поправила разметку автора — показываем, что именно, чтобы автор мог вернуть своё в «Тексте» */
   const mf = page.markFixes || []; if (mf.length) add('warn', `Модель поправила разметку в ${G.num(mf.length, 'строке', 'строках', 'строках')}: ${mf.slice(0, 3).map(x => `«${G.cut(x.from, 40)}» → «${G.cut(x.to, 40)}»`).join('; ')}${mf.length > 3 ? '…' : ''}. Проверьте в «Тексте».`);
   /* ошибки — только то, что ломает гриду */
@@ -365,7 +386,9 @@ G.checks = page => {
   if (heroes.length > 1) add('error', `Первых экранов ${heroes.length} — на странице он один.`, heroes[1]);
   if (ctas.length > 1) add('error', `Целевых действий ${ctas.length} — на странице оно одно.`, ctas[1]);
   /* подсказки по сценарию: редактор может оставить как есть */
-  for (const r of sc.roles) if (r.req && !page.blocks.some(b => b.role === r.id)) add('warn', `Нет блока «${r.name}».`, null, {addRole: r.id});
+  /* структура: обязательный раздел сценария не написан — рекомендация на странице (пустой блок-маска уже есть — дописать его) */
+  /* пустой блок-маска уже подсказывает сам — рекомендация только когда раздела нет совсем */
+  for (const r of sc.roles) if (r.req && !page0.blocks.some(b => b.role === r.id)) add('info', `Обычно на странице есть «${r.name.split(':')[0]}» — добавьте этот раздел.`, null, {addRole: r.id});
   if (!art) {
     const order = sc.roles.map(r => r.id); let last = -1, broken = false;
     for (const b of page.blocks) { const i = order.indexOf(b.role); if (i >= 0) { if (i < last) broken = true; last = Math.max(last, i); } }
@@ -377,7 +400,7 @@ G.checks = page => {
   page.blocks.forEach((b, i) => {
     const s = G.src(b), t = G.tpl(b.tpl), name = G.roleOf(sc, b.role).name;
     if (s.level === 'h1') { h1++; if (b.role !== 'hero' && i > 0) add('error', 'H1 — только в первом экране.', b); }
-    if (!b.text.trim()) add('warn', `Пустой блок «${name}».`, b);
+    if (G.isEmpty(b)) return; /* пустой блок — маска сценария: на страницу не идёт, замечаний нет */
     if (!t) add('warn', `У блока «${name}» нет шаблона.`, b);
     else {
       if (!t.status.prod && !t.component) add('info', `«${name}»: нужен дизайн шаблона «${t.name}».`, b);
@@ -449,7 +472,7 @@ G.formFamily = b => { const s = G.src(b), it = s.items, bi = G.blockInfo(b), o =
   if (s.table || bi.table) o.push('Таблица');
   if (it.length && it.filter(x => /\?/.test(x.title || x.text)).length * 2 >= it.length) o.push('Аккордеон', 'Список');
   if (it.length >= 2 && it.every(x => /^\d{1,2}[:.]\d{2}/.test(x.title || x.text))) o.push('Шаги');
-  if (it.length >= 2 && it.every(x => /\d/.test(x.title || ''))) o.push('Цифры');
+  if (it.length >= 2 && it.every(x => /\d/.test(x.title || '')) && !it.every(x => G.isMark(x.title))) o.push('Цифры');
   if (s.images.length >= 2 && !it.length) o.push('Галерея');
   if (!it.length && /^[«"„“]/.test(s.lead || '') && s.meta.length) o.push('Цитата');
   return o; };
@@ -472,11 +495,21 @@ const bestOf = c => { const live = c.find(x => G.isLive(x.t)), need = c.find(x =
 const peers = (c, best) => c.filter(x => lv(x) <= Math.max(1, lv(best)) && G.isLive(x.t) === G.isLive(best.t));
 /* сколько вариантов у страницы для «Другого дизайна»: блоки, где есть из чего выбрать */
 G.designChoices = page => page.blocks.filter(b => b.role !== 'unparsed' && b.role !== 'content' && !b.tplLock).reduce((n, b) => { const c = G.candidates(b, page), best = bestOf(c); return n + (best && !G.tpl(best.t.id).component && peers(c, best).length > 1 ? 1 : 0); }, 0);
+/* маска сценария: пустой блок показывает пример своей роли — серым в «Тексте» и в шаблоне в «Шаблонах»; на страницу и в выгрузку не идёт */
+G.isEmpty = b => !String(b.text || '').trim();
+G.ghostText = (role, sc) => { const name = role.name.split(':')[0];
+  if (role.example) return role.example.replace(/\[кнопка\] ([^|\n]+?) \| \S+/g, '[кнопка] $1');
+  if (role.id === 'hero') return `[h1] Заголовок страницы\n${role.meaning ? role.meaning[0].toUpperCase() + role.meaning.slice(1) : 'Подзаголовок'}${sc.button ? '\n[кнопка] ' + sc.button : ''}`;
+  if (role.id === 'cta') return `[h2] ${name}\n${role.meaning || ''}${sc.button ? '\n[кнопка] ' + sc.button : ''}`;
+  if (role.items) return `[h2] ${name}\n- Пункт — ${role.meaning || 'пояснение'}\n- Пункт — пояснение\n- Пункт — пояснение`;
+  return `[h2] ${name}\n${role.meaning ? role.meaning[0].toUpperCase() + role.meaning.slice(1) + '.' : 'Текст блока.'}`; };
+G.ghostBlock = (b, page) => ({...b, text: G.ghostText(G.roleOf(G.scenario(page.scenario), b.role), G.scenario(page.scenario)), _src: null, _srcFor: null});
 G.autoPick = (page, force) => {
   const seed = page.seed || 0, uses = {}; let prev = null;
-  for (const [bi, b] of page.blocks.entries()) {
-    if (b.role === 'unparsed') continue;
-    if (b.tplLock && !force && G.tpl(b.tpl)) { uses[b.tpl] = (uses[b.tpl] || 0) + 1; prev = b.tpl; continue; }
+  for (const [bi, b0] of page.blocks.entries()) {
+    if (b0.role === 'unparsed') continue;
+    if (b0.tplLock && !force && G.tpl(b0.tpl)) { uses[b0.tpl] = (uses[b0.tpl] || 0) + 1; prev = b0.tpl; continue; }
+    const b = G.isEmpty(b0) ? G.ghostBlock(b0, page) : b0;
     const c = G.candidates(b, page), best = bestOf(c);
     let pick = best;
     if (best) {
@@ -487,12 +520,12 @@ G.autoPick = (page, force) => {
       if (free && bad(pick)) { const alt = eq.find(x => !bad(x)) || c.find(x => !bad(x) && lv(x) <= Math.max(2, lv(best)) && G.isLive(x.t) === G.isLive(best.t)); if (alt) pick = alt; }
     }
     const nt = pick ? pick.t.id : null;
-    if (nt !== b.tpl) { b.tpl = nt; b.values = null; }
+    if (nt !== b0.tpl) { b0.tpl = nt; b0.values = null; }
     if (nt) uses[nt] = (uses[nt] || 0) + 1; prev = nt;
   }
 };
 /* шаблоны, которых не хватает: ТЗ дизайнерам (служебное «Не разобрано» не считается) */
-G.missing = page => page.blocks.filter(b => b.role !== 'unparsed').filter(b => { const t = G.tpl(b.tpl); if (!t) return true; if (!G.isLive(t)) return true; return (G.score(b, t, page).tier || 0) >= 3; }).map(b => ({b, t: G.tpl(b.tpl), role: G.roleOf(G.scenario(page.scenario), b.role).name, need: G.blockSummary(b), best: G.rank(b, page)[0]}));
+G.missing = page => page.blocks.filter(b => b.role !== 'unparsed' && !G.isEmpty(b)).filter(b => { const t = G.tpl(b.tpl); if (!t) return true; if (!G.isLive(t)) return true; return (G.score(b, t, page).tier || 0) >= 3; }).map(b => ({b, t: G.tpl(b.tpl), role: G.roleOf(G.scenario(page.scenario), b.role).name, need: G.blockSummary(b), best: G.rank(b, page)[0]}));
 })();
 
 /* самопроверка шаблона: пробный текст → разметка → обратно в поля; что не вернулось на место — список полей */

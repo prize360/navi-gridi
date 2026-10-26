@@ -146,7 +146,7 @@ G.store = {
 
 /* ---------- разметка ----------
    Все правила — в документе разработки «Как Гриди разбирает текст». Номера в комментариях (Р1, В2…) — оттуда.
-   Строки: [h1] [h2] [h3] заголовки · абзац · «- пункт» · «@ подпись» · «[кнопка] текст | ссылка» · «[картинка] подпись» · «a | b | c» строка таблицы.
+   Строки: [h1] [h2] [h3] заголовки · абзац · «- пункт» (подпись — через « — ») · «[кнопка] текст | ссылка» · «[картинка] подпись» · «a | b | c» строка таблицы.
    Связи строк — только по их положению, смысл текста не угадывается. Пустые строки смысла не имеют. */
 const RX = {
   h: /^\[(h[1-4])\]\s*(.*)$/i, meta: /^@\s*(.*)$/, item: /^(?:[-–•*]|\d+[.)])\s+(.*)$/,
@@ -181,9 +181,17 @@ G.splitItems = raws => {
 /* Р6: таблица — две строки и больше с одинаковым числом « | » */
 const cols = l => String(l).split(' | ').length;
 G.isTable = rows => rows.length >= 2 && rows.every(r => r.includes(' | ') && !G.MARKED(r) && cols(r) === cols(rows[0]));
+/* подписи «@» больше нет (2026-10-26): подпись под пунктом становится продолжением пункта через « — »,
+   остальные — обычным абзацем. Шаблон сам расставляет текст по слотам */
+G.dropMeta = text => { const ls = String(text || '').split('\n'), out = [];
+  for (const l of ls) { const m = l.trim().match(RX.meta); if (!m) { out.push(l); continue; }
+    let j = out.length - 1; while (j >= 0 && !out[j].trim()) j--;
+    if (m[1].trim() && j >= 0 && G.lineKind(out[j]).k === 'li') out[j] = out[j].replace(/\s+$/, '') + ' — ' + m[1].trim();
+    else if (m[1].trim()) out.push(m[1].trim()); }
+  return out.join('\n'); };
 G.parse = text => {
   const src = {title: '', level: '', meta: [], paras: [], items: [], cta: [], images: [], urls: []};
-  const L = String(text || '').split('\n').map(x => x.trim()).filter(Boolean).map(G.lineKind)
+  const L = G.dropMeta(text).split('\n').map(x => x.trim()).filter(Boolean).map(G.lineKind)
     /* пустой заголовок — не заголовок; «заголовок» длиннее 120 знаков — абзац */
     .filter(x => !(/^h/.test(x.k) && !x.t)).map(x => /^h/.test(x.k) && x.t.length > 120 ? {k: 'p', t: x.t} : x)
     .map(x => x.k === 'h4' ? {...x, k: 'h3'} : x);
@@ -229,7 +237,7 @@ G.unmarkedLists = ls => {
   return out;
 };
 G.premark = text => {
-  const used = new Set(); let ls = String(text || '').split('\n');
+  const used = new Set(); let ls = G.dropMeta(text).split('\n');
   const l2 = G.unmarkedLists(ls); if (l2.some((l, i) => l !== ls[i])) used.add('В2'); ls = l2;
   /* В3: строка «Текст | https://…» без разметки — кнопка */
   ls = ls.map(l => { const t = l.trim(); if (!G.MARKED(t) && t.split(' | ').length === 2 && /^.{1,60}\s\|\s(?:https?:\/\/|www\.)\S+$/.test(t)) { used.add('В3'); return '[кнопка] ' + t; } return l; });
@@ -237,14 +245,14 @@ G.premark = text => {
 };
 G.serialize = (s, opts = {}) => {
   const o = [];
-  const meta = () => (s.meta || []).filter(Boolean).forEach(m => o.push('@ ' + m));
+  const meta = () => (s.meta || []).filter(Boolean).forEach(m => o.push(m));
   if (s.title) { o.push(`[${s.level || opts.level || 'h2'}] ${s.title}`); meta(); }
   if (s.lead) o.push(...String(s.lead).split(/\n+/).filter(Boolean));
   if (!s.title) meta();
   (s.items || []).forEach(i => {
     if (i.h3) { o.push('[h3] ' + i.title); if (i.text) o.push(...String(i.text).split('\n')); }
-    else o.push('- ' + (i.title && i.text ? i.title + (i.sep || ' — ') + i.text : i.title || i.text));
-    if (i.meta) o.push('@ ' + i.meta);
+    else o.push('- ' + (i.title && i.text ? i.title + (i.sep || ' — ') + i.text : i.title || i.text) + (i.meta ? ' — ' + i.meta : ''));
+    if (i.h3 && i.meta) o.push(i.meta);
     if (i.cta) o.push('[кнопка] ' + i.cta + (i.url ? ' | ' + i.url : ''));
   });
   (s.images || []).forEach(c => o.push('[картинка] ' + c));
