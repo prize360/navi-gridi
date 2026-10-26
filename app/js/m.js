@@ -248,6 +248,25 @@ const askVals = pr => new Promise(res => {
   s.$('#askOk').onclick = () => { const o = {}; pr.ask.forEach(a => o[a.k] = s.$('#ask-' + CSS.escape(a.k)).value.trim()); s.close(true); res(o); };
 });
 
+/* «Переписать текст» в режиме «Текст»: свой запрос к модели — вся страница или выбранный блок. Разметка, кнопки со ссылкой и таблицы сохраняются */
+const REW = ['Короче', 'Проще', 'На «вы»', 'Без канцелярита', 'Живее', 'Убрать повторы'];
+const rewriteSheet = () => { const p = A.page, b = A.sel && p.blocks.find(x => x.id === A.sel); let scope = b ? 'block' : 'page';
+  const s = sheet(`<div class="sh-h"><div><h2>Переписать текст</h2><p class="sub">Модель перепишет текст по вашему запросу. Разметку, кнопки со ссылкой и таблицы не тронет</p></div><button class="ib" data-close aria-label="Закрыть">${I.x}</button></div>
+    <div class="sh-b">${b ? `<div class="seg wide" id="rwSc"><button data-v="page">Весь текст</button><button data-v="block" class="on">${p.blocks.indexOf(b) + 1}. ${e(roleName(b))}</button></div>` : ''}
+      <label class="lbl" for="rwQ">Что сделать с текстом</label><textarea class="ta" rows="3" id="rwQ" placeholder="${e(G.prompt('rewrite').ask[0].placeholder)}"></textarea>
+      <div class="chips rw-q">${REW.map(x => `<button class="chip sm" data-q="${e(x)}">${e(x)}</button>`).join('')}</div></div>
+    <div class="sh-f"><button class="pill pri wide" id="rwGo">Переписать</button></div>`);
+  const q = s.$('#rwQ');
+  s.$$('[data-q]').forEach(x => x.onclick = () => { q.value = [q.value.trim(), x.dataset.q.toLowerCase()].filter(Boolean).join(', '); q.focus(); });
+  s.$$('#rwSc button').forEach(x => x.onclick = () => { scope = x.dataset.v; s.$$('#rwSc button').forEach(y => y.classList.toggle('on', y === x)); });
+  s.$('#rwGo').onclick = async () => { const req = q.value.trim(); if (!req) { q.focus(); return toast('Напишите, что сделать с текстом'); }
+    s.close(true);
+    try { const r = await G.runRewrite(p, scope === 'block' && b ? [b.id] : null, req);
+      p.blocks.forEach(x => { if (x.valuesBy === 'rewrite') { repick(x); x.valuesBy = null; } }); save(); editor();
+      toast(r.n ? `Переписано ${G.num(r.n, 'блок', 'блока', 'блоков')}${r.kept ? ` · ${G.num(r.kept, 'кнопку или строку таблицы', 'кнопки или строки таблицы', 'кнопок или строк таблицы')} Гриди вернул как было` : ''}` : 'Модель ничего не изменила');
+    } catch (err) { if (err.message !== 'cancel') toast(err.message); } };
+  setTimeout(() => q.focus(), 50); };
+
 /* пустое состояние: что здесь будет и одно-два действия */
 const empty = (title, text, acts = []) => `<div class="es"><b>${e(title)}</b>${text ? `<p>${e(text)}</p>` : ''}${acts.length ? `<div class="es-a">${acts.map(([id, label, pri]) => `<button class="pill sm ${pri ? 'pri' : ''}" data-es="${e(id)}">${e(label)}</button>`).join('')}</div>` : ''}</div>`;
 /* ---------- экраны ---------- */
@@ -325,8 +344,7 @@ const MEMO = [
   ['[h1] Заголовок', 'Заголовок страницы — один, в начале'],
   ['[h2] Заголовок', 'Новый раздел страницы'],
   ['[h3] Заголовок', 'Карточка: абзацы под ним — её текст'],
-  ['- Заголовок — текст', 'Пункт. Карточки, шаги и списки — всё пункты: Гриди сам разложит их по шаблону'],
-  ['- 10:00 — Регистрация', 'Пункт с меткой: время, дата или «Этап 1» встанут в метку шага. Без метки шаги пронумеруются сами'],
+  ['- Заголовок — текст', 'Пункт: из пунктов Гриди сам делает карточки, шаги или список. Время, дата или «Этап 1» в начале пункта — метка шага'],
   ['@ 12 ноября · Москва', 'Подпись к строке над ней: дата, место, должность'],
   ['[кнопка] Текст | ссылка', 'Кнопка. Если кнопка у каждого пункта — это кнопки карточек'],
   ['[картинка] Подпись', 'Место для картинки'],
@@ -412,7 +430,7 @@ const editor = () => {
   const title = `<b>${e(p.name)}</b><small>${e(sc().name)}${p.blocks.length ? ' · ' + (G.len(p.blocks.map(x => x.text).join('')) / 1000).toFixed(1).replace('.0', '') + 'k знаков' : ''}</small>`;
   $app.innerHTML = `<header class="hd" id="eHd"><div class="hd-edit"><div class="hfield" id="eField"></div><button class="ib round ok" id="eOk" aria-label="Готово">${I.check}</button></div>
     <button class="ib round" id="eBack" aria-label="Назад">${I.back}</button><button class="ttl" id="eTtl">${title}</button>
-      ${p.blocks.length && A.mode === 'page' && G.designChoices(p) ? `<button class="ib round" id="eAlt" aria-label="Другой дизайн" title="Другой дизайн: другие шаблоны того же смысла">${I.shuffle}</button>` : ''}${p.blocks.length ? `<button class="ib round" id="ePrev" aria-label="Превью">${I.eye}</button>
+      ${p.blocks.length && A.mode === 'note' ? `<button class="ib round" id="eRew" aria-label="Переписать текст" title="Переписать текст: свой запрос к модели">${I.pen}</button>` : ''}${p.blocks.length && A.mode === 'page' && G.designChoices(p) ? `<button class="ib round" id="eAlt" aria-label="Другой дизайн" title="Другой дизайн: другие шаблоны того же смысла">${I.shuffle}</button>` : ''}${p.blocks.length ? `<button class="ib round" id="ePrev" aria-label="Превью">${I.eye}</button>
       <button class="ib round dark" id="eOut" aria-label="Выгрузка">${I.out}${miss ? `<span class="badge ${report(p).grade.level}">${miss}</span>` : ''}</button>` : `<button class="ib round" id="eTune" aria-label="Настройки страницы">${I.tune}</button>`}</header>
     <main id="eMain"></main><div class="dock" id="eDock"><div id="eDockMain"><div class="bar"><div id="eAct"></div><i class="bar-div" aria-hidden="true"></i><div id="eSw"></div></div></div></div>`;
   $app.querySelector('#eBack').onclick = () => { if (A.sel) { unselect(); return; } save(); go('home'); };
@@ -422,6 +440,7 @@ const editor = () => {
   const pv = $app.querySelector('#ePrev'); if (pv) pv.onclick = () => preview();
   /* «Другой дизайн»: следующий вариант шаблонов внутри семейства, без модели; закреплённые вручную не трогаем */
   const alt = $app.querySelector('#eAlt'); if (alt) alt.onclick = () => { p.seed = (p.seed || 0) + 1; G.autoPick(p); save(); editor(); toast('Другие шаблоны того же смысла. Текст не влезает — «Поправить» в выгрузке.'); };
+  const rw = $app.querySelector('#eRew'); if (rw) rw.onclick = () => rewriteSheet();
   const out = $app.querySelector('#eOut'); if (out) out.onclick = exportView;
   if (!p.blocks.length) return draft();
   A.mode === 'note' ? notes() : canvas();
@@ -518,23 +537,29 @@ const pageSettings = () => {
    вид строки правится той же панелью. Памятка по разметке не нужна — неверную разметку поправит модель при сборке */
 const draft = () => {
   const p = A.page, main = $app.querySelector('#eMain'), L = lines(p.text);
-  main.innerHTML = `<div class="note draft-note"><div class="scmemo" id="dMemo"></div><p class="draft-hint">Вставьте текст из документа — заголовки, списки и ссылки разметятся сами. Размечать не обязательно. Или <button class="link" id="dBlank">начните с чистого листа</button>.</p>
+  main.innerHTML = `<div class="note draft-note"><div class="scmemo" id="dMemo"></div><p class="draft-hint">Вставьте текст из документа или пишите здесь — заголовки, списки и ссылки разметятся сами. Нажмите на блок в памятке — его заголовок встанет в текст.</p>
     <div class="ed draft-ed" contenteditable="true" spellcheck="true" data-id="__draft" data-ph="Вставьте или напишите текст">${(L.length ? L : [{k: 'p', t: ''}]).map(l => lineHTML(l.k, l.t)).join('')}</div></div>`;
   /* сценарий — памятка: какие блоки обычно есть на такой странице; обязательные — жирным. Порядок и названия — подсказка, Гриди разберёт сам */
   const memo = () => { const box = main.querySelector('#dMemo'), s0 = sc(), all = G.lib.all('scenarios');
     box.innerHTML = `<div class="memo-sc">${all.map(x => `<button class="chip sm ${x.id === s0.id ? 'on' : ''}" data-msc="${e(x.id)}">${e(x.name)}</button>`).join('')}</div>
-      <p class="memo-l"><span>Обычно на странице:</span> ${(s0.roles || []).map(r => r.req ? `<b>${e(r.name.split(':')[0])}</b>` : e(r.name.split(':')[0])).join(' · ')}</p>`;
+      <p class="memo-l"><span>Обычно на странице:</span> ${(s0.roles || []).map(r => `<button class="memo-r ${r.req ? 'req' : ''}" data-mr="${e(r.id)}">${e(r.name.split(':')[0])}</button>`).join('<i> · </i>')}</p>`;
+    box.querySelectorAll('[data-mr]').forEach(x => x.onclick = () => addHead(x.dataset.mr));
     box.querySelectorAll('[data-msc]').forEach(x => x.onclick = () => { p.scenario = x.dataset.msc; save(); memo(); const sm = $app.querySelector('#eTtl small'); if (sm) sm.textContent = sc().name; }); };
   memo();
   const ta = main.querySelector('.draft-ed'); bindEd(ta); fmtBar();
   const read = () => tidy([...ta.children].map(d => md(d.dataset.k, d.textContent.replace(/ /g, ' ').trim())));
   const empty0 = () => ta.classList.toggle('is-empty', !ta.textContent.trim() && ta.children.length <= 1);
   ta.addEventListener('input', () => { p.text = read(); save(); empty0(); }); empty0();
-  /* с чистого листа: блоки по сценарию без текста — текст можно написать или «Придумать» */
-  main.querySelector('#dBlank').onclick = async () => { const s0 = sc(), roles = (s0.roles || []).filter(r => r.req || r.id === 'hero').map(r => r.id);
-    if (!roles.includes('hero')) roles.unshift('hero'); if (roles.length < 2) roles.push(defRole());
-    p.blocks = roles.map(r => G.newBlock(r, '')); p.text = ''; A.mode = 'note'; await G.store.put(p); editor();
-    toast('Блоки сценария готовы — пишите текст или «Придумать текст» в меню ИИ'); };
+  /* блок из памятки — заголовок в конец текста и пустая строка под ним, курсор туда: пишите с нуля в том же редакторе.
+     Первый экран — пустой H1, целевое действие — заголовок и кнопка сценария */
+  const addHead = id => { const r = G.roleOf(sc(), id), ex = (String(r.example || '').match(/^\[h2\]\s*(.+)$/m) || [])[1], name = ex || r.name.split(':')[0];
+    while (ta.lastElementChild && !ta.lastElementChild.textContent.trim()) ta.lastElementChild.remove();
+    const add = (k, t) => { const d = mkLine(k, t); ta.appendChild(d); return d; };
+    let focus;
+    if (id === 'hero') focus = add('h1', '');
+    else { add('h2', name); if (id === 'cta' && sc().button) add('btn', sc().button); focus = add('p', ''); }
+    p.text = read(); save(); empty0();
+    const rg = document.createRange(); rg.selectNodeContents(focus); rg.collapse(true); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(rg); ta.focus(); focus.scrollIntoView({block: 'center'}); };
   /* вставка: построчно, с разметкой; после неё — сохранить текст (paste в редакторе строк не всегда даёт input) */
   ta.addEventListener('paste', () => setTimeout(() => { p.text = read(); save(); empty0(); }, 0));
   /* одна кнопка «Собрать»: разбор, шаблоны, укладка. Галочка — не переписывать текст: укладка не нужна */
@@ -880,20 +905,16 @@ const catalog = () => {
     const tag = !live ? 'Нужен дизайн' : G.TIERS[tier], tip = [l.name, l.sub, tier ? G.TIERS[tier] + (w ? ': ' + w : '') : '', !live ? 'шаблона нет в админке' : ''].filter(Boolean).join(' · ');
     return `<button class="tc ${r.t.id === b.tpl ? 'on' : ''} ${bad ? 'dim' : ''}" data-t="${e(r.t.id)}" title="${e(tip)}"><div class="tc-pv">${blockHTML(b, p, r.t)}${r.t.id === b.tpl ? `<i class="tc-ok">${I.check}</i>` : ''}</div>
       <span class="tc-n">${e(l.name)}</span><span class="tc-v ${bad || !live ? 'bad' : ''} ${!tier && live ? 'ok' : ''}">${e(tag)}</span></button>`; };
-  const roleChips = () => `<div class="cat-roles"><span class="lbl">Роль</span>${roleList().filter(r => r.id !== 'unparsed').map(r => `<button class="chip sm ${r.id === b.role ? 'on' : ''}" data-role-c="${e(r.id)}">${e(r.name.split(':')[0])}</button>`).join('')}</div>`;
   const list = () => tab === 'fit' ? ranked.filter(r => (r.tier || 0) <= 1) : ranked.filter(r => tplLabel(r.t).type === tab);
   const draw = () => { const L = list();
     cat.set(`<div class="sh-h"><div><h2>Шаблон · ${i + 1}. ${e(roleName(b))}</h2><p class="sub">${ranked.length} шаблонов</p></div><button class="ib round ok" data-close aria-label="Готово">${I.check}</button></div>
-      ${roleChips()}
       <div class="cat-tabs">${[['fit', 'Подходящие', ranked.filter(r => (r.tier || 0) <= 1).length], ...types.map(t => [t, t, ranked.filter(r => tplLabel(r.t).type === t).length])].map(([k, n, c]) => `<button class="chip ${k === tab ? 'on' : ''}" data-tab="${e(k)}">${e(n)} <i>${c}</i></button>`).join('')}</div>
       <div class="sh-b">${L.length ? `<div class="tgrid">${L.map(card).join('')}</div>` : !ranked.length ? empty('Шаблонов для этой роли нет', 'Попробуйте другую роль блока или добавьте шаблон в библиотеке.', [['role', 'Сменить роль', true]]) : empty('Подходящих шаблонов нет', 'Поменяйте текст блока или попробуйте другую роль. В категориях выше — все шаблоны и что в них придётся поменять.', [['text', 'Изменить текст', true], ['role', 'Сменить роль']])}</div>`);
-    requestAnimationFrame(() => { if (!cat) return; cat.$$('.tc-pv').forEach(x => x.style.setProperty('--k', x.clientWidth / 560)); const on = cat.$('.cat-roles .on'), row = cat.$('.cat-roles'); if (on && row) row.scrollLeft = on.offsetLeft - row.clientWidth / 2 + on.offsetWidth / 2; }); };
+    requestAnimationFrame(() => { if (!cat) return; cat.$$('.tc-pv').forEach(x => x.style.setProperty('--k', x.clientWidth / 560)); }); };
   if (cat) cat.close(true);
   cat = sheet('', {cls: 'full cat', onClose: () => { cat = null; }});
   draw();
   cat.root.addEventListener('click', ev => {
-    const rc = ev.target.closest('[data-role-c]');
-    if (rc) { if (setRole(b, rc.dataset.roleC)) { rerank(); tab = tab0(); redrawBlock(b); draw(); } return; }
     const tb = ev.target.closest('[data-tab]'), tp = ev.target.closest('[data-t]'), es = ev.target.closest('[data-es]');
     if (es) { const k = es.dataset.es; cat.close(); if (k === 'text') toText(b); if (k === 'role') roleSheet(b); return; }
     if (tb) { tab = tb.dataset.tab; draw(); cat.$('.sh-b').scrollTop = 0; }
@@ -1002,7 +1023,7 @@ const exportView = () => {
           <button class="row" id="xPdf"><b>PDF на согласование</b><small>Схема страницы в новой вкладке — сохраните её в PDF через печать</small></button>
           <button class="row" id="xZip"><b>Архив для вёрстки</b><small>Текст по полям, схема, картинки, ТЗ на картинки с именами слотов</small></button></div>
       </main>
-      ${canAll ? `<div class="dock"><div class="fixall"><p class="hint">${e([plan.model.length ? 'Модель поправит: ' + plan.model.join(', ') : '', plan.code ? 'Гриди сам поправит: ' + G.num(plan.code, 'ошибку', 'ошибки', 'ошибок') + ' разметки' : '', (() => { const no = [...plan.no.filter(x => x !== 'остальное — вручную'), ...(g.data.some(x => /без ссылки/.test(x.text)) ? ['ссылки у кнопок'] : []), ...(g.data.some(x => /нет (картинки|фото|иконки)/.test(x.text)) ? ['картинки и иконки'] : []), ...(g.data.some(x => /нужно от автора/.test(x.text)) ? ['пометки «нужно от автора»'] : []), ...(g.des.length ? ['дизайн шаблонов'] : [])]; return no.length ? 'Вручную останутся: ' + [...new Set(no)].join(', ') : ''; })()].filter(Boolean).join('. '))}</p><button class="pill grad wide" id="xFix">Поправить всё</button></div></div>` : ''}`;
+      ${canAll ? `<div class="dock"><div class="fixall"><button class="pill grad wide" id="xFix">Поправить всё</button></div></div>` : ''}`;
     el.querySelector('#xX').onclick = close;
     el.querySelectorAll('[data-hide]').forEach(x => x.onclick = ev => { ev.stopPropagation(); p.dismissed.push(g.recs[+x.dataset.hide].text); save(); draw(); });
     el.querySelectorAll('[data-go]').forEach(x => { x.onclick = ev => { if (ev.target.closest('button')) return; goTo(x.dataset.go); }; x.onkeydown = ev => { if (ev.key === 'Enter') goTo(x.dataset.go); }; });

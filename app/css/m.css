@@ -591,3 +591,9 @@ body.picking .tips{opacity:.4}
 .chip[disabled]{opacity:.7}
 .krea-in{min-height:52px;font-size:13px;font-family:var(--mono)}
 .krea-st{margin:4px 0 10px}
+.memo-r{display:inline;padding:0;border:0;background:none;font:inherit;color:inherit;cursor:pointer;text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:3px}
+.memo-r.req{color:var(--ink);font-weight:600}
+.memo-r:hover{color:var(--acc-ink);text-decoration-color:currentColor}
+.memo-l i{font-style:normal}
+.rw-q{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+#rwSc{margin-bottom:12px}
