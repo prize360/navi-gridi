@@ -830,3 +830,27 @@ label.row.pimg{cursor:pointer}
 .mt-pop button.on,.mt-pop button:hover{background:var(--bg)}
 .mt-pop small{color:var(--mute);font-size:12px}
 #eDock:has(#eDockMain:empty){display:none}
+
+/* ===== тест 9: markdown-вид текста ===== */
+.ln[data-tr]{font-variant-numeric:tabular-nums;background:var(--card);border-radius:8px;padding:6px 10px;margin:2px 0;box-shadow:inset 0 0 0 1px var(--line)}
+.ln[data-tr]+.ln[data-tr]{margin-top:-2px;border-top-left-radius:0;border-top-right-radius:0}
+.ln[data-tr]:has(+.ln[data-tr]){border-bottom-left-radius:0;border-bottom-right-radius:0}
+.tsep{display:inline-block;width:1px;height:1.1em;margin:0 14px;vertical-align:-3px;background:var(--soft2);user-select:none}
+.burl{display:inline-flex;align-items:center;margin-left:10px;padding:0 8px;height:20px;border-radius:10px;background:rgba(255,255,255,.18);color:rgba(255,255,255,.8);font:500 11px/20px var(--mono);cursor:pointer;vertical-align:1px;user-select:none}
+.burl::before{content:"↗";margin-right:4px}
+.nb-media{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0 4px;user-select:none}
+.nm{position:relative;height:64px;min-width:64px;max-width:160px;border-radius:10px;overflow:hidden;cursor:pointer;background:repeating-linear-gradient(135deg,#e7ebe7 0 8px,#eff2ef 8px 16px);display:grid;place-items:center;color:var(--mute);box-shadow:inset 0 0 0 1px var(--line)}
+.nm img{width:100%;height:100%;object-fit:cover;display:block}
+.nm span{display:flex;flex-direction:column;align-items:center;gap:2px}.nm span svg{width:18px;height:18px}.nm small{font:500 10px/1 var(--mono)}
+.nm:hover{box-shadow:inset 0 0 0 2px var(--ink)}
+.nm.ic{width:44px;height:44px;min-width:44px;background:var(--card)}.nm.ic svg{width:22px;height:22px;color:var(--ink)}
+.nm-cap{font:500 11px/1 var(--mono);color:var(--mute)}
+
+/* ===== тест 10 ===== */
+.ln[data-tr]{font-family:var(--mono);font-size:14px;background:transparent;box-shadow:none;padding:2px 0;border-radius:0}
+.ln[data-tr]+.ln[data-tr]{margin-top:0}
+.ln[data-tr]::before{content:"⊞"}
+/* линия между блоками в тексте */
+.nb-head{isolation:isolate}
+.nb-head::after{content:"";position:absolute;left:0;right:0;top:50%;height:1px;background:var(--line);z-index:-1}
+.nb{padding-top:4px}

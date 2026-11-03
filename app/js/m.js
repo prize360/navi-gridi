@@ -63,8 +63,9 @@ const noLink = (k, t) => k === 'btn' && t && !/\s\|\s+\S/.test(t) ? ' data-nolin
 /* гиперссылка внутри абзаца — «[текст](адрес)», это не кнопка; метатеги — «@дата», «@время», «@тип», «@чтение» */
 const MTAGS = [['дата', 'Дата'], ['время', 'Время'], ['тип', 'Тип страницы'], ['чтение', 'Время чтения']];
 const MT_RX = /@(дата|время|тип|чтение)(?![а-яё])/g, LINK_RX = /\[([^\]\n]+)\]\(((?:https?:\/\/|www\.|\/|#|mailto:|tel:)[^)\s]+)\)/g;
-const richLine = t => e(t).replace(LINK_RX, (m, a, u) => `<a class="il" data-u="${u}">${a}</a>`).replace(MT_RX, (m, k) => `<span class="mt" contenteditable="false" data-t="${k}">${(MTAGS.find(x => x[0] === k) || [k, k])[1]}</span>`);
-const lineMd = d => [...d.childNodes].map(n => n.nodeType === 3 ? n.textContent : n.nodeType !== 1 ? '' : n.classList.contains('mt') ? '@' + n.dataset.t : n.tagName === 'A' ? `[${lineMd(n)}](${n.dataset.u || n.getAttribute('href') || ''})` : n.tagName === 'BR' ? '' : lineMd(n)).join('');
+const richLine0 = t => e(t).replace(LINK_RX, (m, a, u) => `<a class="il" data-u="${u}">${a}</a>`).replace(MT_RX, (m, k) => `<span class="mt" contenteditable="false" data-t="${k}">${(MTAGS.find(x => x[0] === k) || [k, k])[1]}</span>`);
+const richLine = (t, k = 'p') => richLine0(t);
+const lineMd = d => [...d.childNodes].map(n => n.nodeType === 3 ? n.textContent : n.nodeType !== 1 ? '' : n.classList.contains('mt') ? '@' + n.dataset.t : n.classList.contains('tsep') ? ' | ' : n.classList.contains('burl') ? ' | ' + n.dataset.u : n.tagName === 'A' ? `[${lineMd(n)}](${n.dataset.u || n.getAttribute('href') || ''})` : n.tagName === 'BR' ? '' : lineMd(n)).join('');
 const MON2 = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
 const mtVal = (k, p = A.page) => { const d = new Date(); if (k === 'дата') return `${d.getDate()} ${MON2[d.getMonth()]} ${d.getFullYear()}`;
   if (k === 'время') return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
@@ -72,7 +73,7 @@ const mtVal = (k, p = A.page) => { const d = new Date(); if (k === 'дата') r
 /* на странице (Шаблоны, превью): метатеги — реальные значения, гиперссылки — ссылки */
 const pageRich = (html, p = A.page) => String(html).replace(MT_RX, (m, k) => e(mtVal(k, p))).replace(/\[([^\]<\n]+)\]\(((?:https?:\/\/|www\.|\/|#|mailto:|tel:)[^)\s<]+)\)/g, '<a href="$2" style="color:inherit;text-decoration:underline;text-underline-offset:3px">$1</a>');
 
-const lineHTML = (k, t) => `<div class="ln" data-k="${k}" data-g="${e((KIND[k] || KIND.p).g)}"${noLink(k, t)}>${t ? richLine(t) : '<br>'}</div>`;
+const lineHTML = (k, t) => `<div class="ln"${k === 'p' && t && t.includes(' | ') ? ' data-tr' : ''} data-k="${k}" data-g="${e((KIND[k] || KIND.p).g)}"${noLink(k, t)}>${t ? richLine(t, k) : '<br>'}</div>`;
 const mkLine = (k, t) => { const d = document.createElement('div'); d.className = 'ln'; d.dataset.k = k; d.dataset.g = (KIND[k] || KIND.p).g; if (t) d.textContent = t; else d.innerHTML = '<br>'; return d; };
 const setKind = (d, k) => { d.dataset.k = k; d.dataset.g = (KIND[k] || KIND.p).g; };
 
@@ -365,6 +366,9 @@ const MEMO = [
   ['[кнопка] Текст | ссылка', 'Кнопка'],
   ['[картинка] Подпись', 'Место для картинки'],
   ['Тариф | Срок | Цена', 'Таблица — от двух строк с одинаковым числом колонок'],
+  ['[текст](https://…)', 'Ссылка внутри абзаца — подчёркнутый текст. Выделите слова и нажмите кнопку ссылки'],
+  ['@дата  @время', 'Метка: на странице встанет сегодняшняя дата или текущее время. Напишите «@» — появится список'],
+  ['@тип  @чтение', 'Метка: тип страницы из сценария и время чтения по объёму текста'],
 ];
 const memo = () => sheet(`<div class="sh-h"><div><h2>Как писать текст</h2><p class="sub">Размечать не обязательно: модель разберёт текст сама и поправит неверную разметку. Таблицы и кнопки со ссылкой она не меняет.</p></div><button class="ib" data-close aria-label="Закрыть">${I.x}</button></div>
   <div class="sh-b"><div class="memo">${MEMO.map(([a, b]) => `<code>${e(a)}</code><span>${e(b)}</span>`).join('')}</div>
@@ -668,7 +672,7 @@ const notes = () => {
     ${tipPlate(null, p)}</div>`;
   main.querySelectorAll('.ed').forEach(bindEd); bindTips(main);
   main.querySelectorAll('[data-role]').forEach(x => x.onclick = ev => { ev.stopPropagation(); const b = p.blocks.find(y => y.id === x.dataset.role); if (ev.target.closest('[data-warn]')) return warnSheet(b); roleSheet(b); });
-  main.querySelectorAll('[data-nba]').forEach(x => x.onmousedown = ev => ev.preventDefault());
+  main.querySelectorAll('[data-nba]').forEach(x => x.onmousedown = ev => ev.preventDefault()); bindMedia(main);
   main.querySelectorAll('[data-nba]').forEach(x => x.onclick = ev => { ev.stopPropagation(); const b = p.blocks.find(y => y.id === x.dataset.id), i = p.blocks.indexOf(b), k = x.dataset.nba;
     if (k === 'more') return blockMenu(b.id);
     if (k === 'add') return addSheet(i + 1);
@@ -690,7 +694,7 @@ const sync = ed => {
   });
   if (!ed.children.length) ed.appendChild(mkLine('p', ''));
   const b = blockOf(ed); if (!b) return;
-  [...ed.children].forEach(d => d.toggleAttribute('data-nolink', !!noLink(d.dataset.k, lineMd(d).trim())));
+  [...ed.children].forEach(d => { const m0 = lineMd(d).trim(); d.toggleAttribute('data-nolink', !!noLink(d.dataset.k, m0)); d.toggleAttribute('data-tr', d.dataset.k === 'p' && m0.includes(' | ')); });
   b.text = tidy([...ed.children].map(d => md(d.dataset.k, lineMd(d).replace(/\u00a0/g, ' ').trim())));
   ed.classList.toggle('is-empty', G.isEmpty(b));
   b.values = null; save();
@@ -729,18 +733,28 @@ const bindEd = ed => {
   ed.addEventListener('keydown', ev => {
     const ln = curLine(); if (!ln || !ed.contains(ln)) return;
     if (ev.key === 'Enter' && ev.altKey) { ev.preventDefault(); A.line = ln; return splitBlock(); }
+    if (ev.key === 'Tab' && ln.hasAttribute('data-tr') && ln.childNodes.length === 1 && ln.firstChild.nodeType === 3) { ev.preventDefault();
+      const tn = ln.firstChild, t = tn.textContent, at = getSelection().getRangeAt(0).startOffset, rr = document.createRange();
+      const nx = ev.shiftKey ? t.lastIndexOf(' | ', Math.max(0, at - 4)) : t.indexOf(' | ', at); if (nx < 0) return;
+      const st = ev.shiftKey ? (t.lastIndexOf(' | ', nx - 1) < 0 ? 0 : t.lastIndexOf(' | ', nx - 1) + 3) : nx + 3, en = ev.shiftKey ? nx : (t.indexOf(' | ', st) < 0 ? t.length : t.indexOf(' | ', st));
+      rr.setStart(tn, st); rr.setEnd(tn, en); const sl2 = getSelection(); sl2.removeAllRanges(); sl2.addRange(rr); return; }
     if (ev.key === 'Enter' && !ev.shiftKey) {
       ev.preventDefault(); const {before, after} = splitAt(ln), k = ln.dataset.k;
       /* выход из списка: пустая строка остаётся разделителем — дальше текст и кнопки относятся к блоку, а не к пункту */
       if (k === 'li' && !before.trim() && !after.trim()) { setKind(ln, 'p'); const nl = mkLine('p', ''); ln.after(nl); caretTo(nl, 0); sync(ed); fmtSync(); return; }
-      if (before) ln.textContent = before; else ln.innerHTML = '<br>';
-      const nl = mkLine(k === 'li' ? 'li' : 'p', after); ln.after(nl); caretTo(nl, 0); sync(ed); return;
+      const sl0 = getSelection(), r0 = sl0.getRangeAt(0); if (!r0.collapsed) r0.deleteContents();
+      const tl = document.createRange(); tl.selectNodeContents(ln); tl.setStart(r0.endContainer, r0.endOffset); const frag = tl.extractContents();
+      if (!ln.textContent.trim() && !ln.querySelector('.mt')) ln.innerHTML = '<br>';
+      const nl = mkLine(k === 'li' ? 'li' : 'p', ''); if (frag.textContent.trim() || (frag.querySelector && frag.querySelector('.mt'))) { nl.innerHTML = ''; nl.appendChild(frag); }
+      ln.after(nl); const rr = document.createRange(); rr.setStart(nl, 0); rr.collapse(true); sl0.removeAllRanges(); sl0.addRange(rr); nl.closest('.ed').focus(); sync(ed); return;
     }
     if (ev.key === 'Backspace') {
       const s = getSelection(); if (!s.isCollapsed) return; const {before, after} = splitAt(ln); if (before) return;
       if (ln.dataset.k !== 'p') { ev.preventDefault(); setKind(ln, 'p'); sync(ed); fmtSync(); return; }
       const prev = ln.previousElementSibling; if (!prev) return;
-      ev.preventDefault(); const pt = prev.textContent; prev.textContent = pt + after; if (!prev.textContent) prev.innerHTML = '<br>'; ln.remove(); caretTo(prev, pt.length); sync(ed);
+      ev.preventDefault(); [...prev.childNodes].forEach(n => { if (n.nodeName === 'BR') n.remove(); }); const mark = document.createTextNode(''); prev.appendChild(mark);
+      [...ln.childNodes].forEach(n => { if (n.nodeName !== 'BR') prev.appendChild(n); }); if (!prev.textContent && !prev.querySelector('.mt')) prev.innerHTML = '<br>'; ln.remove();
+      const rr = document.createRange(); if (mark.isConnected) rr.setStartAfter(mark); else rr.setStart(prev, 0); rr.collapse(true); const sl1 = getSelection(); sl1.removeAllRanges(); sl1.addRange(rr); sync(ed);
     }
   });
   ed.addEventListener('paste', ev => {
@@ -841,6 +855,7 @@ const linkSheet = (ln, rg) => { const ed = ln && ln.closest('.ed'); if (!ed) ret
     const a = document.createElement('a'); a.className = 'il'; a.dataset.u = u; try { a.appendChild(rg.extractContents()); rg.insertNode(a); } catch (err) { return toast('Выделите текст внутри одного абзаца'); }
     sync(ed); s.close(true); toast('Ссылка добавлена'); };
   s.$('#lOk').onclick = go; s.$('#lUrl').onkeydown = ev => { if (ev.key === 'Enter') go(); }; };
+document.addEventListener('click', ev => { const u = ev.target.closest && ev.target.closest('.ed .burl'); if (!u) return; ev.preventDefault(); const ln = u.closest('.ln'); A.line = ln; btnSheet(ln); });
 /* клик по ссылке в тексте — сменить или убрать */
 document.addEventListener('click', ev => { const a = ev.target.closest && ev.target.closest('.ed a.il'); if (!a) return; ev.preventDefault(); const ed = a.closest('.ed');
   const s = sheet(`<div class="sh-h"><div><h2>Ссылка</h2><p class="sub">«${e(a.textContent.slice(0, 60))}»</p></div><button class="ib" data-close aria-label="Закрыть">${I.x}</button></div>
@@ -854,7 +869,7 @@ const splitBlock = () => {
   const ln = A.line; if (!ln || !ln.isConnected) return toast('Поставьте курсор в строку, с которой начнётся новый блок.');
   const ed = ln.closest('.ed'), b = blockOf(ed), p = A.page; if (!ln.previousElementSibling) return toast('Это уже начало блока.');
   const tail = []; let n = ln; while (n) { tail.push(n); n = n.nextElementSibling; }
-  const nb = G.newBlock(b.role === 'hero' ? defRole() : b.role, tidy(tail.map(d => md(d.dataset.k, d.textContent.trim()))));
+  const nb = G.newBlock(b.role === 'hero' ? defRole() : b.role, tidy(tail.map(d => md(d.dataset.k, lineMd(d).trim()))));
   tail.forEach(d => d.remove()); sync(ed); b.tplLock = false;
   p.blocks.splice(p.blocks.indexOf(b) + 1, 0, nb); save(); editor();
   const ned = $app.querySelector(`.ed[data-id="${nb.id}"]`); ned && caretTo(ned.firstChild, 0);
@@ -994,11 +1009,17 @@ const PAL_LBL = {gray: 'Серый', coolGray: 'Холодный серый', wa
    Тёмный фон (от 700) — текст светлый того же оттенка, и наоборот */
 const TONE = ['50', '150', '250', '400', '600', '800', '900', '1000'];
 const animOf = v => v === true ? {type: 'fade', trig: 'scroll'} : v && typeof v === 'object' ? v : null;
-const lookOf = (b, p) => { const pl = (p && p.look) || {}, bl = (b && b.look) || {};
-  const a = animOf(bl.anim) || animOf(pl.anim) || {type: 'none'}; return {bg: bl.bg || pl.bg || null, anim: {type: a.type, trig: 'scroll'}}; };
+const RHYTHM = [['none', 'Без ритма'], ['alt', 'Через один'], ['accent', 'Акценты'], ['up', 'Светлый → тёмный'], ['down', 'Тёмный → светлый']];
+const rhythmBg = (b, p) => { const pl = p.look || {}, r = pl.rhythm; if (!r || r === 'none' || !b) return undefined; const base = pl.bg || {hue: 'gray', step: '150'}, i = p.blocks.indexOf(b);
+  if (r === 'alt') return i % 2 ? base : null;
+  if (r === 'accent') return b.role === 'hero' || G.isCta(b) ? {hue: base.hue, step: '900'} : pl.bg || null;
+  if (r === 'up' || r === 'down') { const n = Math.max(1, p.blocks.length - 1), k = Math.round((r === 'up' ? i : n - i) / n * (TONE.length - 1)); return {hue: base.hue, step: TONE[k]}; } };
+const lookOf = (b, p) => { const pl = (p && p.look) || {}, bl = (b && b.look) || {}, rb = p ? rhythmBg(b, p) : undefined;
+  const a = animOf(bl.anim) || animOf(pl.anim) || {type: 'none'}; return {bg: bl.bg || (rb !== undefined ? rb : pl.bg) || null, anim: {type: a.type, trig: 'scroll'}}; };
 const tones = bg => { if (!bg) return null; const c = PAL.c[bg.hue]; if (!c) return null; const k = PAL.steps.indexOf(bg.step); if (k < 0) return null; const dark = k >= 9;
   return {bg: c[k], ink: dark ? c[0] : c[13], mute: dark ? c[4] : c[10], fill: dark ? c[k >= 12 ? k - 2 : k + 2] : c[k <= 3 ? k + 3 : k - 3], dark}; };
 const lookAttr = (b, p) => { const l = lookOf(b, p), t = tones(l.bg); return `${t ? `style="--lk-bg:${t.bg};--lk-ink:${t.ink};--lk-mute:${t.mute};--lk-fill:${t.fill}"` : ''} ${l.anim.type !== 'none' ? `data-anim="${l.anim.type}" data-trig="${l.anim.trig}"` : ''}`; };
+G.blockColors = (b, p) => { const t = tones(lookOf(b, p).bg); return t ? {background: t.bg, shape: t.fill, text: t.ink} : null; };
 const lookCls = (b, p) => tones(lookOf(b, p).bg) ? ' lk' : '';
 /* анимируются элементы блока, фон стоит на месте; медленнее и раньше — пока блок в середине экрана */
 const ANI_EL = '.wf>*,.wf-items>*';
@@ -1039,6 +1060,7 @@ const propSheet = (k, scope) => {
       body = `<p class="lbl">Цвет · ${hue ? PAL_LBL[hue] : 'нет'}</p>${strip('cHue', PAL.hues.map(h => [h, PAL.c[h][8], PAL_LBL[h]]), hue)}
         <p class="lbl">Тон${step ? ' · токен ' + step : ''}</p>${strip('cStep', TONE.map(st => [st, PAL.c[hue || 'gray'][PAL.steps.indexOf(st)], 'токен ' + st]), step)}
         <p class="hint">Цвета — токены палитры. На тёмном тоне текст становится светлым, на светлом — тёмным.${b && !own ? ' Сейчас — как у страницы.' : ''}</p>
+        ${b ? '' : `<p class="lbl">Ритм</p><div class="opts" id="cRh">${RHYTHM.map(([v, n]) => `<button class="${((p.look && p.look.rhythm) || 'none') === v ? 'on' : ''}" data-v="${v}">${n}</button>`).join('')}</div>`}
         <div class="es-a">${b ? `<button class="pill sm" id="cOff" ${own ? '' : 'disabled'}>Как у страницы</button>` : '<button class="pill sm" id="cAll">Сбросить у всех</button>'}</div>`; }
     s.set(head() + body + '</div>');
     s.$$('#pScope button').forEach(x => x.onclick = () => { b = x.dataset.v === 'block' ? selB : null; draw(); });
@@ -1053,8 +1075,9 @@ const propSheet = (k, scope) => {
     const aA = s.$('#aAll'); if (aA) aA.onclick = () => { p.blocks.forEach(x => { if (x.look) x.look.anim = null; }); setLook('anim', null); toast('Анимации сброшены у всех блоков'); };
     s.$$('#cHue button').forEach(x => x.onclick = () => { const cur = (tgt().look && tgt().look.bg) || lookOf(b, p).bg; setLook('bg', {hue: x.dataset.v, step: cur ? cur.step : '150'}); });
     s.$$('#cStep button').forEach(x => x.onclick = () => { const cur = (tgt().look && tgt().look.bg) || lookOf(b, p).bg; setLook('bg', {hue: cur ? cur.hue : 'gray', step: x.dataset.v}); });
+    s.$$('#cRh button').forEach(x => x.onclick = () => setLook('rhythm', x.dataset.v));
     const cO = s.$('#cOff'); if (cO) cO.onclick = () => setLook('bg', null);
-    const cA = s.$('#cAll'); if (cA) cA.onclick = () => { p.blocks.forEach(x => { if (x.look) x.look.bg = null; }); setLook('bg', null); toast('Цвет сброшен у всех блоков'); };
+    const cA = s.$('#cAll'); if (cA) cA.onclick = () => { p.blocks.forEach(x => { if (x.look) x.look.bg = null; }); p.look = {...(p.look || {}), rhythm: 'none'}; setLook('bg', null); toast('Цвет и ритм сброшены у всех блоков'); };
   };
   draw(); };
 
@@ -1088,7 +1111,7 @@ const typeMenu = ln => { const ed = ln.closest('.ed'), cur = ln.dataset.k;
     <p class="hint">Быстрее с клавиатуры: «## » — H2, «### » — H3, «- » — пункт, «@ » — данные, «---» — разделить блок.</p></div>`);
   s.$$('[data-tk]').forEach(x => x.onclick = () => { setKind(ln, x.dataset.tk); sync(ed); s.close(true); caretTo(ln, ln.textContent.length); noteDock(); }); };
 /* кнопка: текст строки + адрес; в разметке — «[кнопка] Текст | адрес» */
-const btnSheet = ln => { const ed = ln.closest('.ed'), was = ln.dataset.k === 'btn', sp = G.splitBtn(ln.textContent.trim());
+const btnSheet = ln => { const ed = ln.closest('.ed'), was = ln.dataset.k === 'btn', sp = G.splitBtn(lineMd(ln).trim());
   const s = sheet(`<div class="sh-h"><h2>Кнопка</h2><button class="ib" data-close aria-label="Закрыть">${I.x}</button></div>
     <div class="sh-b"><label class="lbl" for="bTx">Текст кнопки</label><input class="in" id="bTx" value="${e(sp.txt)}">
     <label class="lbl" for="bUrl">Ссылка</label><input class="in" id="bUrl" value="${e(sp.url)}" placeholder="https://" inputmode="url">
@@ -1129,7 +1152,7 @@ const paraAct = x => { const ln = A.line && A.line.isConnected ? A.line : null; 
   if (a === 'table') { /* таблица — компонент на весь блок: отдельный блок сразу после текущего */
     const p0 = A.page, nb = G.newBlock(b.role === 'hero' ? defRole() : b.role, 'Столбец 1 | Столбец 2 | Столбец 3\nЗначение | Значение | Значение\nЗначение | Значение | Значение');
     p0.blocks.splice(p0.blocks.indexOf(b) + 1, 0, nb); save(); A.jump = nb.id; editor();
-    const ned = $app.querySelector(`.ed[data-id="${nb.id}"]`), first = ned && ned.firstElementChild; if (first) { ned.focus(); const rg = document.createRange(); rg.selectNodeContents(first); const sl = getSelection(); sl.removeAllRanges(); sl.addRange(rg); }
+    const ned = $app.querySelector(`.ed[data-id="${nb.id}"]`), first = ned && ned.firstElementChild; if (first) { ned.focus(); const rg = document.createRange(), c0 = first.firstChild; if (c0 && c0.nodeType === 3) { rg.setStart(c0, 0); rg.setEnd(c0, c0.length); } else rg.selectNodeContents(first); const sl = getSelection(); sl.removeAllRanges(); sl.addRange(rg); }
     return toast('Таблица — отдельным блоком. Строка — ряд, « | » — граница столбцов'); }
   if (a === 'split') return splitBlock();
   if (a === 'add') return addSheet(A.page.blocks.indexOf(b) + 1);
@@ -1159,6 +1182,18 @@ const metaSheet = ln => { const ed = ln.closest('.ed'); let chips = ln.textConte
       const go = () => { let v = inp.value.trim(); if (!v) return; if (f[2] === 'date') { const [y, m, d0] = v.split('-').map(Number); v = `${d0} ${MON[m - 1]}${y !== new Date().getFullYear() ? ' ' + y : ''}`; } chips.push(v); put(); draw(); };
       ad.onclick = go; inp.onkeydown = ev => { if (ev.key === 'Enter') go(); }; } };
   draw(); };
+
+
+/* картинки и иконки шаблона — в тексте под блоком: видно, что шаблон их ждёт, загрузка — прямо отсюда */
+const mediaStrip = (b, p) => { if (G.isEmpty(b)) return ''; const sl = G.imageSlots(b, p), ic = iconSlots(b); if (!sl.length && !ic.length) return '';
+  return `<div class="nb-media" contenteditable="false">${sl.map(o => `<label class="nm ${o.data ? 'has' : ''}" title="${o.data ? 'Заменить' : 'Загрузить'} · ${e(o.ratio)}" style="aspect-ratio:${o.ratio.replace(':', '/')}"><input type="file" accept="image/*" hidden data-upb="${e(b.id)}" data-key="${e(o.key)}">${o.data ? `<img src="${o.data}" alt="${e(o.alt || '')}">` : `<span>${sd('Picture', I.img)}<small>${e(o.ratio)}</small></span>`}</label>`).join('')}
+    ${ic.map(o => { const f = G.iconFor(b, o.key); return `<button class="nm ic" data-icb="${e(b.id)}" data-ick="${e(o.key)}" title="Сменить иконку">${f ? f.ic.svg : sd('StarCircle', I.icons)}</button>`; }).join('')}<span class="nm-cap">${sl.length ? 'картинки в шаблоне блока' : 'иконки в шаблоне блока'}</span></div>`; };
+const bindMedia = root => {
+  root.querySelectorAll('.nb-media [data-icb]').forEach(x => x.onclick = ev => { ev.preventDefault(); const bb = A.page.blocks.find(y => y.id === x.dataset.icb); pickIcon(bb, x.dataset.ick, () => notes()); });
+  root.querySelectorAll('.nb-media [data-upb]').forEach(x => x.onchange = async () => { const f = x.files[0]; if (!f) return; if (f.size > 25e6) return toast('Картинка больше 25 МБ — выберите поменьше.');
+    const bb = A.page.blocks.find(y => y.id === x.dataset.upb), o = G.imageSlots(bb, A.page).find(y => y.key === x.dataset.key); if (!o) return;
+    try { const r = await webImage(f, o.ratio, o.size, o.kind); bb.images = bb.images || {}; bb.images[o.key] = {...(bb.images[o.key] || {}), data: r.data}; save(); notes(); toast(`Картинка ${r.w}×${r.h}${r.cropped ? ' — обрезана под ' + o.ratio : ''}`); }
+    catch (err) { toast('Не удалось открыть картинку: ' + err.message); } }); };
 
 /* замечание к блоку — коротко и с действием */
 /* как в выгрузке: ошибки и правила Нави — красные, лимиты текста — оранжевые */

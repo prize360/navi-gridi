@@ -40,7 +40,8 @@ G.exportParts = page => {
       if (!r.t) { o.push(`## ${r.i}. ${r.role} — шаблон не выбран`, '', G.src(r.b).lead, ''); continue; }
       const tags = [!r.t.status.prod && !r.t.component ? 'нужен дизайн' : ''].filter(Boolean);
       if (r.v.head) o.push(`## ${r.i}а. ${G.headTpl(r.b)} — заголовок`, `**${G.src(r.b).level === 'h3' ? 'H3' : 'H2'}:** ${r.v.head}`, '');
-      o.push(`## ${r.i}. ${r.t.name}${tags.length ? ` (${tags.join('; ')})` : ''}`, `Роль: ${r.role}`, '');
+      const clr = G.blockColors && G.blockColors(r.b, page);
+      o.push(`## ${r.i}. ${r.t.name}${tags.length ? ` (${tags.join('; ')})` : ''}`, `Роль: ${r.role}`, ...(clr ? [`Цвета: фон ${clr.background}, фигура ${clr.shape}, текст ${clr.text}`] : []), '');
       for (const f of r.t.fields || []) if (r.v.top[f.k]) o.push(`**${f.label}:** ${String(r.v.top[f.k]).replace(/\n/g, '\n\n')}`, '');
       (r.v.items || []).forEach((it, k) => { const line = r.t.items.fields.filter(f => f.role !== 'num' && it[f.k]).map(f => `${f.label}: ${it[f.k]}`).join(' / '); if (line) o.push(`${k + 1}. ${line}`); });
       if ((r.v.items || []).length) o.push('');
@@ -55,6 +56,7 @@ G.exportParts = page => {
     blocks: rows.map(r => ({
       order: r.i, role: r.b.role, template: r.t ? r.t.name : null, templateId: r.t ? r.t.id : null,
       inAdmin: r.t ? !!r.t.status.prod : false,
+      colors: (G.blockColors && G.blockColors(r.b, page)) || null,
       sectionHeading: r.v.head ? {template: G.headTpl(r.b), value: r.v.head} : null,
       fields: r.t ? (r.t.fields || []).map(f => ({key: f.k, label: f.label, max: f.max, value: r.v.top[f.k] || ''})) : [],
       items: r.t && r.t.items ? (r.v.items || []).map(it => r.t.items.fields.map(f => ({key: f.k, label: f.label, max: f.max, value: it[f.k] || ''}))) : [],
