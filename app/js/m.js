@@ -59,7 +59,20 @@ const md = (k, t) => { if (!t) return ''; return /^h[1-4]$/.test(k) ? `[${k}] ${
 const tidy = arr => arr.join('\n').replace(/\n{3,}/g, '\n\n').replace(/^\n+|\n+$/g, '');
 const lines = text => { const t = tidy(String(text || '').split('\n').map(x => x.trim())); return t ? t.split('\n').map(l => l ? parseLine(l) : {k: 'p', t: ''}) : []; };
 const noLink = (k, t) => k === 'btn' && t && !/\s\|\s+\S/.test(t) ? ' data-nolink' : '';
-const lineHTML = (k, t) => `<div class="ln" data-k="${k}" data-g="${e((KIND[k] || KIND.p).g)}"${noLink(k, t)}>${t ? e(t) : '<br>'}</div>`;
+
+/* гиперссылка внутри абзаца — «[текст](адрес)», это не кнопка; метатеги — «@дата», «@время», «@тип», «@чтение» */
+const MTAGS = [['дата', 'Дата'], ['время', 'Время'], ['тип', 'Тип страницы'], ['чтение', 'Время чтения']];
+const MT_RX = /@(дата|время|тип|чтение)(?![а-яё])/g, LINK_RX = /\[([^\]\n]+)\]\(((?:https?:\/\/|www\.|\/|#|mailto:|tel:)[^)\s]+)\)/g;
+const richLine = t => e(t).replace(LINK_RX, (m, a, u) => `<a class="il" data-u="${u}">${a}</a>`).replace(MT_RX, (m, k) => `<span class="mt" contenteditable="false" data-t="${k}">${(MTAGS.find(x => x[0] === k) || [k, k])[1]}</span>`);
+const lineMd = d => [...d.childNodes].map(n => n.nodeType === 3 ? n.textContent : n.nodeType !== 1 ? '' : n.classList.contains('mt') ? '@' + n.dataset.t : n.tagName === 'A' ? `[${lineMd(n)}](${n.dataset.u || n.getAttribute('href') || ''})` : n.tagName === 'BR' ? '' : lineMd(n)).join('');
+const MON2 = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+const mtVal = (k, p = A.page) => { const d = new Date(); if (k === 'дата') return `${d.getDate()} ${MON2[d.getMonth()]} ${d.getFullYear()}`;
+  if (k === 'время') return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  if (k === 'тип') return G.scenario(p.scenario).name; if (k === 'чтение') { const n = G.len(p.blocks.map(x => x.text).join('')); return Math.max(1, Math.round(n / 1200)) + ' мин чтения'; } return ''; };
+/* на странице (Шаблоны, превью): метатеги — реальные значения, гиперссылки — ссылки */
+const pageRich = (html, p = A.page) => String(html).replace(MT_RX, (m, k) => e(mtVal(k, p))).replace(/\[([^\]<\n]+)\]\(((?:https?:\/\/|www\.|\/|#|mailto:|tel:)[^)\s<]+)\)/g, '<a href="$2" style="color:inherit;text-decoration:underline;text-underline-offset:3px">$1</a>');
+
+const lineHTML = (k, t) => `<div class="ln" data-k="${k}" data-g="${e((KIND[k] || KIND.p).g)}"${noLink(k, t)}>${t ? richLine(t) : '<br>'}</div>`;
 const mkLine = (k, t) => { const d = document.createElement('div'); d.className = 'ln'; d.dataset.k = k; d.dataset.g = (KIND[k] || KIND.p).g; if (t) d.textContent = t; else d.innerHTML = '<br>'; return d; };
 const setKind = (d, k) => { d.dataset.k = k; d.dataset.g = (KIND[k] || KIND.p).g; };
 
@@ -160,7 +173,20 @@ const verdict = b => {
   return {txt: (G.TIERS[tier] || 'Подходит') + (!G.isLive(t) ? ', нужен дизайн' : ''), bad: tier >= 2 || !G.isLive(t)};
 };
 let saveT = null;
-const save = () => { clearTimeout(saveT); saveT = setTimeout(() => A.page && A.page.blocks.length && G.store.put(A.page), 300); };
+/* история правок страницы: снимок на каждое сохранение, серия быстрых правок — один шаг */
+const H = {past: [], fut: [], last: null, at: 0, id: null, lock: false};
+const snap = () => JSON.stringify({name: A.page.name, scenario: A.page.scenario, seed: A.page.seed, blocks: A.page.blocks});
+const histMark = () => { if (!A.page || H.lock) return; if (H.id !== A.page.id) { H.past = []; H.fut = []; H.last = snap(); H.id = A.page.id; return; }
+  const s1 = snap(); if (s1 === H.last) return; const now = Date.now();
+  if (now - H.at > 800 || !H.past.length) H.past.push(H.last); H.at = now; H.last = s1; H.fut = []; if (H.past.length > 80) H.past.shift(); histBtns(); };
+const histBtns = () => { const u = document.getElementById('eUndo'), r = document.getElementById('eRedo'); if (u) u.disabled = !H.past.length; if (r) { r.disabled = !H.fut.length; r.classList.toggle('nv-hide', !H.fut.length); } };
+const histGo = d => { const from = d < 0 ? H.past : H.fut, to = d < 0 ? H.fut : H.past; if (!from.length) return;
+  to.push(H.last); H.last = from.pop(); const v = JSON.parse(H.last); H.lock = true; Object.assign(A.page, v); H.lock = false; H.at = 0;
+  A.sel = null; clearTimeout(saveT); saveT = setTimeout(() => A.page && A.page.blocks.length && G.store.put(A.page), 300); editor(); toast(d < 0 ? 'Отменено' : 'Возвращено'); };
+addEventListener('keydown', ev => { if (A.view !== 'edit' || !(ev.metaKey || ev.ctrlKey) || ev.key.toLowerCase() !== 'z') return;
+  const t = ev.target; if (t && (t.isContentEditable || /INPUT|TEXTAREA/.test(t.tagName))) { setTimeout(histMark, 0); return; }
+  ev.preventDefault(); histGo(ev.shiftKey ? 1 : -1); });
+const save = () => { histMark(); clearTimeout(saveT); saveT = setTimeout(() => A.page && A.page.blocks.length && G.store.put(A.page), 300); };
 
 /* текст страницы для чата: блоки через границы с ролью; вставка такого текста восстанавливает страницу */
 /* в строке блока — роль, выбранный шаблон и иконки: «--- Роль · шаблон: id · иконки: i0=id, i1=id». Картинки в чат не идут — только в архив */
@@ -426,48 +452,64 @@ const resetSheet = () => { const s = sheet(`<div class="sh-h"><div><h2>Сбро�
 
 /* 2. Редактор */
 const editor = () => {
+  if (PVX) { PVX(); PVX = null; }
+  if (H.id !== (A.page && A.page.id)) histMark();
   if (cat) { const h = cat; cat = null; h.close(true); } document.body.classList.remove('picking');
   const sc0 = document.getElementById('eMain'), y0 = sc0 ? sc0.scrollTop : 0, p = A.page, b = A.sel && p.blocks.find(x => x.id === A.sel), v = b && verdict(b);
   const miss = p.blocks.length ? report(p).count : 0;
   const title = `<b>${e(p.name)}</b><small>${e(sc().name)}${(n => n ? ' · ' + (n < 1000 ? n + ' знаков' : (n / 1000).toFixed(1).replace('.0', '') + 'k знаков') : '')(G.len(p.blocks.map(x => x.text).join('')))}</small>`;
-  $app.innerHTML = `<header class="hd" id="eHd"><div class="hd-edit"><div class="hfield" id="eField"></div><button class="ib round ok" id="eOk" aria-label="Готово">${I.check}</button></div>
-    <button class="ib round" id="eBack" aria-label="Назад">${I.back}</button><button class="ttl" id="eTtl">${title}</button>
-      <button class="ib round" id="eMemo" aria-label="Как писать текст" title="Как писать текст">${I.note}</button>${p.blocks.length && A.mode === 'page' && G.designChoices(p) ? `<button class="ib round" id="eAlt" aria-label="Другой дизайн" title="Другой дизайн: другие шаблоны того же смысла">${I.shuffle}</button>` : ''}${p.blocks.length ? `<button class="ib round" id="ePrev" aria-label="Превью">${I.eye}</button>
-      <button class="ib round dark" id="eOut" aria-label="Выгрузка">${I.out}${miss ? `<span class="badge ${report(p).grade.level}">${miss}</span>` : ''}</button>` : `<button class="ib round" id="eTune" aria-label="Настройки страницы">${I.tune}</button>`}</header>
+  $app.innerHTML = `<header class="hd nv" id="eHd"><div class="hd-edit"><div class="hfield" id="eField"></div><button class="ib round ok" id="eOk" aria-label="Готово">${I.check}</button></div>
+    <div class="nv-pg"><button class="ib nv-ib" id="eBack" aria-label="Ко всем страницам" title="Ко всем страницам">${sd('HomeAlt', I.back)}</button><button class="ttl" id="eTtl" title="Настройки страницы">${title}</button>
+      <i class="nv-div" aria-hidden="true"></i><button class="ib nv-ib" id="eUndo" aria-label="Отменить" title="Отменить · Ctrl+Z" ${H.past.length ? '' : 'disabled'}>${sd('RotateCcw', I.back)}</button><button class="ib nv-ib ${H.fut.length ? '' : 'nv-hide'}" id="eRedo" aria-label="Вернуть" title="Вернуть · Ctrl+Shift+Z" ${H.fut.length ? '' : 'disabled'}>${sd('RotateCw', I.back)}</button></div>
+    <span class="grow"></span>
+    ${p.blocks.length ? `<div class="nv-modes" role="tablist" aria-label="Режим"><button data-nm="note" class="${A.mode === 'note' ? 'on' : ''}" aria-label="Текст" title="Текст: смысл и структура">${sd('Text', I.note)}</button><button data-nm="page" class="${A.mode === 'page' ? 'on' : ''}" aria-label="Шаблоны" title="Шаблоны: дизайн">${I.grid}</button><button data-nm="prev" class="${A.mode === 'prev' ? 'on' : ''}" aria-label="Превью" title="Превью: как на сайте">${sd('Eye', I.eye)}</button></div>
+    <button class="nv-share" id="eOut" title="Проверка и выгрузка">Поделиться${miss ? `<span class="badge ${report(p).grade.level}">${miss}</span>` : ''}</button>` : `<button class="ib round" id="eTune" aria-label="Настройки страницы">${I.tune}</button>`}</header>
     <main id="eMain"></main><div class="dock" id="eDock"><div id="eDockMain"><div class="bar"><div id="eAct"></div><i class="bar-div" aria-hidden="true"></i><div id="eSw"></div></div></div></div>`;
   $app.querySelector('#eBack').onclick = () => { if (A.sel) { unselect(); return; } save(); go('home'); };
   $app.querySelector('#eTtl').onclick = () => { if (!A.sel) pageSettings(); };
   $app.querySelector('#eOk').onclick = () => { const a = document.activeElement; if (a && a.blur) a.blur(); getSelection().removeAllRanges(); fmtSync(); };
   const tn = $app.querySelector('#eTune'); if (tn) tn.onclick = pageSettings;
-  const pv = $app.querySelector('#ePrev'); if (pv) pv.onclick = () => preview();
+  $app.querySelectorAll('[data-nm]').forEach(x => x.onclick = () => { const m = x.dataset.nm; if (A.mode === m) return; setMode(m); });
+  $app.querySelector('#eUndo').onclick = () => histGo(-1); $app.querySelector('#eRedo').onclick = () => histGo(1);
   /* «Другой дизайн»: следующий вариант шаблонов внутри семейства, без модели; закреплённые вручную не трогаем */
-  const alt = $app.querySelector('#eAlt'); if (alt) alt.onclick = () => { p.seed = (p.seed || 0) + 1; G.autoPick(p); save(); editor(); toast('Другие шаблоны того же смысла. Текст не влезает — «Поправить» в выгрузке.'); };
-  $app.querySelector('#eMemo').onclick = () => memo();
   const out = $app.querySelector('#eOut'); if (out) out.onclick = exportView;
+  if (A.mode === 'prev') { A.sel = null; const pm = $app.querySelector('#eMain'); pm.classList.add('pvhost'); preview(A.page, null, pm); $app.querySelector('#eDockMain').innerHTML = ''; return; }
   A.mode === 'note' ? notes() : canvas();
   island();
   if (A.sel) { select(A.sel); if (A.openCat && A.mode === 'page') catalog(); } A.openCat = false;
   /* перерисовка не сбрасывает положение; прокрутка к блоку — только когда к нему переходят */
   const M = document.getElementById('eMain');
-  if (A.jump) { const el = $app.querySelector(`[data-id="${A.jump}"]`); if (el && M) M.scrollTop += el.getBoundingClientRect().top - M.getBoundingClientRect().top - (A.jumpTop ? 8 : M.clientHeight / 3); A.jump = null; A.jumpTop = false; } else if (M) M.scrollTop = y0;
+  if (A.jump) { const el = $app.querySelector(`[data-id="${A.jump}"]`); if (el && M) M.scrollTop += el.getBoundingClientRect().top - M.getBoundingClientRect().top - (A.jumpTop ? 92 : M.clientHeight / 3); A.jump = null; A.jumpTop = false; } else if (M) M.scrollTop = y0;
 };
 /* нижний островок: только Текст ↔ Шаблоны; на экране остаётся тот же блок */
 /* нижняя панель как в Фигме: слева — действия выделенного блока, справа — всегда переключатель «Текст | Шаблоны».
    Выделение при переключении сохраняется. */
+let PVX = null;
+const setMode = m => { if (m === 'prev') { A.sel = null; A.mode = 'prev'; save(); editor(); appear(); return; } const p = A.page, keep = A.sel, top = [...$app.querySelectorAll('#eMain [data-id]')].find(el => el.getBoundingClientRect().bottom > 120);
+  A.mode = m; if (A.mode === 'page') G.autoPick(p); save();
+  if (keep) { A.sel = keep; A.jump = keep; } else { A.jump = top && top.dataset.id; A.jumpTop = true; }
+  editor(); appear(); };
+/* док: в «Шаблонах» — подписанные свойства (ИИ, Шаблоны, Картинки, Анимации, Цвет), в «Тексте» — ИИ и действия абзаца */
+const DOCK = [['ai', 'ИИ', () => sd('Ai', I.ai)], ['tpl', 'Шаблоны', () => sd('CardstackHoriz', I.grid)], ['img', 'Картинки', () => sd('PictureCopy', I.img)], ['anim', 'Анимации', () => sd('PlayCircle', I.eye)], ['color', 'Цвет', () => sd('Palette', I.star)]];
 const island = () => {
   const p = A.page, dock = $app.querySelector('#eDockMain'); if (!dock) return;
+  document.body.classList.toggle('has-sel', !!A.sel);
+  if (A.mode === 'page') {
+    const b = A.sel && p.blocks.find(x => x.id === A.sel), slots = b ? G.imageSlots(b, p).length || iconSlots(b).length : 0;
+    dock.dataset.ndk = '';
+    dock.innerHTML = `<nav class="nvd" aria-label="${b ? 'Блок' : 'Страница'}">${DOCK.filter(([k]) => k !== 'tpl' || b).map(([k, n, ic]) => `<button data-d="${k}" class="${k === 'ai' ? 'ai' : ''}" title="${n}">${ic()}<span>${n}</span></button>`).join('')}</nav>`;
+    dock.onclick = ev => { const x = ev.target.closest('[data-d]'); if (!x) return; ev.stopPropagation(); const k = x.dataset.d;
+      if (k === 'ai') return aiSheet();
+      if (k === 'tpl') return catalog();
+      return propSheet(k); };
+    return; }
+  if (A.mode === 'note') return noteDock();
   if (!dock.querySelector('#eSw')) dock.innerHTML = '<div class="bar"><div id="eAct"></div><i class="bar-div" aria-hidden="true"></i><div id="eSw"></div></div>';
   const sw = dock.querySelector('#eSw');
-  sw.innerHTML = `<div class="sw"><button class="ib sw-ai" id="eAI" aria-label="ИИ" title="ИИ: пересобрать страницу, свой запрос">${I.ai}</button><div class="seg slide ${A.mode === 'page' ? 'r' : ''}" role="tablist"><button data-m="note" aria-label="Текст" title="Текст: смысл и структура">${I.note}</button><button data-m="page" aria-label="Шаблоны" title="Шаблоны: дизайн">${I.page}</button></div></div>`;
+  sw.innerHTML = `<button class="ib sw-ai" id="eAI" aria-label="ИИ" title="ИИ: пересобрать страницу, свой запрос">${sd('Ai', I.ai)}</button>`;
   sw.querySelector('#eAI').onclick = ev => { ev.stopPropagation(); aiSheet(); };
-  sw.querySelectorAll('[data-m]').forEach(x => x.onclick = ev => { ev.stopPropagation(); if (A.mode === x.dataset.m) return;
-    sw.querySelector('.seg').classList.toggle('r', x.dataset.m === 'page');
-    const keep = A.sel, top = [...$app.querySelectorAll('#eMain [data-id]')].find(el => el.getBoundingClientRect().bottom > 120);
-    A.mode = x.dataset.m; if (A.mode === 'page') G.autoPick(p); save();
-    if (keep) { A.sel = keep; A.jump = keep; } else { A.jump = top && top.dataset.id; A.jumpTop = true; }
-    editor(); appear(); });
   if (!A.sel) dock.querySelector('#eAct').innerHTML = '';
-  document.body.classList.toggle('has-sel', !!A.sel);
+  dock.querySelector('.bar').classList.toggle('solo', !A.sel);
 };
 /* к тексту блока: режим Текст, курсор в конце этого блока */
 const toText = b => { unselect(); A.mode = 'note'; A.jump = b.id; save(); editor();
@@ -483,39 +525,49 @@ const bindAdd = main => main.querySelectorAll('[data-add]').forEach(c => c.oncli
 const GOAL = {event: 'event', article: 'info', course: 'course', sale: 'sale', product: 'sale'};
 const naviPayload = p => { const s0 = G.scenario(p.scenario), goal = GOAL[s0.id] || (s0.kind === 'article' ? 'info' : 'event');
   const hero = p.blocks.find(b => b.role === 'hero'), hs = hero ? G.src(hero) : {};
-  const blocks = p.blocks.filter(b => b.role !== 'unparsed' && !G.isEmpty(b)).map(b => { const t = G.tpl(b.tpl), s = G.src(b); return {kind: b.role === 'hero' ? 'hero' : G.isCta(b) ? 'cta' : 'grid', navi: false, title: s.level === 'h3' || s.level === 'h1' ? '' : s.title || '', html: `<section class="blk">${blockHTML(b, p, undefined, true)}</section>`}; });
+  const blocks = p.blocks.filter(b => b.role !== 'unparsed' && !G.isEmpty(b)).map(b => { const t = G.tpl(b.tpl), s = G.src(b); return {kind: b.role === 'hero' ? 'hero' : G.isCta(b) ? 'cta' : 'grid', navi: false, title: s.level === 'h3' || s.level === 'h1' ? '' : s.title || '', html: `<section class="blk${lookCls(b, p)}" ${lookAttr(b, p)}>${blockHTML(b, p, undefined, true)}</section>`}; });
   const cta = p.blocks.find(b => G.isCta(b)), cs = cta ? G.src(cta) : {};
   return {type: 'gridi:page', cat: {id: 'g-' + p.id, name: hs.title || p.name, goal, lead: hs.lead || '', meta: (hs.meta || [])[0] || ''},
     fill: {overlay: true, name: hs.title || p.name, goal, blocks, program: [], programTitle: '',
       hero: {title: hs.title || '', lead: hs.lead || '', badge: (hs.meta || [])[0] || '', btn: (hs.cta || [])[0] || ''},
       cta: {title: cs.title || '', text: cs.lead || '', btn: (cs.cta || [])[0] || ''}},
-    css: G.WIRE_CSS + '.wf-miss,.wf-item-miss{display:none!important}'}; };
+    css: G.WIRE_CSS + '.wf-miss,.wf-item-miss{display:none!important}' + LOOK_CSS}; };
+const naviPayload0 = naviPayload;
 const DEV = [['mob', 375, 'Телефон', '<svg viewBox="0 0 24 24"><rect x="7" y="3" width="10" height="18" rx="2"/></svg>'], ['desk', 1440, 'Компьютер', '<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="11" rx="1.5"/><path d="M9 20h6"/></svg>']];
-const preview = (p = A.page, shared = null) => {
+const preview = (p = A.page, shared = null, host = null) => {
   G.autoPick(p);
   let dev = G.ls.get('dev', innerWidth >= 900 ? 'desk' : 'mob'); if (!DEV.some(x => x[0] === dev)) dev = 'mob';
-  const el = document.createElement('div'); el.className = 'pv pvn';
-  el.innerHTML = `<header class="hd">${shared ? '<button class="pill sm pri" id="pvOpen" title="Сохранить страницу себе и открыть в редакторе">Открыть в Гриди</button><span class="grow"></span>' : `<button class="ib round" id="pvX" aria-label="Закрыть">${I.x}</button><div class="ttl"><b>Превью</b><small>${e(p.name)}</small></div>`}
-    <div class="seg" role="tablist">${DEV.map(([k, , n, ic]) => `<button data-d="${k}" aria-label="${n}" title="${n}">${ic}</button>`).join('')}</div></header>
-    <div class="pvn-stage"><div class="pvn-dev"><iframe title="Прототип Нави" src="navi.html?embed"></iframe></div></div>`;
-  document.body.appendChild(el); document.body.classList.add('noscroll'); el.animate([{opacity: 0}, {opacity: 1}], {duration: 140});
+  const el = document.createElement('div'); el.className = 'pv pvn' + (host ? ' pvin' : '');
+  el.innerHTML = host ? `<span class="pvw" id="pvW" aria-live="polite"></span><div class="pvn-stage"><div class="pvn-dev"><iframe title="Прототип Нави" src="navi.html?embed"></iframe></div><button class="pvh" id="pvH" aria-label="Ширина страницы: тяните или стрелками" title="Тяните, чтобы менять ширину · двойной клик — во всю ширину"></button></div>` : `<header class="hd">${shared ? '<button class="pill sm pri" id="pvOpen" title="Сохранить страницу себе и открыть в редакторе">Открыть в Гриди</button><span class="grow"></span>' : `<button class="ib round" id="pvX" aria-label="Закрыть">${I.x}</button><div class="ttl"><b>Превью</b><small>${e(p.name)}</small></div>`}
+    <span class="pvw" id="pvW" aria-live="polite"></span></header>
+    <div class="pvn-stage"><div class="pvn-dev"><iframe title="Прототип Нави" src="navi.html?embed"></iframe></div><button class="pvh" id="pvH" aria-label="Ширина страницы: тяните или стрелками" title="Тяните, чтобы менять ширину · двойной клик — во всю ширину"></button></div>`;
+  if (host) { host.innerHTML = ''; host.appendChild(el); } else { document.body.appendChild(el); document.body.classList.add('noscroll'); el.animate([{opacity: 0}, {opacity: 1}], {duration: 140}); }
   const fr = el.querySelector('iframe'), box = el.querySelector('.pvn-dev'), stage = el.querySelector('.pvn-stage');
   /* iframe — ровно нужной ширины (сайт Нави переключает вёрстку по ширине окна), уменьшаем рамку целиком.
      На телефоне «компьютер» — 1024 и высота с ограничением: огромная картинка 1440 роняла вкладку */
   const CHROME = 'html.embed .stage{padding:0!important;background:none!important;background-image:none!important;overflow:hidden!important}html.embed .device-wrap{width:100%!important;height:100%!important;transform:none!important;margin:0!important;box-shadow:none!important;border:0!important;border-radius:0!important}html.embed .device{border-radius:0!important;box-shadow:none!important}html.embed .resize-h,html.embed .shell__bar,html.embed .pop,html.embed .pop-bg{display:none!important}html.embed .hstage,html.embed #naviRoot,html.embed .nvr,html.embed .shell,html.embed .shell__body,html.embed body{background:none!important;background-image:none!important;padding:0!important}';
-  const widthOf = () => { const w = DEV.find(x => x[0] === dev)[1]; return innerWidth < 600 && w > 1024 ? 1024 : w; };
+  let PW = G.ls.get('pvw', dev === 'mob' ? 375 : 1440); const SNAP = [360, 375, 768, 1024, 1280, 1440];
+  const widthOf = () => Math.max(320, Math.min(1600, PW));
   const strip = () => { try { const d = fr.contentDocument; if (d && d.head && !d.getElementById('gridi-chrome')) { const st = d.createElement('style'); st.id = 'gridi-chrome'; st.textContent = CHROME; d.head.appendChild(st); }
     if (fr.contentWindow.NV && !strip.done) { strip.done = true; fr.contentWindow.NV.size('fit'); } } catch (err) {} };
   const fit = () => { const w = widthOf(), k = Math.min(1, (stage.clientWidth - 16) / w), h = Math.min((stage.clientHeight - 16) / k, innerWidth < 600 ? 2000 : 4000);
     box.style.width = w + 'px'; box.style.height = h + 'px'; box.style.transform = k < 1 ? `scale(${k})` : '';
-    el.querySelectorAll('[data-d]').forEach(x => x.classList.toggle('on', x.dataset.d === dev)); };
-  const send = () => { strip(); try { fr.contentWindow.postMessage(naviPayload(p), '*'); } catch (err) {} setTimeout(strip, 400); };
+    const wl = el.querySelector('#pvW'); if (wl) wl.textContent = w + ' px';
+    const hd = el.querySelector('#pvH'); if (hd) { const br = box.getBoundingClientRect(), sr = stage.getBoundingClientRect(); hd.style.left = Math.min(br.right - sr.left + 6, stage.clientWidth - 16) + 'px'; } };
+  const send = () => { strip(); try { fr.contentWindow.postMessage(JSON.parse(JSON.stringify(naviPayload(p)).replace(/@(дата|время|тип|чтение)(?![а-яё])/g, (m, k) => mtVal(k, p).replace(/"/g, '\\"'))), '*'); } catch (err) {} setTimeout(strip, 400); };
   const onMsg = ev => { if (ev.source === fr.contentWindow && ev.data && ev.data.type === 'navi:ready') send(); };
   addEventListener('message', onMsg); fr.addEventListener('load', () => setTimeout(send, 200));
   let rt = null; const onRes = () => { clearTimeout(rt); rt = setTimeout(fit, 150); };
   addEventListener('resize', onRes); fit();
-  el.querySelectorAll('[data-d]').forEach(x => x.onclick = () => { dev = x.dataset.d; G.ls.set('dev', dev); fit(); setTimeout(() => { try { fr.contentWindow.NV && fr.contentWindow.NV.size('fit'); } catch (err) {} }, 60); });
+  const setW = (w, snap) => { if (snap) { const s0 = SNAP.find(x => Math.abs(x - w) <= 24); if (s0) w = s0; } PW = Math.round(w); G.ls.set('pvw', PW); fit(); clearTimeout(setW.t); setW.t = setTimeout(() => { try { fr.contentWindow.NV && fr.contentWindow.NV.size('fit'); } catch (err) {} }, 80); };
+  const hdl = el.querySelector('#pvH');
+  hdl.onpointerdown = ev => { ev.preventDefault(); hdl.setPointerCapture(ev.pointerId); el.classList.add('drag'); const x0 = ev.clientX, w0 = PW, k = Math.min(1, (stage.clientWidth - 16) / w0);
+    hdl.onpointermove = mv => setW(w0 + (mv.clientX - x0) * 2 / k, true);
+    hdl.onpointerup = () => { hdl.onpointermove = null; el.classList.remove('drag'); }; };
+  hdl.ondblclick = () => setW(1440);
+  hdl.onkeydown = ev => { if (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight') { ev.preventDefault(); const st = ev.shiftKey ? 1 : 0; const nx = ev.key === 'ArrowRight' ? (st ? PW + 10 : SNAP.find(x => x > PW) || 1600) : (st ? PW - 10 : [...SNAP].reverse().find(x => x < PW) || 320); setW(nx); } };
   const shut = () => { removeEventListener('message', onMsg); removeEventListener('resize', onRes); el.remove(); document.body.classList.remove('noscroll'); };
+  if (host) PVX = shut;
   const px = el.querySelector('#pvX'); if (px) px.onclick = shut;
   const po = el.querySelector('#pvOpen'); if (po) po.onclick = async () => { const r = shared(); shut(); await G.store.put(r.page); history.replaceState(null, '', '#/p/' + r.page.id); await go('edit', r.page.id);
     toast(['Страница сохранена у вас — можно править', r.scAdded ? 'сценарий автора добавлен в библиотеку' : '', r.tpls ? G.num(r.tpls, 'шаблон', 'шаблона', 'шаблонов') + ' автора — только для этой страницы' : ''].filter(Boolean).join(' · ')); };
@@ -527,9 +579,11 @@ const pageSettings = () => {
   const s = sheet(`<div class="sh-h"><h2>Страница</h2><button class="ib" data-close aria-label="Закрыть">${I.x}</button></div>
     <div class="sh-b"><label class="lbl" for="psName">Название</label><input class="in" id="psName" value="${e(p.name)}">
     <p class="lbl">Сценарий</p><div class="chips" id="psSc">${all.map(x => `<button class="chip ${x.id === p.scenario ? 'on' : ''}" data-id="${e(x.id)}">${e(x.name)}</button>`).join('')}</div>
-    ${p.blocks.length ? '<p class="hint">Сценарий — какие блоки обычно есть на такой странице. Роли общие: при смене сценария блоки и текст остаются.</p>' : ''}</div>
+    ${p.blocks.length ? '<p class="hint">Сценарий — какие блоки обычно есть на такой странице. Роли общие: при смене сценария блоки и текст остаются.</p>' : ''}
+    <button class="pill ghost wide" id="psMemo">Как писать текст</button></div>
     <div class="sh-f"><button class="pill pri wide" id="psOk">Готово</button></div>`);
   let scId = p.scenario;
+  s.$('#psMemo').onclick = () => { s.close(true); memo(); };
   s.$$('#psSc .chip').forEach(c => c.onclick = () => { scId = c.dataset.id; s.$$('#psSc .chip').forEach(x => x.classList.toggle('on', x === c)); });
   s.$('#psOk').onclick = () => { p.name = s.$('#psName').value.trim() || p.name; if (scId !== p.scenario && p.blocks.every(G.isEmpty)) { p.scenario = scId; p.blocks = (G.scenario(scId).roles || []).map(r => G.newBlock(r.id, '')); G.autoPick(p); }
     else if (scId !== p.scenario) { p.scenario = scId; const roles = G.allRoles(G.scenario(scId)).map(r => r.id); p.blocks.forEach(b => { if (!roles.includes(b.role) && b.role !== 'hero' && b.role !== 'cta') b.role = defRole(); b.tplLock = false; repick(b); }); } save(); s.close(); editor(); };
@@ -608,11 +662,17 @@ const notes = () => {
   const p = A.page, main = $app.querySelector('#eMain'), iss = report(p).byBlock;
   if (!p.blocks.length) { main.innerHTML = `<div class="note">${empty('На странице нет блоков', 'Добавьте первый блок ниже или вставьте текст заново.')}${addChips()}</div>`; bindAdd(main); return; }
   main.innerHTML = `<div class="note">${p.blocks.map((b, i) => `<section class="nb" data-id="${e(b.id)}">
-      <button class="nb-line ${iss[b.id] ? 'warn' : ''}" data-role="${e(b.id)}"><b class="bn">${i + 1}</b><span>${e(roleName(b))}</span>${mediaHint(b)}${blockNote(b, p, true) ? `<em class="nb-note">${e(blockNote(b, p, true))}</em>` : ''}</button>
+      <div class="nb-head"><button class="nb-tag" data-role="${e(b.id)}" title="Сменить роль"><b>${i + 1}</b><span>${e(roleName(b))}</span><i class="nb-chev"></i>${blockNote(b, p, true) ? `<i class="nv-warn ${noteLv(b, p) === 'stop' ? 'stop' : ''}" data-warn="${e(b.id)}" title="${e(blockNote(b, p, true))}">!</i>` : ''}</button>${G.isEmpty(b) ? '<em class="nb-empty">пусто — на страницу не попадёт</em>' : ''}
+        <span class="nb-bar" role="toolbar" aria-label="Блок ${i + 1}">${[['up', sd('ArrowUp', I.up), 'Выше', !i], ['down', sd('ArrowDown', I.down), 'Ниже', i >= p.blocks.length - 1], ['add', sd('Plus', I.plus), 'Добавить блок ниже'], ['more', sd('DotsHorizontal', I.dots), 'Ещё']].map(([k, ic, n, dis]) => `<button data-nba="${k}" data-id="${e(b.id)}" aria-label="${n}" title="${n}" ${dis ? 'disabled' : ''}>${ic}</button>`).join('')}</span></div>
       <div class="ed ${G.isEmpty(b) ? 'is-empty' : ''}" contenteditable="true" spellcheck="true" data-id="${e(b.id)}" data-ph="${e(ghostPh(b))}">${(lines(b.text).length ? lines(b.text) : [{k: firstKind(b), t: ''}]).map(l => lineHTML(l.k, l.t)).join('')}</div>${tipPlate(b, p)}</section>`).join('')}
-    ${tipPlate(null, p)}${addChips()}</div>`;
-  main.querySelectorAll('.ed').forEach(bindEd); bindAdd(main); bindTips(main);
-  main.querySelectorAll('[data-role]').forEach(x => x.onclick = ev => { ev.stopPropagation(); if (A.sel === x.dataset.role) { unselect(); return; } const a = document.activeElement; if (a && a.blur) a.blur(); select(x.dataset.role); });
+    ${tipPlate(null, p)}</div>`;
+  main.querySelectorAll('.ed').forEach(bindEd); bindTips(main);
+  main.querySelectorAll('[data-role]').forEach(x => x.onclick = ev => { ev.stopPropagation(); const b = p.blocks.find(y => y.id === x.dataset.role); if (ev.target.closest('[data-warn]')) return warnSheet(b); roleSheet(b); });
+  main.querySelectorAll('[data-nba]').forEach(x => x.onmousedown = ev => ev.preventDefault());
+  main.querySelectorAll('[data-nba]').forEach(x => x.onclick = ev => { ev.stopPropagation(); const b = p.blocks.find(y => y.id === x.dataset.id), i = p.blocks.indexOf(b), k = x.dataset.nba;
+    if (k === 'more') return blockMenu(b.id);
+    if (k === 'add') return addSheet(i + 1);
+    const j = i + (k === 'up' ? -1 : 1); p.blocks.splice(i, 1); p.blocks.splice(j, 0, b); save(); A.jump = b.id; editor(); });
   main.addEventListener('focusin', ev => { if (A.sel && ev.target.closest('.ed')) unselect(); });
   main.onclick = ev => { if (A.sel && !ev.target.closest('.nb-line,.add,.sel-float')) unselect(); };
   fmtBar();
@@ -630,18 +690,45 @@ const sync = ed => {
   });
   if (!ed.children.length) ed.appendChild(mkLine('p', ''));
   const b = blockOf(ed); if (!b) return;
-  [...ed.children].forEach(d => d.toggleAttribute('data-nolink', !!noLink(d.dataset.k, d.textContent.trim())));
-  b.text = tidy([...ed.children].map(d => md(d.dataset.k, d.textContent.replace(/\u00a0/g, ' ').trim())));
+  [...ed.children].forEach(d => d.toggleAttribute('data-nolink', !!noLink(d.dataset.k, lineMd(d).trim())));
+  b.text = tidy([...ed.children].map(d => md(d.dataset.k, lineMd(d).replace(/\u00a0/g, ' ').trim())));
   ed.classList.toggle('is-empty', G.isEmpty(b));
   b.values = null; save();
 };
 const curLine = () => { const s = getSelection(); if (!s.rangeCount) return null; const n = s.anchorNode; const el = n && (n.nodeType === 1 ? n : n.parentElement); return el ? el.closest('.ln') : null; };
 const caretTo = (node, off) => { if (!node) return; const r = document.createRange(), s = getSelection(); const tn = node.firstChild && node.firstChild.nodeType === 3 ? node.firstChild : node; r.setStart(tn, Math.min(off, tn.nodeType === 3 ? tn.length : 0)); r.collapse(true); s.removeAllRanges(); s.addRange(r); node.closest('.ed') && node.closest('.ed').focus(); };
 const splitAt = ln => { const s = getSelection(), r = s.getRangeAt(0); const a = document.createRange(); a.selectNodeContents(ln); a.setEnd(r.startContainer, r.startOffset); const z = document.createRange(); z.selectNodeContents(ln); z.setStart(r.endContainer, r.endOffset); return {before: a.toString(), after: z.toString()}; };
+
+/* метатеги: «@» — список у каретки, выбор вставляет тег-чип; в Шаблонах и превью — значение */
+let mtEl = null;
+const mtClose = () => { if (mtEl) { mtEl.remove(); mtEl = null; } };
+const mtMenu = ed => { mtClose(); const sl = getSelection(); if (!sl.rangeCount) return; const rg = sl.getRangeAt(0), n = rg.startContainer, o = rg.startOffset;
+  if (n.nodeType !== 3 || n.textContent[o - 1] !== '@' || (o > 1 && !/\s/.test(n.textContent[o - 2]))) return;
+  const r = rg.getBoundingClientRect(); mtEl = document.createElement('div'); mtEl.className = 'mt-pop'; mtEl.setAttribute('role', 'listbox');
+  mtEl.innerHTML = MTAGS.map(([k, n2], i) => `<button role="option" data-mt="${k}" class="${i ? '' : 'on'}"><span class="mt">${n2}</span><small>${e(mtVal(k))}</small></button>`).join('');
+  document.body.appendChild(mtEl); mtEl.style.left = Math.min(innerWidth - mtEl.offsetWidth - 12, r.left) + 'px'; mtEl.style.top = (r.bottom + 6) + 'px';
+  mtEl.addEventListener('mousedown', x => x.preventDefault());
+  const pick = k => { mtClose(); const t = n; if (!t.isConnected) return; const at = Math.min(o, t.length); t.deleteData(at - 1, 1);
+    const sp = document.createElement('span'); sp.className = 'mt'; sp.contentEditable = 'false'; sp.dataset.t = k; sp.textContent = MTAGS.find(x => x[0] === k)[1];
+    const tail = t.splitText(at - 1); tail.before(sp); sp.after(document.createTextNode(' ')); const rr = document.createRange(); rr.setStart(sp.nextSibling, 1); rr.collapse(true); sl.removeAllRanges(); sl.addRange(rr); sync(ed); };
+  mtEl.onclick = x => { const b = x.target.closest('[data-mt]'); if (b) pick(b.dataset.mt); };
+  const key = ev => { if (!mtEl) { document.removeEventListener('keydown', key, true); return; } const bs = [...mtEl.querySelectorAll('[data-mt]')], i = bs.findIndex(b => b.classList.contains('on'));
+    if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') { ev.preventDefault(); ev.stopPropagation(); const j = (i + (ev.key === 'ArrowDown' ? 1 : bs.length - 1)) % bs.length; bs.forEach((b, x) => b.classList.toggle('on', x === j)); }
+    else if (ev.key === 'Enter' || ev.key === 'Tab') { ev.preventDefault(); ev.stopImmediatePropagation(); document.removeEventListener('keydown', key, true); pick(bs[i].dataset.mt); }
+    else if (ev.key === 'Escape') { mtClose(); document.removeEventListener('keydown', key, true); } };
+  document.addEventListener('keydown', key, true); };
+
+const SHORT = [[/^###\s$/, 'h3'], [/^##\s$/, 'h2'], [/^#\s$/, 'h1'], [/^[-*•]\s$/, 'li']];
+const shortcut = ed => { const ln = curLine(); if (!ln || !ed.contains(ln)) return false; const t = ln.textContent.replace(/\u00a0/g, ' ');
+  if (t.trim() === '---' && ln.previousElementSibling) { ln.innerHTML = '<br>'; A.line = ln; splitBlock(); return true; }
+  for (const [rx, k] of SHORT) if (rx.test(t)) { if (k === 'h1' && (blockOf(ed) || {}).role !== 'hero') return false; setKind(ln, k); ln.innerHTML = '<br>'; caretTo(ln, 0); sync(ed); noteDock(); if (k === 'meta') metaSheet(ln); return true; }
+  return false; };
 const bindEd = ed => {
-  ed.addEventListener('input', () => sync(ed));
+  ed.addEventListener('input', ev => { if (shortcut(ed)) return; sync(ed); if (ev.data === '@') mtMenu(ed); else mtClose(); });
+
   ed.addEventListener('keydown', ev => {
     const ln = curLine(); if (!ln || !ed.contains(ln)) return;
+    if (ev.key === 'Enter' && ev.altKey) { ev.preventDefault(); A.line = ln; return splitBlock(); }
     if (ev.key === 'Enter' && !ev.shiftKey) {
       ev.preventDefault(); const {before, after} = splitAt(ln), k = ln.dataset.k;
       /* выход из списка: пустая строка остаётся разделителем — дальше текст и кнопки относятся к блоку, а не к пункту */
@@ -684,12 +771,15 @@ const fmtBar = (into) => {
   if (fmtEl) fmtEl.remove();
   fmtEl = document.createElement('div'); fmtEl.className = 'fmt'; fmtEl.hidden = true;
   /* роли строки — в шапке на месте названия, рядом ✓: клавиатура их не закрывает */
-  fmtEl.innerHTML = `<div class="fmt-in"><div class="fmt-row">${KINDS.filter(x => x.k !== 'meta').map(x => `<button data-k="${x.k}" aria-label="${e(x.label || x.g)}"><i>${e(x.g || 'Аа')}</i>${x.label && x.k !== 'p' ? `<span>${e(x.label)}</span>` : ''}</button>`).join('')}<button data-split><i>${I.cut}</i><span>Разделить</span></button></div><button class="ib round ok" data-done aria-label="Готово">${I.check}</button></div>`;
+fmtEl.innerHTML = `<div class="fmt-in pt"><button data-pa="ai" title="ИИ для блока" aria-label="ИИ">${sd('Ai', I.ai)}</button><i class="pt-d"></i>
+    <button data-pa="type" class="pt-dd" title="Тип абзаца" aria-label="Тип абзаца"><b class="pt-k">Аа</b><i class="nb-chev"></i></button>
+    <button data-pa="li" title="Пункт списка" aria-label="Пункт списка">${sd('ListView', I.note)}</button><i class="pt-d"></i>
+    <button data-pa="table" title="Вставить таблицу" aria-label="Вставить таблицу">${sd('Table', I.grid)}</button>
+    <button data-pa="img" title="Вставить картинку" aria-label="Вставить картинку">${sd('Picture', I.img)}</button><i class="pt-d"></i>
+    <button data-pa="split" title="Разделить блок здесь · Alt+Enter" aria-label="Разделить блок">${I.cut}</button></div><div class="pt-pop" hidden></div>`;
   const host = into || document.querySelector('#eMain .note'); (host || document.body).appendChild(fmtEl); fmtEl.classList.add('float-fmt');
-  fmtEl.addEventListener('pointerdown', ev => ev.preventDefault());
-  fmtEl.querySelectorAll('[data-k]').forEach(x => x.onclick = () => { const ln = A.line; if (!ln || !ln.isConnected) return; setKind(ln, ln.dataset.k === x.dataset.k && x.dataset.k !== 'p' ? 'p' : x.dataset.k); sync(ln.closest('.ed')); fmtSync(); });
-  fmtEl.querySelector('[data-split]').onclick = splitBlock;
-  fmtEl.querySelector('[data-done]').onclick = () => { const a = document.activeElement; if (a && a.blur) a.blur(); getSelection().removeAllRanges(); fmtSync(); };
+  fmtEl.addEventListener('pointerdown', ev => { if (!ev.target.closest('input,select')) ev.preventDefault(); });
+  fmtEl.onclick = ev => { const x = ev.target.closest('[data-pa],[data-pk]'); if (!x) return; ev.stopPropagation(); paraAct(x); };
   if (!fmtBar.bound) { fmtBar.bound = true; document.addEventListener('focusout', () => setTimeout(fmtSync, 50)); }
 };
 const touch = matchMedia('(pointer: coarse)').matches;
@@ -714,19 +804,50 @@ const fmtSync = () => {
   /* панель — только пока редактируешь: курсор в тексте и, на телефоне, открыта клавиатура */
   const on = !!(ln && ed && ed.contains(ln) && A.view === 'edit');
   if (on) A.line = ln;
-  fmtEl.hidden = !on; document.body.classList.toggle('typing', on);
+  const hasSel = !getSelection().isCollapsed && !!String(getSelection()).trim();
+  fmtEl.hidden = !on || hasSel; document.body.classList.toggle('typing', on); noteDock(); selBarText();
   const dock = document.getElementById('eDock'); if (dock) dock.classList.toggle('typing', on); pin();
   const cur = (A.line && A.line.isConnected) ? A.line.dataset.k : '';
-  fmtEl.querySelectorAll('[data-k]').forEach(x => x.classList.toggle('on', x.dataset.k === cur));
-  const sp = fmtEl.querySelector('[data-split]'); sp.hidden = !!document.querySelector('.sh-wrap') || !A.page || !A.page.blocks.length;
+  const KL = {p: 'Аа', h1: 'H1', h2: 'H2', h3: 'H3', h4: 'H4', meta: '@', li: 'Аа', btn: 'Аа', img: 'Аа'}; const pk = fmtEl.querySelector('.pt-k'); if (pk) pk.textContent = KL[cur] || 'Аа';
+  fmtEl.querySelectorAll('[data-pa]').forEach(x => x.classList.toggle('on', (x.dataset.pa === 'li' && cur === 'li') || (x.dataset.pa === 'img' && cur === 'img')));
+  if (!on) { const pp = fmtEl.querySelector('.pt-pop'); if (pp) pp.hidden = true; }
   placeFmt();
 };
 /* панель ролей — над строкой с курсором (под ней, если строка у самого верха); она часть текста и едет вместе с ним */
 const placeFmt = () => { if (!fmtEl || fmtEl.hidden || !A.line || !A.line.isConnected) return;
   const host = fmtEl.parentElement, M = document.getElementById('eMain'); if (!host || !M) return;
   const hr = host.getBoundingClientRect(), lr = A.line.getBoundingClientRect(), top = M.getBoundingClientRect().top + (parseFloat(getComputedStyle(M).paddingTop) || 0), h = fmtEl.offsetHeight || 52;
-  fmtEl.style.top = Math.round(lr.top - top < h + 12 ? lr.bottom - hr.top + 8 : lr.top - hr.top - h - 8) + 'px'; };
+  fmtEl.style.top = Math.round(lr.top - top < h + 12 || !A.line.previousElementSibling ? lr.bottom - hr.top + 8 : lr.top - hr.top - h - 8) + 'px'; };
 document.addEventListener('selectionchange', () => { const ln = curLine(), live = !!(ln && ln.closest('.ed') && document.activeElement && document.activeElement.contains(ln)); document.querySelectorAll('.ln.cur').forEach(x => (x !== ln || !live) && x.classList.remove('cur')); if (live) { A.line = ln; ln.classList.add('cur'); } fmtSync(); });
+
+
+let selTb = null;
+const selBarText = () => { if (touch) return; const sel = getSelection(), ln = curLine(), ed = ln && ln.closest('.ed');
+  if (!ed || sel.isCollapsed || A.mode !== 'note' || !String(sel).trim()) { if (selTb) { selTb.remove(); selTb = null; } return; }
+if (!selTb) { selTb = document.createElement('div'); selTb.className = 'stb one'; selTb.setAttribute('role', 'toolbar');
+    selTb.innerHTML = `<button data-st="link" title="Сделать ссылкой-кнопкой" aria-label="Ссылка">${sd('Link', I.out)}</button>`;
+    selTb.addEventListener('mousedown', ev => ev.preventDefault()); document.body.appendChild(selTb);
+    selTb.onclick = ev => { if (!ev.target.closest('[data-st]')) return; const sel0 = getSelection(); if (!sel0.rangeCount) return; const rg = sel0.getRangeAt(0).cloneRange(), l = A.line; selTb.remove(); selTb = null; linkSheet(l, rg); }; }
+  const r = sel.getRangeAt(0).getBoundingClientRect(); selTb.style.left = Math.max(12, Math.min(innerWidth - selTb.offsetWidth - 12, r.left + r.width / 2 - selTb.offsetWidth / 2)) + 'px'; selTb.style.top = Math.max(84, r.top - selTb.offsetHeight - 10) + 'px'; };
+document.addEventListener('selectionchange', () => { if (A.mode !== 'note') return; selBarText(); if (fmtEl) { const hs = !getSelection().isCollapsed && !!String(getSelection()).trim(); if (hs) fmtEl.hidden = true; } });
+
+/* ссылка на фрагменте: в Гриди ссылка — кнопка. Строка делится: текст до · [кнопка] фрагмент | адрес · текст после */
+const linkSheet = (ln, rg) => { const ed = ln && ln.closest('.ed'); if (!ed) return; const mid = rg.toString().trim();
+  const s = sheet(`<div class="sh-h"><div><h2>Ссылка</h2><p class="sub">«${e(mid.slice(0, 60))}» — подчёркнутый текст со ссылкой. Кнопка — это тип всего абзаца.</p></div><button class="ib" data-close aria-label="Закрыть">${I.x}</button></div>
+    <div class="sh-b"><label class="lbl" for="lUrl">Адрес</label><input class="in" id="lUrl" placeholder="https://" inputmode="url"></div>
+    <div class="sh-f"><button class="pill pri wide" id="lOk">Готово</button></div>`);
+  setTimeout(() => s.$('#lUrl').focus(), 50);
+  const go = () => { const u = s.$('#lUrl').value.trim(); if (!/^(https?:\/\/|www\.|\/|#|mailto:|tel:)/.test(u)) return toast('Адрес начинается с https://, www., / или #');
+    const a = document.createElement('a'); a.className = 'il'; a.dataset.u = u; try { a.appendChild(rg.extractContents()); rg.insertNode(a); } catch (err) { return toast('Выделите текст внутри одного абзаца'); }
+    sync(ed); s.close(true); toast('Ссылка добавлена'); };
+  s.$('#lOk').onclick = go; s.$('#lUrl').onkeydown = ev => { if (ev.key === 'Enter') go(); }; };
+/* клик по ссылке в тексте — сменить или убрать */
+document.addEventListener('click', ev => { const a = ev.target.closest && ev.target.closest('.ed a.il'); if (!a) return; ev.preventDefault(); const ed = a.closest('.ed');
+  const s = sheet(`<div class="sh-h"><div><h2>Ссылка</h2><p class="sub">«${e(a.textContent.slice(0, 60))}»</p></div><button class="ib" data-close aria-label="Закрыть">${I.x}</button></div>
+    <div class="sh-b"><label class="lbl" for="lUrl2">Адрес</label><input class="in" id="lUrl2" value="${e(a.dataset.u || '')}"></div>
+    <div class="sh-f"><button class="pill ghost" id="lDel">Убрать ссылку</button><button class="pill pri wide" id="lOk2">Готово</button></div>`);
+  s.$('#lOk2').onclick = () => { a.dataset.u = s.$('#lUrl2').value.trim(); sync(ed); s.close(true); };
+  s.$('#lDel').onclick = () => { a.replaceWith(document.createTextNode(a.textContent)); sync(ed); s.close(true); }; });
 
 /* разделить блок по текущей строке: эта строка и ниже — новый блок */
 const splitBlock = () => {
@@ -762,7 +883,7 @@ const sibling = (t, k) => { const c = t.ctor; if (c) { const key = o => JSON.str
   return {...t, items: {...t.items, n: k}, cols: Math.min(k, 4), _virtual: true}; };
 const rowsPlan = (b, t) => { if (!t || !t.items || !GRID.includes(t.layout)) return null; const n = G.src(b).items.length; return n > 4 ? G.rowsOf(n) : null; };
 /* один сломанный блок не должен ронять всю страницу: показываем заглушку и пишем в консоль */
-const blockHTML = (b, p, t = G.tpl(b.tpl), bare) => { try { return blockHTML0(b, p, t, bare); } catch (err) { console.error('Блок не отрисовался', b, err); return `<div class="wf-page"><section class="wf wf-none"><div class="wf-empty">Блок не отрисовался: ${e(err.message)}</div></section></div>`; } };
+const blockHTML = (b, p, t = G.tpl(b.tpl), bare) => { try { return pageRich(blockHTML0(b, p, t, bare), p); } catch (err) { console.error('Блок не отрисовался', b, err); return `<div class="wf-page"><section class="wf wf-none"><div class="wf-empty">Блок не отрисовался: ${e(err.message)}</div></section></div>`; } };
 const blockHTML0 = (b, p, t, bare) => {
   /* пустой блок — маска: пример роли в шаблоне, серым */
   if (!b.text.trim()) { const gb = G.ghostBlock(b, p), gt = t || (G.rank(gb, p)[0] || {}).t; return gt ? `<div class="wf-page wf-ghost">${G.wireBlock(gt, G.autoFill(gb, gt, p), {})}</div>` : `<div class="wf-page">${empty('Пустой блок', 'Добавьте текст — шаблон подберётся сам.')}</div>`; }
@@ -781,7 +902,7 @@ const blockHTML0 = (b, p, t, bare) => {
 /* 2в. Страница: тот же текст в шаблонах */
 const canvas = () => {
   const p = A.page, main = $app.querySelector('#eMain'), iss = report(p).byBlock;
-  main.innerHTML = `<div class="cv">${p.blocks.map((b, i) => `<div class="cb ${A.sel === b.id ? 'sel' : ''} ${iss[b.id] ? 'warn' : ''}" data-id="${e(b.id)}">${bn(b, i)}${blockHTML(b, p)}</div>${tipPlate(b, p)}`).join('')}${tipPlate(null, p)}${addChips()}</div>`;
+  main.innerHTML = `<div class="cv">${p.blocks.map((b, i) => `<div class="cb ${A.sel === b.id ? 'sel' : ''} ${iss[b.id] ? 'warn' : ''} ${iss[b.id] && noteLv(b, p) === 'stop' ? 'lv-stop' : ''}${lookCls(b, p)}" data-id="${e(b.id)}" ${lookAttr(b, p)}>${bn(b, i)}${blockHTML(b, p)}</div>${tipPlate(b, p)}`).join('')}${tipPlate(null, p)}${addChips()}</div>`;
   main.querySelectorAll('.cb').forEach(x => x.onclick = ev => { ev.stopPropagation(); if (A.sel) { unselect(); return; } select(x.dataset.id); });
   /* клик мимо блока снимает выбор */
   main.onclick = ev => { if (A.sel && !ev.target.closest('.cb,.add,.sel-float')) unselect(); };
@@ -806,7 +927,7 @@ const placeSel = () => { if (!selEl || !selEl.isConnected || !A.sel) return; con
   let y = r.bottom + g + h <= v.bottom ? r.bottom + g : r.top - g - h >= v.top ? r.top - g - h : Math.min(Math.max(v.bottom - h, r.top + g), r.bottom - h - g);
   y = Math.max(v.top, Math.min(y, v.bottom - h));
   selEl.style.top = Math.round(y - host.top) + 'px'; };
-const unselect = () => { A.sel = null; if (selEl) { selEl.remove(); selEl = null; } document.body.classList.remove('picking'); const ea = $app.querySelector('#eAct'); if (ea) ea.innerHTML = ''; $app.querySelectorAll('.cb.sel,.nb.sel').forEach(x => x.classList.remove('sel')); if (cat) { const h = cat; cat = null; h.close(true); } if (A.view === 'edit' && A.page && A.page.blocks.length) island(); };
+const unselect = () => { A.sel = null; $app.querySelectorAll('.nvb').forEach(x => x.remove()); $app.querySelectorAll('.nv-tag').forEach(x => { x.classList.remove('nv-tag'); x.onclick = null; x.querySelectorAll('.nv-warn').forEach(y => y.remove()); }); if (selEl) { selEl.remove(); selEl = null; } document.body.classList.remove('picking'); const ea = $app.querySelector('#eAct'); if (ea) ea.innerHTML = ''; $app.querySelectorAll('.cb.sel,.nb.sel').forEach(x => x.classList.remove('sel')); if (cat) { const h = cat; cat = null; h.close(true); } if (A.view === 'edit' && A.page && A.page.blocks.length) island(); };
 const redrawBlock = b => { if (A.mode === 'note') { const id = A.sel; notes(); if (id) select(id); const bd = $app.querySelector('#eOut .badge'), r = report(A.page); if (bd) { bd.textContent = r.count; bd.hidden = !r.count; bd.className = 'badge ' + r.grade.level; } return; } const el = $app.querySelector(`.cb[data-id="${b.id}"]`); if (!el) return; const r = report(A.page);
   el.innerHTML = bn(b, A.page.blocks.indexOf(b)) + blockHTML(b, A.page); el.classList.toggle('warn', !!r.byBlock[b.id]);
   const nx = el.nextElementSibling; if (nx && nx.classList.contains('tips')) nx.remove(); el.insertAdjacentHTML('afterend', tipPlate(b, A.page)); bindTips(el.parentElement);
@@ -844,8 +965,10 @@ const runPrompt = async (b, id) => { const p = A.page, P = G.prompt(id); let val
 /* панель выделенного блока — иконки в общей плашке с переключателем.
    Везде: ИИ, выше, ниже, «Ещё» (добавить сверху, снизу, удалить). Текст — роль; Шаблоны — каталог и картинки, если они есть в шаблоне. */
 const selBar = () => {
+  if (A.mode === 'page') return blkBar();
+  if (A.mode === 'note') return noteDock();
   const p = A.page, b = p.blocks.find(x => x.id === A.sel), dock = $app.querySelector('#eAct'); if (!b || !dock) return;
-  document.body.classList.add('has-sel');
+  document.body.classList.add('has-sel'); dock.closest('.bar') && dock.closest('.bar').classList.remove('solo');
   const i = p.blocks.indexOf(b), slots = G.imageSlots(b, p), icons = iconSlots(b), T = A.mode === 'note', hot = G.fixNotes(b, p).length;
   const acts = [...(T ? [['role', I.tag, 'Роль']] : [['cat', sd('CardstackHoriz', I.grid), 'Шаблон'], ...(slots.length ? [['img', I.img, 'Картинки']] : icons.length ? [['img', sd('StarCircle', I.icons), 'Иконки']] : [])]),
     ['up', I.up, 'Выше', !i], ['down', I.down, 'Ниже', i >= p.blocks.length - 1], ['more', I.dots, 'Ещё']];
@@ -863,6 +986,213 @@ const selBar = () => {
       A.sel = b.id; document.body.classList.add('picking'); $app.querySelectorAll(BK()).forEach(x => x.classList.toggle('sel', x.dataset.id === b.id)); selBar(); }
   };
 };
+
+/* ===== свойства: Шаблоны, Картинки, Анимации, Цвет. Выделен блок — сверху «блок / вся страница», как у ИИ ===== */
+const PAL = {"steps":["50","100","150","200","250","300","400","500","600","700","800","850","900","950","1000"],"hues":["gray","coolGray","warmGray","red","orange","amber","gold","sunny","spring","herbal","green","malachite","arctic","skyBlue","blue","electricBlue","orchid","fuchsia","pink"],"c":{"gray":["#F9F9F9","#F5F5F5","#ECECEC","#DDDDDD","#C7C7C7","#B3B3B3","#949494","#858585","#7A7A7A","#707070","#4E4E4E","#363636","#262626","#171717","#080808"],"coolGray":["#F7F9FB","#F2F5F8","#E8EEF2","#D5DFE6","#C0CBD3","#ADB9C2","#8A959D","#7B868E","#707C84","#657179","#485056","#30373C","#23292D","#13181B","#060A0C"],"warmGray":["#F7F8FB","#F4F5FB","#ECEDF4","#D8DCE8","#C4C7D4","#AEB2C2","#9194A1","#828592","#777A88","#6C707F","#4B4C58","#32353E","#25262D","#16181D","#07080B"],"red":["#FFFFFF","#FFF5F6","#FFE0E3","#FECDD2","#FEB3BB","#FF8F9A","#FF3D51","#FF293E","#F31B31","#E31227","#9C1422","#6B1019","#4A0D13","#2E090D","#120809"],"orange":["#FFFFFF","#FFF5F0","#FEE2D2","#FFD1B8","#FFB38A","#FD9C68","#FF7024","#FA5F05","#E85702","#D14D00","#85380C","#5C2709","#3D1D0A","#291205","#100904"],"amber":["#FFFFFF","#FFF6E5","#FFE4AE","#FFD37A","#F7BA40","#F3A912","#CC8800","#BB7F07","#AF7604","#A16B00","#694907","#493203","#332200","#211807","#0F0A01"],"gold":["#FFFFFF","#FFF7D6","#FFE88A","#FFD83D","#F0C105","#DCB104","#B79201","#A68503","#997B06","#8F7200","#5E4D08","#403507","#2B2408","#1F1903","#0D0B03"],"sunny":["#FFFFFF","#FDFBC9","#F9EE2F","#EBDF00","#DBD000","#C3B904","#A29A07","#918A0D","#847E0B","#7B7609","#55510C","#39370F","#28260B","#1C1B03","#0C0B04"],"spring":["#FFFFFF","#EEFCD4","#C5FC5F","#A8F31B","#93E006","#83C804","#6FA706","#629405","#588604","#567D0C","#3C570A","#2B3C0B","#1E290A","#151C08","#080A05"],"herbal":["#FFFFFF","#E0FFE0","#94FF94","#69F769","#3CE73C","#17D317","#15B015","#0C9C0C","#0B8C0B","#108210","#055C05","#084008","#082B08","#071F07","#050A05"],"green":["#FFFFFF","#E0FFE9","#9EFAAF","#77F38E","#45E362","#28D247","#24B23E","#1A9E32","#108E26","#0D8523","#095C18","#0A4014","#0A2B10","#071F0C","#050A06"],"malachite":["#FFFFFF","#E6FCFC","#88F9FB","#18EFF2","#00DDE0","#04C6C9","#0DA8AB","#0C9597","#0C8688","#007D80","#0C585A","#0A3D3D","#0D2A2B","#0A1C1C","#040A0A"],"arctic":["#FFFFFF","#DBFFF5","#8DFBDC","#52F2C5","#3FE0B1","#14CC98","#00AC7B","#05996F","#0A8A66","#197D61","#0E5944","#093E2F","#072B21","#041F17","#040A08"],"skyBlue":["#FFFFFF","#E8FAFF","#B8F0FF","#8AE6FF","#4AD6FC","#12C2F3","#00A4D1","#0492B9","#0382A6","#007899","#04566C","#073C4B","#052933","#061B21","#020B0D"],"blue":["#FFFFFF","#EDF8FF","#CFECFF","#B0DFFF","#85CEFF","#52BAFF","#199AF0","#118CDF","#0B7ECB","#0C72B6","#0D5382","#0D3B59","#0C283B","#0A1924","#030A0E"],"electricBlue":["#FFFFFF","#F2F7FF","#DEE9FF","#C7DAFF","#A9C7FE","#8BB2FC","#528EFF","#3F81FD","#2A72F8","#2969E3","#1549AB","#0C327A","#082254","#0A162B","#010712"],"orchid":["#FFFFFF","#FBF5FF","#F4E3FF","#EAD0FB","#DEB7F7","#D39CF7","#C46BFF","#B559F3","#AD42F5","#A139E5","#722BA1","#501A74","#36154C","#200F2B","#0B080D"],"fuchsia":["#FFFFFF","#FFF2FD","#FDE3F8","#F9CDF2","#F7B0EB","#F391E2","#F155D7","#E833CA","#D62BBA","#C427AA","#8A2178","#5E1A53","#450E3C","#290923","#0D050B"],"pink":["#FFFFFF","#FFF5F9","#FFE0ED","#FFCCE0","#FFADCE","#FF8FBC","#FF4791","#FF1F78","#F00563","#DB0D60","#9B0D46","#6C0931","#4B0B25","#2B0A17","#0D080A"]}};
+const PAL_LBL = {gray: 'Серый', coolGray: 'Холодный серый', warmGray: 'Тёплый серый', red: 'Красный', orange: 'Оранжевый', amber: 'Янтарный', gold: 'Золотой', sunny: 'Солнечный', spring: 'Весенний', herbal: 'Травяной', green: 'Зелёный', malachite: 'Малахит', arctic: 'Арктика', skyBlue: 'Небесный', blue: 'Синий', electricBlue: 'Электрик', orchid: 'Орхидея', fuchsia: 'Фуксия', pink: 'Розовый'};
+/* цвет — токен палитры: оттенок + шаг. Шаги — не каждые 50, а через заметную разницу по контрасту.
+   Тёмный фон (от 700) — текст светлый того же оттенка, и наоборот */
+const TONE = ['50', '150', '250', '400', '600', '800', '900', '1000'];
+const animOf = v => v === true ? {type: 'fade', trig: 'scroll'} : v && typeof v === 'object' ? v : null;
+const lookOf = (b, p) => { const pl = (p && p.look) || {}, bl = (b && b.look) || {};
+  const a = animOf(bl.anim) || animOf(pl.anim) || {type: 'none'}; return {bg: bl.bg || pl.bg || null, anim: {type: a.type, trig: 'scroll'}}; };
+const tones = bg => { if (!bg) return null; const c = PAL.c[bg.hue]; if (!c) return null; const k = PAL.steps.indexOf(bg.step); if (k < 0) return null; const dark = k >= 9;
+  return {bg: c[k], ink: dark ? c[0] : c[13], mute: dark ? c[4] : c[10], fill: dark ? c[k >= 12 ? k - 2 : k + 2] : c[k <= 3 ? k + 3 : k - 3], dark}; };
+const lookAttr = (b, p) => { const l = lookOf(b, p), t = tones(l.bg); return `${t ? `style="--lk-bg:${t.bg};--lk-ink:${t.ink};--lk-mute:${t.mute};--lk-fill:${t.fill}"` : ''} ${l.anim.type !== 'none' ? `data-anim="${l.anim.type}" data-trig="${l.anim.trig}"` : ''}`; };
+const lookCls = (b, p) => tones(lookOf(b, p).bg) ? ' lk' : '';
+/* анимируются элементы блока, фон стоит на месте; медленнее и раньше — пока блок в середине экрана */
+const ANI_EL = '.wf>*,.wf-items>*';
+const LOOK_CSS = `.lk.blk{box-shadow:0 0 0 100vmax var(--lk-bg);clip-path:inset(-1px -100vmax);background:var(--lk-bg)}
+.lk .wf,.lk.blk .wf{border-bottom:0!important}.lk.blk+.blk,.blk+.lk.blk{border-top:0!important}
+.lk .wf-btn,.lk .wf-btn:first-child{background:var(--lk-ink)!important;color:var(--lk-bg)!important;box-shadow:none!important}.lk .wf-btn+.wf-btn{background:transparent!important;color:var(--lk-ink)!important;box-shadow:inset 0 0 0 1.5px var(--lk-ink)!important}
+.lk .wf-page,.lk.wf-page{background:var(--lk-bg)!important;--wf-ink:var(--lk-ink);--wf-mute:var(--lk-mute);--wf-fill:var(--lk-fill);--wf-acc:var(--lk-ink);--wf-line:color-mix(in srgb,var(--lk-ink) 18%,transparent)}
+.lk .wf-btn{color:var(--lk-bg)!important}.lk .wf-btn+.wf-btn{color:var(--lk-ink)!important}.lk .wf-bg-text{background:linear-gradient(transparent,color-mix(in srgb,var(--lk-bg) 95%,transparent) 30%)}
+@keyframes lk-fade{from{opacity:0}}@keyframes lk-up{from{opacity:0;transform:translateY(64px)}}@keyframes lk-zoom{from{opacity:0;transform:scale(.85)}}@keyframes lk-left{from{opacity:0;transform:translateX(-80px)}}
+[data-trig=scroll] :is(${ANI_EL}){animation:lk-fade 2s cubic-bezier(.16,1,.3,1) both}
+[data-trig=scroll][data-anim=up] :is(${ANI_EL}){animation-name:lk-up}[data-trig=scroll][data-anim=zoom] :is(${ANI_EL}){animation-name:lk-zoom}[data-trig=scroll][data-anim=left] :is(${ANI_EL}){animation-name:lk-left}
+@supports (animation-timeline:view()){[data-trig=scroll] :is(${ANI_EL}){animation-duration:auto;animation-timing-function:cubic-bezier(.16,1,.3,1);animation-timeline:view();animation-range:entry 0% cover 65%}}
+[data-trig=hover] :is(${ANI_EL}){transition:transform .5s cubic-bezier(.2,.7,.2,1),opacity .5s}
+[data-trig=hover][data-anim=fade]:hover :is(${ANI_EL}){opacity:.75}[data-trig=hover][data-anim=up]:hover :is(${ANI_EL}){transform:translateY(-8px)}[data-trig=hover][data-anim=left]:hover :is(${ANI_EL}){transform:translateX(8px)}[data-trig=hover][data-anim=zoom]:hover :is(${ANI_EL}){transform:scale(1.04)}
+@media (prefers-reduced-motion:reduce){[data-anim] *{animation:none!important;transition:none!important}}`;
+(() => { const st = document.createElement('style'); st.textContent = LOOK_CSS; document.head.appendChild(st); })();
+const ANIMS = [['none', 'Без анимации'], ['fade', 'Появление'], ['up', 'Снизу'], ['left', 'Слева'], ['zoom', 'Увеличение']];
+const PROPN = {img: 'Картинки', anim: 'Анимации', color: 'Цвет'};
+const propSheet = (k, scope) => {
+  const p = A.page, selB = (A.sel && p.blocks.find(x => x.id === A.sel)) || null; let b = scope === 'page' ? null : selB;
+  const s = sheet('', {cls: 'tall'});
+  const head = () => `<div class="sh-h"><div><h2>${PROPN[k]}</h2><p class="sub">${b ? `${p.blocks.indexOf(b) + 1}. ${e(roleName(b))}` : 'Вся страница'}</p></div><button class="ib" data-close aria-label="Закрыть">${I.x}</button></div>
+    <div class="sh-b">${selB ? `<div class="seg wide" id="pScope"><button data-v="page" class="${b ? '' : 'on'}">Вся страница</button><button data-v="block" class="${b ? 'on' : ''}">${p.blocks.indexOf(selB) + 1}. ${e(roleName(selB))}</button></div>` : ''}`;
+  const redraw = () => { A.mode === 'page' ? (canvas(), A.sel && select(A.sel)) : editor(); };
+  /* полоса шагов — как в univer.se: дискретные ячейки, выбранная в рамке */
+  const strip = (id, items, cur) => `<div class="stp" id="${id}" role="radiogroup">${items.map(([v, c, n]) => `<button role="radio" aria-checked="${v === cur}" aria-label="${e(n)}" title="${e(n)}" data-v="${e(v)}" style="background:${c}"></button>`).join('')}</div>`;
+  const draw = () => { let body = '';
+    if (k === 'img') { const rows = (b ? [b] : p.blocks).map(x => ({b: x, sl: G.imageSlots(x, p), ic: iconSlots(x), t: G.tpl(x.tpl)})).filter(r => r.sl.length || r.ic.length);
+      body = rows.length ? rows.map(r => `<p class="dvd"><span>${p.blocks.indexOf(r.b) + 1}. ${e(roleName(r.b))}</span><i>${e(r.t ? tplLabel(r.t).name : '')}</i></p><div class="list">${
+          r.sl.map(o => `<label class="row pimg" title="${o.data ? 'Заменить картинку' : 'Загрузить картинку'}"><input type="file" accept="image/*" hidden data-upb="${e(r.b.id)}" data-key="${e(o.key)}"><span class="pimg-t">${o.data ? `<img src="${o.data}" alt="">` : `<i style="aspect-ratio:${o.ratio.replace(':', '/')}"></i>`}</span><span><b>${o.n ? 'Картинка ' + o.n : 'Картинка'} · ${e(o.ratio)}</b><small>${e(o.alt || '')}</small></span><em class="pimg-a">${o.data ? 'Заменить' : 'Загрузить'}</em></label>`).join('')
+          + r.ic.map(o => { const f = G.iconFor(r.b, o.key); return `<button class="row pimg" data-icb="${e(r.b.id)}" data-ick="${e(o.key)}"><span class="pimg-t ic">${f ? f.ic.svg : sd('StarCircle', I.icons)}</span><span><b>${o.n ? 'Иконка ' + o.n : 'Иконка'}</b><small>${e((o.title || '').slice(0, 60))}${f && f.auto ? ' · подобрана' : ''}</small></span><em class="pimg-a">Сменить</em></button>`; }).join('')}</div>`).join('')
+        : empty(b ? 'В шаблоне этого блока нет картинок и иконок' : 'На странице нет картинок и иконок', b ? 'Выберите шаблон с картинкой.' : ''); }
+    if (k === 'anim') { const own = b ? animOf(b.look && b.look.anim) : animOf(p.look && p.look.anim), a = own || lookOf(b, p).anim;
+      body = `<p class="lbl">Анимация</p>${`<div class="opts" id="aType">${ANIMS.map(([v, n]) => `<button class="${a.type === v ? 'on' : ''}" data-v="${v}">${n}</button>`).join('')}</div>`}
+        <p class="hint">Элементы блока появляются при прокрутке, фон остаётся на месте. Видно в превью.${b && !own ? ' Сейчас — как у страницы.' : ''}</p>
+        <div class="es-a">${b ? `<button class="pill sm" id="aOff" ${own ? '' : 'disabled'}>Как у страницы</button>` : '<button class="pill sm" id="aAll">Сбросить у всех</button>'}</div>`; }
+    if (k === 'color') { const own = b ? b.look && b.look.bg : p.look && p.look.bg, l = own || lookOf(b, p).bg, hue = l ? l.hue : null, step = l ? l.step : null;
+      body = `<p class="lbl">Цвет · ${hue ? PAL_LBL[hue] : 'нет'}</p>${strip('cHue', PAL.hues.map(h => [h, PAL.c[h][8], PAL_LBL[h]]), hue)}
+        <p class="lbl">Тон${step ? ' · токен ' + step : ''}</p>${strip('cStep', TONE.map(st => [st, PAL.c[hue || 'gray'][PAL.steps.indexOf(st)], 'токен ' + st]), step)}
+        <p class="hint">Цвета — токены палитры. На тёмном тоне текст становится светлым, на светлом — тёмным.${b && !own ? ' Сейчас — как у страницы.' : ''}</p>
+        <div class="es-a">${b ? `<button class="pill sm" id="cOff" ${own ? '' : 'disabled'}>Как у страницы</button>` : '<button class="pill sm" id="cAll">Сбросить у всех</button>'}</div>`; }
+    s.set(head() + body + '</div>');
+    s.$$('#pScope button').forEach(x => x.onclick = () => { b = x.dataset.v === 'block' ? selB : null; draw(); });
+    s.$$('[data-icb]').forEach(x => x.onclick = () => { const bb = p.blocks.find(y => y.id === x.dataset.icb); pickIcon(bb, x.dataset.ick, () => draw()); });
+    s.$$('[data-upb]').forEach(x => x.onchange = async () => { const f = x.files[0]; if (!f) return; if (f.size > 25e6) return toast('Картинка больше 25 МБ — выберите поменьше.');
+      const bb = p.blocks.find(y => y.id === x.dataset.upb), o = G.imageSlots(bb, p).find(y => y.key === x.dataset.key); if (!o) return;
+      try { const r = await webImage(f, o.ratio, o.size, o.kind); bb.images = bb.images || {}; bb.images[o.key] = {...(bb.images[o.key] || {}), data: r.data}; save(); redrawBlock(bb); draw();
+        toast(`Картинка ${r.w}×${r.h}${r.cropped ? ' — обрезана под ' + o.ratio : ''}`); } catch (err) { toast('Не удалось открыть картинку: ' + err.message); } });
+    const tgt = () => b || p, setLook = (key, v) => { const o = tgt(); o.look = {...(o.look || {}), [key]: v}; save(); redraw(); draw(); };
+    s.$$('#aType button').forEach(x => x.onclick = () => { const cur = animOf(tgt().look && tgt().look.anim) || lookOf(b, p).anim; setLook('anim', {type: x.dataset.v, trig: 'scroll'}); });
+    const aO = s.$('#aOff'); if (aO) aO.onclick = () => setLook('anim', null);
+    const aA = s.$('#aAll'); if (aA) aA.onclick = () => { p.blocks.forEach(x => { if (x.look) x.look.anim = null; }); setLook('anim', null); toast('Анимации сброшены у всех блоков'); };
+    s.$$('#cHue button').forEach(x => x.onclick = () => { const cur = (tgt().look && tgt().look.bg) || lookOf(b, p).bg; setLook('bg', {hue: x.dataset.v, step: cur ? cur.step : '150'}); });
+    s.$$('#cStep button').forEach(x => x.onclick = () => { const cur = (tgt().look && tgt().look.bg) || lookOf(b, p).bg; setLook('bg', {hue: cur ? cur.hue : 'gray', step: x.dataset.v}); });
+    const cO = s.$('#cOff'); if (cO) cO.onclick = () => setLook('bg', null);
+    const cA = s.$('#cAll'); if (cA) cA.onclick = () => { p.blocks.forEach(x => { if (x.look) x.look.bg = null; }); setLook('bg', null); toast('Цвет сброшен у всех блоков'); };
+  };
+  draw(); };
+
+
+/* ===== Текст: док по месту курсора; тип строки, кнопка, картинка, разделить. Разметка та же — G.lineKind ===== */
+const TKINDS = () => { const b = A.line && A.line.isConnected && blockOf(A.line.closest('.ed')); return [['p', 'Текст', 'Аа'], ...(b && b.role === 'hero' ? [['h1', 'Заголовок H1', 'H1']] : []), ['h2', 'Заголовок H2', 'H2'], ['h3', 'Заголовок H3', 'H3'], ['btn', 'Кнопка: «Текст | ссылка»', '▸']]; };
+const lineOn = () => !!(A.line && A.line.isConnected && document.activeElement && document.activeElement.closest && document.activeElement.closest('.ed'));
+const NDOCK_PAGE = [['ai', 'ИИ', () => sd('Ai', I.ai)], ['add', 'Добавить блок', () => sd('Plus', I.plus)], ['sc', 'Сценарий', () => I.tune]];
+const NDOCK_LINE = [['ai', 'ИИ', () => sd('Ai', I.ai)], ['type', 'Тип', () => sd('Text', I.note)], ['btn', 'Кнопка', () => sd('Link', I.out)], ['img', 'Картинка', () => sd('Picture', I.img)], ['split', 'Разделить', () => I.cut]];
+const noteDock = () => { const dock = $app.querySelector('#eDockMain'); if (!dock || A.mode !== 'note') return; dock.innerHTML = ''; dock.dataset.ndk = ''; return; if (!dock.querySelector('.nvd')) dock.dataset.ndk = '';
+  const on = false, items = NDOCK_PAGE, key = 'page';
+  if (dock.dataset.ndk !== key) { dock.dataset.ndk = key;
+    dock.innerHTML = `<nav class="nvd" aria-label="${on ? 'Строка' : 'Страница'}">${items.map(([k, n, ic]) => `<button data-nd="${k}" class="${k === 'ai' ? 'ai' : ''}" title="${n}">${ic()}<span>${n}</span></button>`).join('')}</nav>`;
+    dock.querySelectorAll('[data-nd]').forEach(x => x.onmousedown = ev => ev.preventDefault());
+    dock.onclick = ev => { const x = ev.target.closest('[data-nd]'); if (!x) return; ev.stopPropagation(); noteAct(x.dataset.nd); }; }
+  const cur = on ? A.line.dataset.k : ''; dock.querySelectorAll('[data-nd]').forEach(x => x.classList.toggle('on', (x.dataset.nd === 'btn' && cur === 'btn') || (x.dataset.nd === 'img' && cur === 'img'))); };
+const blockAt = () => A.line && A.line.isConnected ? blockOf(A.line.closest('.ed')) : null;
+const noteAct = k => { const ln = A.line && A.line.isConnected ? A.line : null, ed = ln && ln.closest('.ed'), b = blockAt();
+  if (k === 'ai') { const keep = A.sel; A.sel = b ? b.id : null; aiSheet(); A.sel = keep; return; }
+  if (k === 'add') return addSheet(A.page.blocks.length);
+  if (k === 'sc') return pageSettings();
+  if (!ln) return;
+  if (k === 'type') return typeMenu(ln);
+  if (k === 'split') return splitBlock();
+  if (k === 'img') { if (ln.dataset.k === 'img') setKind(ln, 'p'); else if (!ln.textContent.trim()) setKind(ln, 'img'); else { const nl = mkLine('img', ''); ln.after(nl); caretTo(nl, 0); A.line = nl; } sync(ed); noteDock(); return; }
+  if (k === 'btn') return btnSheet(ln); };
+/* тип строки — меню над доком; та же разметка, что и раньше */
+const typeMenu = ln => { const ed = ln.closest('.ed'), cur = ln.dataset.k;
+  const s = sheet(`<div class="sh-h"><h2>Тип строки</h2><button class="ib" data-close aria-label="Закрыть">${I.x}</button></div>
+    <div class="sh-b"><div class="list">${TKINDS().map(([k, n, g]) => `<button class="row tk ${cur === k ? 'on' : ''}" data-tk="${k}"><i class="tk-g">${g}</i><b>${n}</b>${cur === k ? I.check : ''}</button>`).join('')}</div>
+    <p class="hint">Быстрее с клавиатуры: «## » — H2, «### » — H3, «- » — пункт, «@ » — данные, «---» — разделить блок.</p></div>`);
+  s.$$('[data-tk]').forEach(x => x.onclick = () => { setKind(ln, x.dataset.tk); sync(ed); s.close(true); caretTo(ln, ln.textContent.length); noteDock(); }); };
+/* кнопка: текст строки + адрес; в разметке — «[кнопка] Текст | адрес» */
+const btnSheet = ln => { const ed = ln.closest('.ed'), was = ln.dataset.k === 'btn', sp = G.splitBtn(ln.textContent.trim());
+  const s = sheet(`<div class="sh-h"><h2>Кнопка</h2><button class="ib" data-close aria-label="Закрыть">${I.x}</button></div>
+    <div class="sh-b"><label class="lbl" for="bTx">Текст кнопки</label><input class="in" id="bTx" value="${e(sp.txt)}">
+    <label class="lbl" for="bUrl">Ссылка</label><input class="in" id="bUrl" value="${e(sp.url)}" placeholder="https://" inputmode="url">
+    <p class="hint">Ссылки в Гриди — это кнопки: на странице они встанут в кнопку шаблона.</p></div>
+    <div class="sh-f">${was ? '<button class="pill ghost" id="bOff">Сделать текстом</button>' : ''}<button class="pill pri wide" id="bOk">Готово</button></div>`);
+  s.$('#bOk').onclick = () => { const t = s.$('#bTx').value.trim(), u = s.$('#bUrl').value.trim(); if (!t) return toast('Напишите текст кнопки');
+    setKind(ln, 'btn'); ln.textContent = u ? `${t} | ${u}` : t; sync(ed); s.close(true); noteDock(); };
+  const off = s.$('#bOff'); if (off) off.onclick = () => { setKind(ln, 'p'); ln.textContent = sp.txt; sync(ed); s.close(true); noteDock(); }; };
+/* добавить: роль блока или компонент — таблица, аккордеон. Разметка: таблица — строки «a | b», аккордеон — блок роли «Вопросы» */
+const addSheet = at => { const p = A.page, roles = roleList().filter(r => r.id !== 'hero' || !p.blocks.some(b => b.role === 'hero')), faq = roles.find(r => r.id === 'faq');
+  const s = sheet(`<div class="sh-h"><h2>Добавить блок</h2><button class="ib" data-close aria-label="Закрыть">${I.x}</button></div>
+    <div class="sh-b"><p class="lbl">Компоненты</p><div class="list">
+      <button class="row" data-ad="table"><b>Таблица</b><small>Строки и столбцы — на сайте компонент таблицы</small></button>
+      ${faq ? '<button class="row" data-ad="faq"><b>Аккордеон</b><small>Вопросы и ответы, раскрываются по нажатию</small></button>' : ''}
+      <button class="row" data-ad="img"><b>Картинка</b><small>Слот под картинку с подписью</small></button></div>
+      <p class="lbl">По смыслу</p><div class="chips">${roles.map(r => `<button class="chip" data-ar="${e(r.id)}">${I.plus}${e(r.name.split(':')[0])}</button>`).join('')}</div></div>`);
+  const put = (role, text) => { const nb = G.newBlock(role, text); p.blocks.splice(at, 0, nb); save(); s.close(true); A.jump = nb.id; editor();
+    const ned = $app.querySelector(`.ed[data-id="${nb.id}"]`); if (ned) caretTo(ned.firstElementChild, 0); };
+  s.$$('[data-ar]').forEach(x => x.onclick = () => put(x.dataset.ar, ''));
+  s.$$('[data-ad]').forEach(x => x.onclick = () => { const k = x.dataset.ad;
+    if (k === 'table') return put(defRole(), '[h2] Таблица\nСтолбец 1 | Столбец 2 | Столбец 3\nЗначение | Значение | Значение\nЗначение | Значение | Значение');
+    if (k === 'faq') return put('faq', '[h2] Частые вопросы\n- Вопрос — ответ\n- Вопрос — ответ');
+    if (k === 'img') return put(defRole(), '[картинка] Подпись к картинке'); }); };
+
+
+/* ===== тулбар абзаца: всё, кроме ссылки, действует на абзац целиком. Разметка — та же ===== */
+const paraAct = x => { const ln = A.line && A.line.isConnected ? A.line : null; if (!ln) return; const ed = ln.closest('.ed'), b = blockOf(ed), pop = fmtEl.querySelector('.pt-pop');
+  if (x.dataset.pk) { const k = x.dataset.pk; pop.hidden = true;
+    if (k === 'meta') { setKind(ln, 'meta'); sync(ed); return metaSheet(ln); }
+    setKind(ln, k); sync(ed); caretTo(ln, ln.textContent.length); fmtSync(); return; }
+  const a = x.dataset.pa;
+  if (a === 'type') { if (!pop.hidden) { pop.hidden = true; return; } const cur = ln.dataset.k;
+    pop.innerHTML = TKINDS().map(([k, n, g]) => `<button data-pk="${k}" class="${cur === k ? 'on' : ''}"><i>${g}</i>${n}</button>`).join(''); pop.hidden = false; return; }
+  pop.hidden = true;
+  if (a === 'ai') return noteAct('ai');
+  if (a === 'li') { setKind(ln, ln.dataset.k === 'li' ? 'p' : 'li'); sync(ed); fmtSync(); return; }
+  if (a === 'img') { const nl = mkLine('img', ''); ln.after(nl); sync(ed); caretTo(nl, 0); A.line = nl; fmtSync(); return; }
+  if (a === 'table') { /* таблица — компонент на весь блок: отдельный блок сразу после текущего */
+    const p0 = A.page, nb = G.newBlock(b.role === 'hero' ? defRole() : b.role, 'Столбец 1 | Столбец 2 | Столбец 3\nЗначение | Значение | Значение\nЗначение | Значение | Значение');
+    p0.blocks.splice(p0.blocks.indexOf(b) + 1, 0, nb); save(); A.jump = nb.id; editor();
+    const ned = $app.querySelector(`.ed[data-id="${nb.id}"]`), first = ned && ned.firstElementChild; if (first) { ned.focus(); const rg = document.createRange(); rg.selectNodeContents(first); const sl = getSelection(); sl.removeAllRanges(); sl.addRange(rg); }
+    return toast('Таблица — отдельным блоком. Строка — ряд, « | » — граница столбцов'); }
+  if (a === 'split') return splitBlock();
+  if (a === 'add') return addSheet(A.page.blocks.indexOf(b) + 1);
+  if (a === 'more') return blockMenu(b.id); };
+
+/* метаданные «@»: чипы складываются в одну строку «@ 12 ноября · 15:00 · Онлайн» — разметка прежняя */
+const META = [['date', 'Дата', 'date'], ['time', 'Время', 'time'], ['format', 'Формат', ['Онлайн', 'Офлайн', 'Гибрид']], ['place', 'Место', 'text'], ['dur', 'Длительность', 'text'], ['price', 'Цена', 'text'], ['age', 'Возраст', ['0+', '6+', '12+', '16+', '18+']], ['cat', 'Категория', 'text'], ['author', 'Автор', 'text']];
+const MON = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+const metaAuto = () => { const p = A.page, sc0 = sc(), txt = p.blocks.map(x => x.text).join(' '), words = txt.split(/\s+/).filter(Boolean).length, d = new Date();
+  return [['kind', 'Тип страницы', sc0.name], ...(sc0.kind === 'article' ? [['read', 'Время чтения', Math.max(1, Math.round(words / 180)) + ' мин']] : []), ['pub', 'Дата публикации', `${d.getDate()} ${MON[d.getMonth()]} ${d.getFullYear()}`]]; };
+const metaSheet = ln => { const ed = ln.closest('.ed'); let chips = ln.textContent.split(' · ').map(x => x.trim()).filter(Boolean);
+  const s = sheet('', {cls: 'tall'});
+  const put = () => { setKind(ln, 'meta'); ln.textContent = chips.join(' · '); if (!chips.length) ln.innerHTML = '<br>'; sync(ed); };
+  const draw = (k) => { const f = META.find(m => m[0] === k);
+    s.set(`<div class="sh-h"><div><h2>Данные</h2><p class="sub">Встанут в шапку блока одной строкой</p></div><button class="ib" data-close aria-label="Закрыть">${I.x}</button></div>
+      <div class="sh-b"><div class="mchips">${chips.length ? chips.map((c, n) => `<span class="mchip">${e(c)}<button data-rm="${n}" aria-label="Убрать">${I.x}</button></span>`).join('') : '<span class="hint">Пока пусто</span>'}</div>
+      ${f ? `<label class="lbl" for="mV">${f[1]}</label>${Array.isArray(f[2]) ? `<div class="opts">${f[2].map(o => `<button data-mo="${e(o)}">${e(o)}</button>`).join('')}</div>` : `<div class="mrow"><input class="in" id="mV" type="${f[2]}" ${f[2] === 'text' ? `placeholder="${f[1]}"` : ''}><button class="pill pri" id="mAdd">Добавить</button></div>`}<button class="pill ghost sm" id="mBack">← Другие</button>`
+        : `<p class="lbl">Добавить</p><div class="opts">${META.map(([k2, n]) => `<button data-mk="${k2}">${n}</button>`).join('')}</div>
+           <p class="lbl">Подставить автоматически</p><div class="opts">${metaAuto().map(([k2, n, v]) => `<button data-ma="${e(v)}" class="auto" title="${e(n)}">${e(n)}: ${e(v)}</button>`).join('')}</div>`}
+      </div>`);
+    s.$$('[data-rm]').forEach(x => x.onclick = () => { chips.splice(+x.dataset.rm, 1); put(); draw(k); });
+    s.$$('[data-mk]').forEach(x => x.onclick = () => draw(x.dataset.mk));
+    s.$$('[data-ma]').forEach(x => x.onclick = () => { if (!chips.includes(x.dataset.ma)) chips.push(x.dataset.ma); put(); draw(); });
+    s.$$('[data-mo]').forEach(x => x.onclick = () => { chips.push(x.dataset.mo); put(); draw(); });
+    const mb = s.$('#mBack'); if (mb) mb.onclick = () => draw();
+    const ad = s.$('#mAdd'); if (ad) { const inp = s.$('#mV'); inp.focus();
+      const go = () => { let v = inp.value.trim(); if (!v) return; if (f[2] === 'date') { const [y, m, d0] = v.split('-').map(Number); v = `${d0} ${MON[m - 1]}${y !== new Date().getFullYear() ? ' ' + y : ''}`; } chips.push(v); put(); draw(); };
+      ad.onclick = go; inp.onkeydown = ev => { if (ev.key === 'Enter') go(); }; } };
+  draw(); };
+
+/* замечание к блоку — коротко и с действием */
+/* как в выгрузке: ошибки и правила Нави — красные, лимиты текста — оранжевые */
+const noteLv = (b, p) => { const R = report(p).rows; return R.stop.some(x => x.b === b) || R.rule.some(x => x.b === b) ? 'stop' : 'warn'; };
+const warnSheet = b => { const p = A.page, i = p.blocks.indexOf(b), note = blockNote(b, p), hero = b.role === 'hero' && i > 0;
+  const acts = [...(hero ? [['first', 'Поставить первым', true]] : []), ...(!hero && G.adaptable(b, G.prompt('fit'), p) && /не влез|длинн|символ|знак|лимит/i.test(note) ? [['fit', 'Уложить в шаблон', true]] : []), ['role', 'Сменить роль'], ['tpl', 'Выбрать шаблон']];
+  const s = sheet(`<div class="sh-h"><div><h2>${hero ? 'Первый экран не первым' : 'Замечание'}</h2><p class="sub">${i + 1}. ${e(roleName(b))}</p></div><button class="ib" data-close aria-label="Закрыть">${I.x}</button></div>
+    <div class="sh-b"><p class="warn-t">${hero ? 'Первый экран с H1 должен стоять в начале страницы. Поставьте его первым или смените роль блока.' : e(note)}</p>
+    <div class="es-a">${acts.map(([k, n, pri]) => `<button class="pill sm ${pri ? 'pri' : ''}" data-w="${k}">${n}</button>`).join('')}</div></div>`);
+  s.$$('[data-w]').forEach(x => x.onclick = () => { const k = x.dataset.w; s.close(true);
+    if (k === 'first') { p.blocks.splice(i, 1); p.blocks.unshift(b); save(); A.sel = b.id; A.jump = b.id; editor(); return toast('Первый экран — в начале страницы'); }
+    if (k === 'fit') return runPrompt(b, 'fit');
+    if (k === 'role') return roleSheet(b);
+    if (k === 'tpl') return catalog(); }); };
+
+/* бар на блоке (Шаблоны): ↑ ↓ ＋ ⋯; тип и замечание — в плашке блока слева */
+const blkBar = () => { const p = A.page, b = p.blocks.find(x => x.id === A.sel); island(); $app.querySelectorAll('.nvb').forEach(x => x.remove()); if (!b) return;
+  const el = $app.querySelector(`.cb[data-id="${b.id}"]`); if (!el) return; const i = p.blocks.indexOf(b);
+  const bar = document.createElement('div'); bar.className = 'nvb'; bar.setAttribute('role', 'toolbar'); bar.setAttribute('aria-label', `Блок ${i + 1}`);
+  bar.innerHTML = [['up', sd('ArrowUp', I.up), 'Выше', !i], ['down', sd('ArrowDown', I.down), 'Ниже', i >= p.blocks.length - 1], ['add', sd('Plus', I.plus), 'Добавить ниже'], ['more', sd('DotsHorizontal', I.dots), 'Ещё']]
+    .map(([k, ic, n, dis]) => `<button data-a="${k}" aria-label="${n}" title="${n}" ${dis ? 'disabled' : ''}>${ic}</button>`).join('');
+  el.appendChild(bar);
+  const tag = el.querySelector('.bn'); if (tag) { const cs = getComputedStyle(tag); bar.style.top = cs.top; bar.style.transform = cs.transform === 'none' ? '' : cs.transform; }
+  if (tag) { tag.classList.add('nv-tag'); tag.title = 'Сменить роль'; const nt = tag.querySelector('.bn-n');
+    tag.querySelectorAll('.nv-warn').forEach(x => x.remove());
+    if (nt) tag.insertAdjacentHTML('beforeend', `<i class="nv-warn ${noteLv(b, p) === 'stop' ? 'stop' : ''}" title="${e(nt.textContent)}" role="button" aria-label="Замечание к блоку">!</i>`);
+    tag.onclick = ev => { ev.stopPropagation(); if (ev.target.closest('.nv-warn')) return warnSheet(b); roleSheet(b); }; }
+  bar.onclick = ev => { const a = ev.target.closest('[data-a]'); if (!a) return; ev.stopPropagation(); const k = a.dataset.a;
+    if (k === 'more') return blockMenu(b.id);
+    if (k === 'add') { const nb = G.newBlock(defRole(), ''); p.blocks.splice(i + 1, 0, nb); save(); return toText(nb); }
+    const M = document.getElementById('eMain'), y0 = el.getBoundingClientRect().top, j = i + (k === 'up' ? -1 : 1);
+    p.blocks.splice(i, 1); p.blocks.splice(j, 0, b); save(); canvas();
+    const el1 = $app.querySelector(`.cb[data-id="${b.id}"]`); if (M && el1) M.scrollTop += el1.getBoundingClientRect().top - y0;
+    A.sel = b.id; document.body.classList.add('picking'); $app.querySelectorAll('.cb').forEach(x => x.classList.toggle('sel', x.dataset.id === b.id)); blkBar(); }; };
 /* ИИ: список улучшений блока — системные и свои промты; у каждого — что он сделает */
 /* ИИ — одно окно из переключателя. Мало действий: пересобрать страницу, свой запрос, уложить в шаблоны, свои промты.
    Если блок выделен — сверху выбор: вся страница или этот блок. Данные для запроса спрашиваются при запуске */
@@ -923,9 +1253,10 @@ const catalog = () => {
       <span class="tc-n">${e(l.name)}</span><span class="tc-v ${bad || !live ? 'bad' : ''} ${!tier && live ? 'ok' : ''}">${e(tag)}</span></button>`; };
   const list = () => tab === 'fit' ? ranked.filter(r => (r.tier || 0) <= 1) : ranked.filter(r => tplLabel(r.t).type === tab);
   const draw = () => { const L = list();
-    cat.set(`<div class="sh-h"><div><h2>Шаблон · ${i + 1}. ${e(roleName(b))}</h2><p class="sub">${ranked.length} шаблонов</p></div><button class="ib round ok" data-close aria-label="Готово">${I.check}</button></div>
+    cat.set(`<div class="sh-h"><div><h2>Шаблон · ${i + 1}. ${e(roleName(b))}</h2><p class="sub">${ranked.length} шаблонов${b.tplLock ? ' · выбран вручную' : ''}</p></div>${b.tplLock ? '<button class="pill sm" id="catReset">Сбросить выбор</button>' : ''}<button class="ib round ok" data-close aria-label="Готово">${I.check}</button></div>
       <div class="cat-tabs">${[['fit', 'Подходящие', ranked.filter(r => (r.tier || 0) <= 1).length], ...types.map(t => [t, t, ranked.filter(r => tplLabel(r.t).type === t).length])].map(([k, n, c]) => `<button class="chip ${k === tab ? 'on' : ''}" data-tab="${e(k)}">${e(n)} <i>${c}</i></button>`).join('')}</div>
       <div class="sh-b">${L.length ? `<div class="tgrid">${L.map(card).join('')}</div>` : !ranked.length ? empty('Шаблонов для этой роли нет', 'Попробуйте другую роль блока или добавьте шаблон в библиотеке.', [['role', 'Сменить роль', true]]) : empty('Подходящих шаблонов нет', 'Поменяйте текст блока или попробуйте другую роль. В категориях выше — все шаблоны и что в них придётся поменять.', [['text', 'Изменить текст', true], ['role', 'Сменить роль']])}</div>`);
+    const cr = cat.$('#catReset'); if (cr) cr.onclick = () => { b.tplLock = false; repick(b); save(); canvas(); select(b.id); draw(); toast('Шаблон подобран автоматически'); };
     requestAnimationFrame(() => { if (!cat) return; cat.$$('.tc-pv').forEach(x => x.style.setProperty('--k', x.clientWidth / 560)); }); };
   if (cat) cat.close(true);
   cat = sheet('', {cls: 'full cat', onClose: () => { cat = null; }});
@@ -934,7 +1265,7 @@ const catalog = () => {
     const tb = ev.target.closest('[data-tab]'), tp = ev.target.closest('[data-t]'), es = ev.target.closest('[data-es]');
     if (es) { const k = es.dataset.es; cat.close(); if (k === 'text') toText(b); if (k === 'role') roleSheet(b); return; }
     if (tb) { tab = tb.dataset.tab; draw(); cat.$('.sh-b').scrollTop = 0; }
-    if (tp) { b.tpl = tp.dataset.t; b.tplLock = true; b.values = null; save(); redrawBlock(b);
+    if (tp) { b.tpl = tp.dataset.t; b.tplLock = true; b.values = null; save(); redrawBlock(b); if (!cat.$('#catReset')) { const ok = cat.$('.sh-h [data-close]'); if (ok) { ok.insertAdjacentHTML('beforebegin', '<button class="pill sm" id="catReset">Сбросить выбор</button>'); cat.$('#catReset').onclick = () => { b.tplLock = false; repick(b); save(); redrawBlock(b); cat.$('#catReset').remove(); cat.$$('.tc').forEach(x => x.classList.toggle('on', x.dataset.t === b.tpl)); toast('Шаблон подобран автоматически'); }; } }
       cat.$$('.tc').forEach(x => { x.classList.toggle('on', x === tp); const o = x.querySelector('.tc-ok'); if (o) o.remove(); });
       tp.querySelector('.tc-pv').insertAdjacentHTML('beforeend', `<i class="tc-ok">${I.check}</i>`); }
   });
