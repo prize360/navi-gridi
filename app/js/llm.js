@@ -250,12 +250,12 @@ G.assemble = page => {
       if (b.role) return;
       const title = G.src(b).title, last = i === blocks.length - 1, btnOnly = G.src(b).cta.length && !G.src(b).items.length;
       let best = null, bs = 0;
-      for (const r of free()) { const sc0 = G.roleMatch(G.roleOf(sc, r), title); if (sc0 > bs) { bs = sc0; best = r; } }
+      for (const r of free()) { const rr = G.roleOf(sc, r); if (rr.repeat) continue; /* «Свободный блок» — запасной вариант, не по заголовку */ const sc0 = G.roleMatch(rr, title); if (sc0 > bs) { bs = sc0; best = r; } }
       /* блок, которого нет в сценарии (цифры на странице продукта), — общая роль, если заголовок прямо о ней */
       if (!best) for (const r of G.allRoles(sc).slice(sc.roles.length)) { if (used.has(r.id)) continue; const s1 = G.roleMatch(r, title); if (s1 >= 3 && s1 > bs) { bs = s1; best = r.id; } }
       if (!best && last && btnOnly && free().includes('cta')) best = 'cta';
       if (!best) best = free().find(r => r !== 'cta') || order[order.length - 1];
-      b.role = best; used.add(best);
+      b.role = best; if (!G.roleOf(sc, best).repeat) used.add(best); /* repeat-роль («Свободный блок») может стоять у нескольких блоков */
     });
     blocks.forEach(b => { const s0 = G.src(b); if (s0.table && !s0.items.length) { b.tpl = 'table'; b.tplLock = true; } });
   }

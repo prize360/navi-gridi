@@ -397,7 +397,7 @@ G.checks = page0 => {
     const order = sc.roles.map(r => r.id); let last = -1, broken = false;
     for (const b of page.blocks) { const i = order.indexOf(b.role); if (i >= 0) { if (i < last) broken = true; last = Math.max(last, i); } }
     if (broken) add('info', 'Порядок блоков отличается от сценария — так задумано?', null, {reorder: true});
-    const dup = {}; page.blocks.forEach(b => { if (!['hero', 'cta', 'subscribe'].includes(b.role)) dup[b.role] = (dup[b.role] || 0) + 1; });
+    const dup = {}; page.blocks.forEach(b => { if (!['hero', 'cta', 'subscribe'].includes(b.role) && !G.roleOf(sc, b.role).repeat) dup[b.role] = (dup[b.role] || 0) + 1; });
     for (const k in dup) if (dup[k] > 1) add('info', `Роль «${G.roleOf(sc, k).name}» встречается ${dup[k]} раза — так задумано?`);
   }
   let h1 = 0;

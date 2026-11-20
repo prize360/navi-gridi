@@ -112,7 +112,7 @@ G.roleId = id => (G.ROLE_ALIAS || {})[id] || id;
 G.roleOf = (sc, roleId) => { roleId = G.roleId(roleId); return (sc.roles || []).find(r => r.id === roleId) || sharedRole(sc, roleId) || SYS_ROLES[roleId] || {id: roleId, name: roleId, meaning: ''}; };
 /* все роли для выбора и для разбора: сначала роли сценария по порядку, потом остальные общие роли того же вида */
 G.allRoles = sc => { const own = sc.roles || [], ids = new Set(own.map(r => r.id));
-  return [...own, ...(G.ROLES || []).filter(r => r.kind === (sc.kind || 'landing') && !ids.has(r.id)).map(r => sharedRole(sc, r.id))]; };
+  return [...own, ...(G.ROLES || []).filter(r => r.kind === (sc.kind || 'landing') && !ids.has(r.id) && !r.repeat).map(r => sharedRole(sc, r.id))]; };
 
 /* ---------- хранение страниц: IndexedDB, запасной вариант — localStorage ---------- */
 const DB = {db: null, fallback: false};
